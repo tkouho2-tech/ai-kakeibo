@@ -29,13 +29,8 @@ def get_gspread_client():
     try:
         # 1. まずStreamlit Cloudの st.secrets から取得を試みる
         if "gcp_service_account" in st.secrets:
-            # st.secrets の内容を辞書型に変換
-            # 文字列で取得される可能性があるため json.loads を安全に使用する
-            secret_value = st.secrets["gcp_service_account"]
-            if isinstance(secret_value, str):
-                credentials_dict = json.loads(secret_value)
-            else:
-                credentials_dict = dict(secret_value)
+            # st.secrets の内容（文字列）を辞書型に変換
+            credentials_dict = json.loads(st.secrets["gcp_service_account"])
 
             from google.oauth2.service_account import Credentials
             
