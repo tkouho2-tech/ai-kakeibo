@@ -8,7 +8,6 @@ from datetime import datetime
 from dateutil.relativedelta import relativedelta
 
 # ---------- 構成設定 ----------
-CREDENTIALS_FILE = "credentials.json"
 SPREADSHEET_NAME = "Kakeibo_Data" # 実際のGoogleスプレッドシート名に合わせて変更してください
 WORKSHEET_NAME = "users"
 TRANSACTIONS_WORKSHEET_NAME = "transactions"
@@ -26,10 +25,29 @@ if 'current_month' not in st.session_state:
 # ---------- Google Sheets 接続 ----------
 @st.cache_resource
 def get_gspread_client():
-    if not os.path.exists(CREDENTIALS_FILE):
-        return None
     try:
-        return gspread.service_account(filename=CREDENTIALS_FILE)
+        # 1. まずStreamlit Cloudの st.secrets から取得を試みる
+        if "gcp_service_account" in st.secrets:
+            # st.secrets の内容を辞書型に変換
+            credentials_dict = dict(st.secrets["gcp_service_account"])
+            from google.oauth2.service_account import Credentials
+            
+            # gspreadが必要とするスコープを指定
+            scopes = [
+                'https://www.googleapis.com/auth/spreadsheets',
+                'https://www.googleapis.com/auth/drive'
+            ]
+            creds = Credentials.from_service_account_info(credentials_dict, scopes=scopes)
+            return gspread.authorize(creds)
+            
+        # 2. ローカル環境用のフォールバック (credentials.json)
+        elif os.path.exists("credentials.json"):
+            return gspread.service_account(filename="credentials.json")
+            
+        else:
+            st.error("Google APIの無効な環境設定: st.secrets も credentials.json も見つかりません。")
+            return None
+            
     except Exception as e:
         st.error(f"Google APIの認証エラーが発生しました: {e}")
         return None
@@ -37,7 +55,6 @@ def get_gspread_client():
 def get_sheet(worksheet_name):
     client = get_gspread_client()
     if client is None:
-        st.error(f"エラー: `{CREDENTIALS_FILE}` が見つかりません。プロジェクトルートに配置してください。")
         st.stop()
         
     try:
