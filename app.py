@@ -4,6 +4,7 @@ import plotly.express as px
 import gspread
 import bcrypt
 import os
+import json
 from datetime import datetime
 from dateutil.relativedelta import relativedelta
 
@@ -29,7 +30,13 @@ def get_gspread_client():
         # 1. まずStreamlit Cloudの st.secrets から取得を試みる
         if "gcp_service_account" in st.secrets:
             # st.secrets の内容を辞書型に変換
-            credentials_dict = dict(st.secrets["gcp_service_account"])
+            # 文字列で取得される可能性があるため json.loads を安全に使用する
+            secret_value = st.secrets["gcp_service_account"]
+            if isinstance(secret_value, str):
+                credentials_dict = json.loads(secret_value)
+            else:
+                credentials_dict = dict(secret_value)
+
             from google.oauth2.service_account import Credentials
             
             # gspreadが必要とするスコープを指定
