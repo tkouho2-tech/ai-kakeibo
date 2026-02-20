@@ -232,23 +232,19 @@ def show_dashboard():
             
             # 見た目を少し整える(フォーマット等)
             display_df = grouped_df.copy()
-            display_df.columns = ["カテゴリ (大分類)", "合計金額 (円)"]
+            # 金額を「￥1,234」の形式の文字列に変換
+            display_df["amount"] = display_df["amount"].apply(lambda x: f"￥{int(x):,}")
+            display_df.columns = ["カテゴリ (大分類)", "合計金額"]
             
             # 枠線付きのデータフレームを表示
             st.dataframe(
                 display_df,
                 use_container_width=True,
-                hide_index=True,
-                column_config={
-                    "合計金額 (円)": st.column_config.NumberColumn(
-                        "合計金額 (円)",
-                        format="%d ¥"
-                    )
-                }
+                hide_index=True
             )
             
             total_amount = grouped_df["amount"].sum()
-            st.metric("総支出額", f"{int(total_amount):,} 円")
+            st.metric("総支出額", f"￥{int(total_amount):,}")
     else:
         st.warning("シートに 'category' または 'amount' 列がありません。")
 
