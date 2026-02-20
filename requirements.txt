@@ -4,4 +4,3 @@ plotly
 gspread
 google-auth
 bcrypt
-python-dateutil

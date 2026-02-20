@@ -177,16 +177,17 @@ def show_dashboard():
     header_placeholder = st.empty()
 
     # 月の切替UI
-    col1, col2, col3, col4, col5 = st.columns([1, 1, 2, 1, 1])
-    with col1:
-        if st.button("◀ 前月"):
+    col1, col2, col3, col4, col5 = st.columns([3, 1, 2, 1, 3])
+    with col2:
+        # vertical alignment adjustment if needed, but standard is fine
+        if st.button("◀ 前月", use_container_width=True):
             st.session_state['current_month'] -= relativedelta(months=1)
             st.rerun()
     with col3:
         # 中央に現在選択中の年月を大きく表示
-        st.markdown(f"<h3 style='text-align: center;'>{st.session_state['current_month'].strftime('%Y年%m月')}</h3>", unsafe_allow_html=True)
-    with col5:
-        if st.button("翌月 ▶"):
+        st.markdown(f"<h3 style='text-align: center; margin: 0;'>{st.session_state['current_month'].strftime('%Y年%m月')}</h3>", unsafe_allow_html=True)
+    with col4:
+        if st.button("翌月 ▶", use_container_width=True):
             st.session_state['current_month'] += relativedelta(months=1)
             st.rerun()
             
