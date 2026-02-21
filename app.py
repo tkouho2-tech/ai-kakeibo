@@ -464,7 +464,7 @@ def main():
                                 sheet = get_sheet(TRANSACTIONS_WORKSHEET_NAME)
                                 init_transactions_sheet(sheet)
                                 
-                                written_data = []
+                                written_count = 0
                                 for item in results:
                                     # カテゴリの正規化（14カテゴリ体系に強制）
                                     majors = list(EXPENSE_CATEGORIES.keys())
@@ -497,19 +497,9 @@ def main():
                                         int(item.get("amount", 0))
                                     ]
                                     sheet.append_row(row_data)
-                                    
-                                    written_data.append({
-                                        "日付": str(item.get("date", "")),
-                                        "店舗名": store_name,
-                                        "商品名": item_name,
-                                        "金額": int(item.get("amount", 0)),
-                                        "大分類": final_major,
-                                        "小分類": final_minor
-                                    })
+                                    written_count += 1
                                 
-                                st.success(f"解析が完了し、{len(written_data)}件のデータをスプレッドシートに保存しました！")
-                                st.markdown("### 登録されたデータ")
-                                st.dataframe(written_data, use_container_width=True)
+                                st.success(f"解析が完了し、{written_count}件のデータをスプレッドシートに保存しました！")
                                 
                             except Exception as e:
                                 st.error(f"保存エラー: {e}")
