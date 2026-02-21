@@ -212,39 +212,60 @@ def show_dashboard():
         grouped_df = df.groupby("category", as_index=False)["amount"].sum()
         grouped_df = grouped_df.sort_values(by="amount", ascending=False)
         
-        col_chart, col_table = st.columns(2)
+        # 円グラフ（ドーナツ型）
+        fig = px.pie(
+            grouped_df, 
+            values='amount', 
+            names='category', 
+            hole=0.4, 
+            title='大分類別金額シェア'
+        )
+        fig.update_traces(textposition='inside', textinfo='percent+label')
+        st.plotly_chart(fig, use_container_width=True)
         
-        with col_chart:
-            # 円グラフ（ドーナツ型）
-            fig = px.pie(
-                grouped_df, 
-                values='amount', 
-                names='category', 
-                hole=0.4, 
-                title='大分類別金額シェア'
-            )
-            fig.update_traces(textposition='inside', textinfo='percent+label')
-            st.plotly_chart(fig, use_container_width=True)
+        total_amount = grouped_df["amount"].sum()
+        st.metric("総支出額", f"￥{int(total_amount):,}")
+        st.markdown("---")
+        
+        st.markdown("##### カテゴリ別内訳")
+        
+        # 大分類ごとの一覧をアコーディオン形式（st.expander）で表示
+        for _, row in grouped_df.iterrows():
+            cat = row['category']
+            total_amt_str = f"￥{int(row['amount']):,}"
             
-        with col_table:
-            # データフレーム表
-            st.markdown("##### カテゴリ別合計金額表")
-            
-            # 見た目を少し整える(フォーマット等)
-            display_df = grouped_df.copy()
-            # 金額を「￥1,234」の形式の文字列に変換
-            display_df["amount"] = display_df["amount"].apply(lambda x: f"￥{int(x):,}")
-            display_df.columns = ["カテゴリ (大分類)", "合計金額"]
-            
-            # 枠線付きのデータフレームを表示
-            st.dataframe(
-                display_df,
-                use_container_width=True,
-                hide_index=True
-            )
-            
-            total_amount = grouped_df["amount"].sum()
-            st.metric("総支出額", f"￥{int(total_amount):,}")
+            with st.expander(f"{cat}：{total_amt_str}"):
+                # 該当カテゴリのデータを抽出
+                cat_df = df[df["category"] == cat].copy()
+                
+                # 小分類を判別するための列名を探す
+                sub_col = None
+                for col_name in ["subcategory", "sub_category", "小分類"]:
+                    if col_name in cat_df.columns:
+                        sub_col = col_name
+                        break
+                
+                if sub_col:
+                    sub_grouped = cat_df.groupby(sub_col, as_index=False)["amount"].sum()
+                    sub_grouped = sub_grouped.sort_values(by="amount", ascending=False)
+                    sub_grouped["amount"] = sub_grouped["amount"].apply(lambda x: f"￥{int(x):,}")
+                    sub_grouped.columns = ["小分類", "金額"]
+                    st.dataframe(sub_grouped, use_container_width=True, hide_index=True)
+                else:
+                    # 小分類カラムがない場合は、明細レベルで内訳を表示する
+                    if "memo" in cat_df.columns:
+                        display_df = cat_df[["date", "memo", "amount"]].copy()
+                        if "date" in display_df.columns:
+                            display_df["date"] = display_df["date"].dt.strftime('%m/%d').fillna("")
+                        display_df["amount"] = display_df["amount"].apply(lambda x: f"￥{int(x):,}")
+                        display_df.columns = ["日付", "内容", "金額"]
+                        st.dataframe(display_df, use_container_width=True, hide_index=True)
+                    else:
+                        display_df = cat_df[["amount"]].copy()
+                        if "date" in cat_df.columns:
+                            display_df.insert(0, "date", cat_df["date"].dt.strftime('%m/%d').fillna(""))
+                        display_df["amount"] = display_df["amount"].apply(lambda x: f"￥{int(x):,}")
+                        st.dataframe(display_df, use_container_width=True, hide_index=True)
     else:
         st.warning("シートに 'category' または 'amount' 列がありません。")
 
