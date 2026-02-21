@@ -45,10 +45,7 @@ def get_categories_prompt_text():
 
 # APIキー設定（Gemini用）
 if "general" in st.secrets and "gemini_api_key" in st.secrets["general"]:
-    genai.configure(
-        api_key=st.secrets["general"]["gemini_api_key"],
-        client_options={"api_version": "v1"}
-    )
+    genai.configure(api_key=st.secrets["general"]["gemini_api_key"])
 
 st.set_page_config(page_title="AI家計簿アプリ - ダッシュボード", page_icon="📊", layout="wide")
 
