@@ -123,10 +123,10 @@ def init_transactions_sheet(sheet):
     try:
         headers = sheet.row_values(1)
         if not headers or headers[0] != "username":
-            sheet.insert_row(["username", "date", "category", "amount", "memo", "subcategory"], 1)
+            sheet.insert_row(["username", "date", "category", "amount", "store_name", "item_name", "subcategory"], 1)
         # 既存シートで subcategory 列がない場合でも、順次追加で対応可能とする
     except Exception:
-        sheet.insert_row(["username", "date", "category", "amount", "memo", "subcategory"], 1)
+        sheet.insert_row(["username", "date", "category", "amount", "store_name", "item_name", "subcategory"], 1)
 
 # ---------- 認証機能 ----------
 def register_user(username, password):
@@ -389,7 +389,14 @@ def show_dashboard():
                     st.dataframe(sub_grouped, use_container_width=True, hide_index=True)
                 else:
                     # 小分類カラムがない場合は、明細レベルで内訳を表示する
-                    if "memo" in cat_df.columns:
+                    if "store_name" in cat_df.columns and "item_name" in cat_df.columns:
+                        display_df = cat_df[["date", "store_name", "item_name", "amount"]].copy()
+                        if "date" in display_df.columns:
+                            display_df["date"] = display_df["date"].dt.strftime('%m/%d').fillna("")
+                        display_df["amount"] = display_df["amount"].apply(lambda x: f"￥{int(x):,}")
+                        display_df.columns = ["日付", "店舗名", "商品名", "金額"]
+                        st.dataframe(display_df, use_container_width=True, hide_index=True)
+                    elif "memo" in cat_df.columns:
                         display_df = cat_df[["date", "memo", "amount"]].copy()
                         if "date" in display_df.columns:
                             display_df["date"] = display_df["date"].dt.strftime('%m/%d').fillna("")
@@ -471,21 +478,22 @@ def main():
                                             
                                     store_name = str(item.get("store_name", ""))
                                     item_name = str(item.get("item_name", ""))
-                                    memo = f"{store_name} - {item_name}".strip(" -")
                                     
                                     row_data = [
                                         st.session_state['username'],
                                         str(item.get("date", "")),
                                         final_major,
                                         int(item.get("amount", 0)),
-                                        memo,
+                                        store_name,
+                                        item_name,
                                         final_minor
                                     ]
                                     sheet.append_row(row_data)
                                     
                                     written_data.append({
                                         "日付": str(item.get("date", "")),
-                                        "店舗/商品名": memo,
+                                        "店舗名": store_name,
+                                        "商品名": item_name,
                                         "金額": int(item.get("amount", 0)),
                                         "大分類": final_major,
                                         "小分類": final_minor
