@@ -13,6 +13,33 @@ SPREADSHEET_NAME = "Kakeibo_Data" # 実際のGoogleスプレッドシート名�
 WORKSHEET_NAME = "users"
 TRANSACTIONS_WORKSHEET_NAME = "transactions"
 
+# ---------- カテゴリ定義 ----------
+# AI判別やセレクトボックスで利用するための大分類・小分類の親子関係定義
+EXPENSE_CATEGORIES = {
+    "食材費": ["🍖肉類", "🐟魚類", "🥬野菜果物", "🍚主食類", "🍱惣菜", "🥚卵乳製品", "🥫加工食品", "🧂調味料", "🍫嗜好品", "☕飲料", "❓その他"],
+    "外食費": ["🍜ラーメン", "🍣和食", "🥡中華", "🍕イタリアン", "☕カフェ", "🍺飲酒", "❓その他"],
+    "日用品": ["🧻消耗品", "🧺掃除洗濯", "🛍️袋包装", "❓その他"],
+    "美容": ["🧴ケア用品", "💄化粧品", "✂️散髪", "❓その他"],
+    "衣類": ["👕衣類", "👟靴", "🧣小物", "❓その他"],
+    "家電": ["📺家電", "💻周辺機器", "❓その他"],
+    "書籍": ["📚書籍", "🖊️文具", "❓その他"],
+    "交通費": ["🚃公共交通", "🚗車タクシー", "⛽ガソリン", "❓その他"],
+    "住居": ["🛋️家具", "🏠住居用品", "❓その他"],
+    "娯楽": ["🎡娯楽", "🎨グッズ", "❓その他"],
+    "手数料": ["📦送料", "💳手数料", "❓その他"],
+    "ペット用品": ["🐈フード", "🚽トイレ用品", "🏥ペット医療", "❓その他"],
+    "医療": ["🏥病院診療", "💊薬処方", "💉検査健診", "❓その他"],
+    "その他": ["📁未分類"]
+}
+
+def get_categories_prompt_text():
+    """AI（Gemini等）のプロンプトに埋め込むためのカテゴリ定義文字列を生成"""
+    text = "【カテゴリシステム: 大分類と小分類のリスト】\n"
+    for major, minors in EXPENSE_CATEGORIES.items():
+        text += f"- {major}: {', '.join(minors)}\n"
+    text += "\n※ 必ず上記の大分類と小分類の組み合わせに従ってください。"
+    return text
+
 st.set_page_config(page_title="AI家計簿アプリ - ダッシュボード", page_icon="📊", layout="wide")
 
 # ---------- セッション状態の初期化 ----------
@@ -169,6 +196,38 @@ def load_transactions_data(target_month):
     else:
         df["amount"] = 0
         
+    # --- カテゴリの正規化（集計時やセレクトボックス等で指定外が出ないようにする） ---
+    # 大分類の正規化
+    if "category" in df.columns:
+        valid_majors = list(EXPENSE_CATEGORIES.keys())
+        # 定義にない大分類は「その他」にまとめる
+        df["category"] = df["category"].apply(lambda x: x if x in valid_majors else "その他")
+        
+    # 小分類の正規化
+    sub_cols = [c for c in ["subcategory", "sub_category", "小分類"] if c in df.columns]
+    if sub_cols:
+        sub_col = sub_cols[0]
+        def normalize_sub(row):
+            major = row.get("category", "その他")
+            sub = str(row.get(sub_col, "")).strip()
+            valid_subs = EXPENSE_CATEGORIES.get(major, sorted(EXPENSE_CATEGORIES["その他"]))
+            fallback = valid_subs[-1] if valid_subs else "❓その他"
+            
+            # 完全に一致するか
+            if sub in valid_subs:
+                return sub
+                
+            # アイコンなしなどの部分一致を探す
+            for v_sub in valid_subs:
+                # 絵文字を除いたテキストで部分一致するか確認
+                text_only = "".join([c for c in v_sub if c.isalpha() or c in "類物食品未分類その他"]) 
+                if text_only and (text_only in sub or sub in text_only) and len(sub) > 0:
+                    return v_sub
+                    
+            return fallback
+
+        df[sub_col] = df.apply(normalize_sub, axis=1)
+        
     return df
 
 # ---------- ページUIの実装 ----------
@@ -280,7 +339,7 @@ def main():
             st.markdown("---")
             menu_selection = st.radio(
                 "機能を選択",
-                ["ダッシュボード (月別集計)", "レシート入力", "カレンダー", "設定・ヘルプ"]
+                ["ダッシュボード (月別集計)", "レシート取込", "レシート手入力", "レシート修正", "カレンダー", "設定・ヘルプ"]
             )
             st.markdown("---")
             if st.button("ログアウト", use_container_width=True):
@@ -291,9 +350,15 @@ def main():
         # メインコンテンツの切り替え
         if menu_selection == "ダッシュボード (月別集計)":
             show_dashboard()
-        elif menu_selection == "レシート入力":
-            st.header("レシート入力")
-            st.info("準備中: 画像アップロード機能は今後のフェーズで実装されます。")
+        elif menu_selection == "レシート取込":
+            st.header("レシート取込")
+            st.info("準備中: 画像やファイルからのデータ取込機能は今後のフェーズで実装されます。")
+        elif menu_selection == "レシート手入力":
+            st.header("レシート手入力")
+            st.info("準備中: 手動でのレシート入力機能は今後のフェーズで実装されます。")
+        elif menu_selection == "レシート修正":
+            st.header("レシート修正")
+            st.info("準備中: 登録したデータの修正機能は今後のフェーズで実装されます。")
         elif menu_selection == "カレンダー":
             st.header("カレンダー")
             st.info("準備中: カレンダーUIは今後のフェーズで実装されます。")
