@@ -32,6 +32,7 @@ EXPENSE_CATEGORIES = {
     "手数料": ["📦送料", "💳手数料", "❓その他"],
     "ペット用品": ["🐈フード", "🚽トイレ用品", "🏥ペット医療", "❓その他"],
     "医療": ["🏥病院診療", "💊薬処方", "💉検査健診", "❓その他"],
+    "消費税": ["8%", "10%", "❓その他"],
     "その他": ["📁未分類"]
 }
 
@@ -228,7 +229,7 @@ def load_transactions_data(target_month):
             # アイコンなしなどの部分一致を探す
             for v_sub in valid_subs:
                 # 絵文字を除いたテキストで部分一致するか確認
-                text_only = "".join([c for c in v_sub if c.isalpha() or c in "類物食品未分類その他"]) 
+                text_only = "".join([c for c in v_sub if c.isalnum() or c in "類物食品未分類その他%"]) 
                 if text_only and (text_only in sub or sub in text_only) and len(sub) > 0:
                     return v_sub
                     
@@ -268,7 +269,10 @@ def parse_receipt_with_gemini(image_file):
 画像内に病院名などの医療機関の名前、あるいは「診療明細」「領収証（医療機関）」といった文字が含まれている場合、
 すべての大分類は強制的に "(13) 医療" とし、小分類は内容から「🏥病院診療」「💊薬処方」「💉検査健診」のいずれかを推論して設定してください。これ以外の医療系の小分類は生成しないでください。
 
-それ以外の場合は、以下の14のカテゴリ体系に厳密に従って、明細ごとに適切に分類してください。
+【消費税の抽出ルール】:
+レシート内に「消費税（8%や10%など）」が明細や項目として記載されている場合、その行を1つの明細として抽出し、大分類を "消費税" 、小分類をその税率（"8%" や "10%"など）として設定してください。
+
+それ以外の場合は、以下のカテゴリ体系に厳密に従って、明細ごとに適切に分類してください。
 {get_categories_prompt_text()}
 
 JSONの出力形式は以下を厳守してください。マークダウンの ```json などは含めず、純粋なJSON文字列（オブジェクトの配列）のみを返してください。
@@ -471,7 +475,7 @@ def main():
                                     minor = str(item.get("minor_category", "❓その他"))
                                     final_minor = minors[-1] if minors else "❓その他"
                                     for m in minors:
-                                        text_only = "".join([c for c in m if c.isalpha() or c in "類物食品未分類その他"])
+                                        text_only = "".join([c for c in m if c.isalnum() or c in "類物食品未分類その他%"])
                                         if text_only and (text_only in minor or minor in text_only) and len(minor) > 0:
                                             final_minor = m
                                             break
