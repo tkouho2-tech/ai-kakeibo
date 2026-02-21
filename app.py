@@ -254,30 +254,34 @@ def parse_receipt_with_gemini(image_file):
         model = genai.GenerativeModel('gemini-2.5-flash')
         
         prompt = f"""
-以下の画像（レシートまたは領収書）から必要な情報を抽出し、JSON形式で出力してください。
+以下の画像（レシートまたは領収書）から必要な情報を抽出し、明細行ごとにJSON形式で出力してください。
 
-抽出項目:
+抽出項目（各明細に対して）:
 1. "store_name" : 店舗名（文字列、不明な場合は ""）
 2. "date" : 日付（YYYY-MM-DD形式、不明な場合は ""）
-3. "total_amount" : 合計金額（数値のみ、カンマなし）
-4. "major_category" : 大分類
-5. "minor_category" : 小分類
+3. "item_name" : 商品名または内容（文字列）
+4. "amount" : 金額（数値のみ、カンマなし）
+5. "major_category" : 大分類
+6. "minor_category" : 小分類
 
 【最優先ルール】:
 画像内に病院名などの医療機関の名前、あるいは「診療明細」「領収証（医療機関）」といった文字が含まれている場合、
-大分類は強制的に "(13) 医療" とし、小分類は内容から「🏥病院診療」「💊薬処方」「💉検査健診」のいずれかを推論して設定してください。これ以外の医療系の小分類は生成しないでください。
+すべての大分類は強制的に "(13) 医療" とし、小分類は内容から「🏥病院診療」「💊薬処方」「💉検査健診」のいずれかを推論して設定してください。これ以外の医療系の小分類は生成しないでください。
 
-それ以外の場合は、以下の14のカテゴリ体系に厳密に従って分類してください。
+それ以外の場合は、以下の14のカテゴリ体系に厳密に従って、明細ごとに適切に分類してください。
 {get_categories_prompt_text()}
 
-JSONの出力形式は以下を厳守してください。マークダウンの ```json などは含めず、純粋なJSON文字列のみを返してください。
-{{
-  "store_name": "店舗名",
-  "date": "YYYY-MM-DD",
-  "total_amount": 1000,
-  "major_category": "大分類",
-  "minor_category": "小分類"
-}}
+JSONの出力形式は以下を厳守してください。マークダウンの ```json などは含めず、純粋なJSON文字列（オブジェクトの配列）のみを返してください。
+[
+  {{
+    "store_name": "店舗名",
+    "date": "YYYY-MM-DD",
+    "item_name": "商品名",
+    "amount": 1000,
+    "major_category": "大分類",
+    "minor_category": "小分類"
+  }}
+]
 """
         response = model.generate_content([
             prompt,
@@ -287,10 +291,17 @@ JSONの出力形式は以下を厳守してください。マークダウンの 
         response_text = response.text.strip()
         if response_text.startswith("```json"):
             response_text = response_text[7:]
+        if response_text.startswith("```"):
+            response_text = response_text[3:]
         if response_text.endswith("```"):
             response_text = response_text[:-3]
             
         result = json.loads(response_text.strip())
+        
+        # 配列でない場合は配列にする
+        if isinstance(result, dict):
+            result = [result]
+            
         return result
         
     except Exception as e:
@@ -425,68 +436,67 @@ def main():
             if uploaded_file is not None:
                 st.image(uploaded_file, caption="アップロードされたレシート", width=300)
                 
-                if st.button("画像を解析する", type="primary"):
+                if st.button("画像を解析して保存する", type="primary"):
                     with st.spinner("画像を解析中... Geminiが読み取っています"):
-                        result = parse_receipt_with_gemini(uploaded_file)
-                        if "error" in result:
-                            st.error(f"解析に失敗しました: {result['error']}")
-                        else:
-                            st.session_state["parsed_receipt"] = result
-                            st.success("解析が完了しました！内容を確認・修正して保存してください。")
-            
-            # 解析結果がある場合はフォームを表示
-            if "parsed_receipt" in st.session_state and st.session_state["parsed_receipt"]:
-                st.markdown("### 解析結果の確認・修正")
-                parsed = st.session_state["parsed_receipt"]
-                
-                with st.form("receipt_save_form"):
-                    col1, col2 = st.columns(2)
-                    with col1:
-                        store_name = st.text_input("店舗名・内容 (memo)", value=parsed.get("store_name", ""))
-                        date_val = st.text_input("日付 (YYYY-MM-DD)", value=parsed.get("date", ""))
-                        amount = st.number_input("合計金額", value=int(parsed.get("total_amount", 0)), step=10)
-                    with col2:
-                        majors = list(EXPENSE_CATEGORIES.keys())
-                        default_major = parsed.get("major_category", "")
-                        major_idx = 0
-                        for i, m in enumerate(majors):
-                            if m in default_major or default_major in m:
-                                major_idx = i
-                                break
-                                
-                        selected_major = st.selectbox("大分類", majors, index=major_idx)
+                        results = parse_receipt_with_gemini(uploaded_file)
                         
-                        minors = EXPENSE_CATEGORIES.get(selected_major, [])
-                        default_minor = parsed.get("minor_category", "")
-                        minor_idx = 0
-                        for i, m in enumerate(minors):
-                            # 絵文字を除いたテキスト部分でマッチングする
-                            text_only = "".join([c for c in m if c.isalpha() or c in "類物食品未分類その他"])
-                            if text_only in default_minor or default_minor in text_only:
-                                minor_idx = i
-                                break
+                        if isinstance(results, list) and len(results) > 0 and "error" in results[0]:
+                            st.error(f"解析に失敗しました: {results[0]['error']}")
+                        elif isinstance(results, dict) and "error" in results:
+                            st.error(f"解析に失敗しました: {results['error']}")
+                        else:
+                            try:
+                                sheet = get_sheet(TRANSACTIONS_WORKSHEET_NAME)
+                                init_transactions_sheet(sheet)
                                 
-                        selected_minor = st.selectbox("小分類", minors, index=minor_idx)
-                    
-                    submit_save = st.form_submit_button("この内容で保存する")
-                    
-                    if submit_save:
-                        try:
-                            sheet = get_sheet(TRANSACTIONS_WORKSHEET_NAME)
-                            init_transactions_sheet(sheet)
-                            sheet.append_row([
-                                st.session_state['username'],
-                                date_val,
-                                selected_major,
-                                amount,
-                                store_name,
-                                selected_minor
-                            ])
-                            st.success("スプレッドシートに保存しました！")
-                            del st.session_state["parsed_receipt"]
-                            st.rerun()
-                        except Exception as e:
-                            st.error(f"保存エラー: {e}")
+                                written_data = []
+                                for item in results:
+                                    # カテゴリの正規化（14カテゴリ体系に強制）
+                                    majors = list(EXPENSE_CATEGORIES.keys())
+                                    major = str(item.get("major_category", "その他"))
+                                    final_major = "その他"
+                                    for m in majors:
+                                        if m in major or major in m:
+                                            final_major = m
+                                            break
+                                            
+                                    minors = EXPENSE_CATEGORIES.get(final_major, EXPENSE_CATEGORIES["その他"])
+                                    minor = str(item.get("minor_category", "❓その他"))
+                                    final_minor = minors[-1] if minors else "❓その他"
+                                    for m in minors:
+                                        text_only = "".join([c for c in m if c.isalpha() or c in "類物食品未分類その他"])
+                                        if text_only and (text_only in minor or minor in text_only) and len(minor) > 0:
+                                            final_minor = m
+                                            break
+                                            
+                                    store_name = str(item.get("store_name", ""))
+                                    item_name = str(item.get("item_name", ""))
+                                    memo = f"{store_name} - {item_name}".strip(" -")
+                                    
+                                    row_data = [
+                                        st.session_state['username'],
+                                        str(item.get("date", "")),
+                                        final_major,
+                                        int(item.get("amount", 0)),
+                                        memo,
+                                        final_minor
+                                    ]
+                                    sheet.append_row(row_data)
+                                    
+                                    written_data.append({
+                                        "日付": str(item.get("date", "")),
+                                        "店舗/商品名": memo,
+                                        "金額": int(item.get("amount", 0)),
+                                        "大分類": final_major,
+                                        "小分類": final_minor
+                                    })
+                                
+                                st.success(f"解析が完了し、{len(written_data)}件のデータをスプレッドシートに保存しました！")
+                                st.markdown("### 登録されたデータ")
+                                st.dataframe(written_data, use_container_width=True)
+                                
+                            except Exception as e:
+                                st.error(f"保存エラー: {e}")
 
         elif menu_selection == "レシート手入力":
             st.header("レシート手入力")
