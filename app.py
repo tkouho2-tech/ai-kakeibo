@@ -423,6 +423,8 @@ def main():
             uploaded_file = st.file_uploader("レシートの画像をアップロード（またはカメラで撮影）", type=['png', 'jpg', 'jpeg'], accept_multiple_files=False)
             
             if uploaded_file is not None:
+                st.image(uploaded_file, caption="アップロードされたレシート", width=300)
+                
                 if st.button("画像を解析する", type="primary"):
                     with st.spinner("画像を解析中... Geminiが読み取っています"):
                         result = parse_receipt_with_gemini(uploaded_file)
