@@ -4,3 +4,5 @@ plotly
 gspread
 google-auth
 bcrypt
+google-generativeai
+Pillow
