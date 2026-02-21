@@ -123,10 +123,10 @@ def init_transactions_sheet(sheet):
     try:
         headers = sheet.row_values(1)
         if not headers or headers[0] != "username":
-            sheet.insert_row(["username", "date", "category", "amount", "store_name", "item_name", "subcategory"], 1)
+            sheet.insert_row(["username", "date", "store_name", "item_name", "category", "subcategory", "amount"], 1)
         # 既存シートで subcategory 列がない場合でも、順次追加で対応可能とする
     except Exception:
-        sheet.insert_row(["username", "date", "category", "amount", "store_name", "item_name", "subcategory"], 1)
+        sheet.insert_row(["username", "date", "store_name", "item_name", "category", "subcategory", "amount"], 1)
 
 # ---------- 認証機能 ----------
 def register_user(username, password):
@@ -482,11 +482,11 @@ def main():
                                     row_data = [
                                         st.session_state['username'],
                                         str(item.get("date", "")),
-                                        final_major,
-                                        int(item.get("amount", 0)),
                                         store_name,
                                         item_name,
-                                        final_minor
+                                        final_major,
+                                        final_minor,
+                                        int(item.get("amount", 0))
                                     ]
                                     sheet.append_row(row_data)
                                     
