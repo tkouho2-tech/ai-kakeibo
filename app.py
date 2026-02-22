@@ -45,8 +45,12 @@ def get_categories_prompt_text():
     return text
 
 # APIキー設定（Gemini用）
-if "general" in st.secrets and "gemini_api_key" in st.secrets["general"]:
-    genai.configure(api_key=st.secrets["general"]["gemini_api_key"])
+api_key = st.secrets.get("GEMINI_API_KEY")
+if not api_key and "general" in st.secrets:
+    api_key = st.secrets["general"].get("gemini_api_key")
+
+if api_key:
+    genai.configure(api_key=api_key)
 
 st.set_page_config(page_title="AI家計簿アプリ - ダッシュボード", page_icon="📊", layout="wide")
 
@@ -253,7 +257,7 @@ def parse_receipt_with_gemini(image_file):
         img.save(img_byte_arr, format='JPEG', quality=85)
         img_byte_arr = img_byte_arr.getvalue()
         
-        model = genai.GenerativeModel('gemini-2.5-flash')
+        model = genai.GenerativeModel('gemini-1.5-flash')
         
         prompt = f"""
 以下の画像（レシートまたは領収書）から必要な情報を抽出し、明細行ごとにJSON形式で出力してください。
@@ -453,10 +457,11 @@ def main():
                 st.image(uploaded_file, caption="アップロードされたレシート", width=300)
                 
                 if st.button("画像を解析して保存する", type="primary"):
-                    with st.spinner("画像を解析中... Geminiが読み取っています"):
-                        results = parse_receipt_with_gemini(uploaded_file)
-                        
-                        if isinstance(results, list) and len(results) > 0 and "error" in results[0]:
+                    try:
+                        with st.spinner("画像を解析中... Geminiが読み取っています"):
+                            results = parse_receipt_with_gemini(uploaded_file)
+                            
+                        if isinstance(results, list) and len(results) > 0 and isinstance(results[0], dict) and "error" in results[0]:
                             st.error(f"解析に失敗しました: {results[0]['error']}")
                         elif isinstance(results, dict) and "error" in results:
                             st.error(f"解析に失敗しました: {results['error']}")
@@ -504,6 +509,8 @@ def main():
                                 
                             except Exception as e:
                                 st.error(f"保存エラー: {e}")
+                    except Exception as e:
+                        st.error(f"解析処理中に予期せぬエラーが発生しました: {e}")
 
         elif menu_selection == "レシート手入力":
             st.header("レシート手入力")
