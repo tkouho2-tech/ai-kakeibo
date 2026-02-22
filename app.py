@@ -9,7 +9,8 @@ import io
 from datetime import datetime
 from dateutil.relativedelta import relativedelta
 from PIL import Image
-import google.generativeai as genai
+from google import genai
+from google.genai import types
 
 # ---------- 構成設定 ----------
 SPREADSHEET_NAME = "Kakeibo_Data" # 実際のGoogleスプレッドシート名に合わせて変更してください
@@ -44,6 +45,10 @@ def get_categories_prompt_text():
     text += "\n※ 必ず上記の大分類と小分類の組み合わせに従ってください。"
     return text
 
+# ---------- セッション状態の初期化 ----------
+if 'genai_client' not in st.session_state:
+    st.session_state['genai_client'] = None
+
 # APIキー設定（Gemini用）
 # どちらの書き方でも動くようにします
 api_key = st.secrets.get("GEMINI_API_KEY") or st.secrets.get("general", {}).get("gemini_api_key")
@@ -52,7 +57,7 @@ if not api_key and "general" in st.secrets:
     api_key = st.secrets["general"].get("gemini_api_key")
 
 if api_key:
-    genai.configure(api_key=api_key)
+    st.session_state['genai_client'] = genai.Client(api_key=api_key)
 
 st.set_page_config(page_title="AI家計簿アプリ - ダッシュボード", page_icon="📊", layout="wide")
 
@@ -259,8 +264,10 @@ def parse_receipt_with_gemini(image_file):
         img.save(img_byte_arr, format='JPEG', quality=85)
         img_byte_arr = img_byte_arr.getvalue()
         
-        model = genai.GenerativeModel('gemini-1.5-flash')
-        
+        client = st.session_state.get('genai_client')
+        if not client:
+            return {"error": "APIキーが設定されていません。"}
+            
         prompt = f"""
 以下の画像（レシートまたは領収書）から必要な情報を抽出し、明細行ごとにJSON形式で出力してください。
 
@@ -298,10 +305,10 @@ JSONの出力形式は以下を厳守してください。マークダウンの 
   }}
 ]
 """
-        response = model.generate_content([
-            prompt,
-            {"mime_type": "image/jpeg", "data": img_byte_arr}
-        ])
+        response = client.models.generate_content(
+            model='gemini-1.5-flash',
+            contents=[prompt, img]
+        )
         
         response_text = response.text.strip()
         if response_text.startswith("```json"):
