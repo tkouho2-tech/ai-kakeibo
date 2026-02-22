@@ -62,31 +62,32 @@ if 'current_month' not in st.session_state:
 @st.cache_resource
 def get_gspread_client():
     try:
-        # 1. まずStreamlit Cloudの st.secrets から取得を試みる
+        # 1. secrets.toml から情報を読み込む
         if "gcp_service_account" in st.secrets:
-            # st.secrets の内容（文字列）を辞書型に変換
-            credentials_dict = json.loads(st.secrets["gcp_service_account"])
+            # 辞書形式に変換（画像 の修正を適用）
+            info = dict(st.secrets["gcp_service_account"])
 
             from google.oauth2.service_account import Credentials
             
-            # gspreadが必要とするスコープを指定
+            # スプレッドシート操作に必要な権限（スコープ）
             scopes = [
                 'https://www.googleapis.com/auth/spreadsheets',
                 'https://www.googleapis.com/auth/drive'
             ]
-            creds = Credentials.from_service_account_info(credentials_dict, scopes=scopes)
+            
+            # 認証情報の作成
+            creds = Credentials.from_service_account_info(info, scopes=scopes)
             return gspread.authorize(creds)
             
-        # 2. ローカル環境用のフォールバック (credentials.json)
         elif os.path.exists("credentials.json"):
             return gspread.service_account(filename="credentials.json")
             
         else:
-            st.error("Google APIの無効な環境設定: st.secrets も credentials.json も見つかりません。")
+            st.error("認証設定が見つかりません。")
             return None
             
     except Exception as e:
-        st.error(f"Google APIの認証エラーが発生しました: {e}")
+        st.error(f"認証エラーが発生しました: {e}")
         return None
 
 def get_sheet(worksheet_name):
