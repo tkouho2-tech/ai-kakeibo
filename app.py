@@ -306,7 +306,7 @@ JSONの出力形式は以下を厳守してください。マークダウンの 
 ]
 """
         response = client.models.generate_content(
-            model='gemini-1.5-flash',
+            model='gemini-2.5-flash',
             contents=[prompt, img]
         )
         
