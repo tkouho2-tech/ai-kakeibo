@@ -48,7 +48,11 @@ def get_categories_prompt_text():
 # 修正後：どちらの書き方でも動くようにします
 api_key = st.secrets.get("GEMINI_API_KEY") or st.secrets.get("general", {}).get("gemini_api_key")
 if api_key:
-    genai.configure(api_key=api_key)
+    # v1betaエラー回避のためAPIバージョンをv1に指定
+    genai.configure(
+        api_key=api_key,
+        client_options={'api_version': 'v1'}
+    )
 
 if not api_key and "general" in st.secrets:
     api_key = st.secrets["general"].get("gemini_api_key")
@@ -261,7 +265,7 @@ def parse_receipt_with_gemini(image_file):
         img.save(img_byte_arr, format='JPEG', quality=85)
         img_byte_arr = img_byte_arr.getvalue()
         
-        model = genai.GenerativeModel('gemini-1.5-flash')
+        model = genai.GenerativeModel('models/gemini-1.5-flash')
         
         prompt = f"""
 以下の画像（レシートまたは領収書）から必要な情報を抽出し、明細行ごとにJSON形式で出力してください。
