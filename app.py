@@ -45,14 +45,8 @@ def get_categories_prompt_text():
     return text
 
 # APIキー設定（Gemini用）
-# 修正後：どちらの書き方でも動くようにします
+# どちらの書き方でも動くようにします
 api_key = st.secrets.get("GEMINI_API_KEY") or st.secrets.get("general", {}).get("gemini_api_key")
-if api_key:
-    # v1betaエラー回避のためAPIバージョンをv1に指定
-    genai.configure(
-        api_key=api_key,
-        client_options={'api_version': 'v1'}
-    )
 
 if not api_key and "general" in st.secrets:
     api_key = st.secrets["general"].get("gemini_api_key")
