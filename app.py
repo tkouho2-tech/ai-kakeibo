@@ -436,16 +436,25 @@ def show_dashboard():
 
 def main():
     # ログイン済みの状態
-    if st.session_state['logged_in']:
+    if st.session_state.get('logged_in', False):
         
+        # 自動画面遷移のためのリダイレクト処理
+        if st.session_state.get('redirect_to_dashboard'):
+            st.session_state['menu_selection'] = "ダッシュボード"
+            st.session_state['redirect_to_dashboard'] = False
+            
         # サイドバーメニューの実装
         with st.sidebar:
-            st.title("メインメニュー")
+            st.title("メインメニュー [Ver 1.0.0]")
             st.write(f"🔑 ユーザー: **{st.session_state['username']}**")
             st.markdown("---")
+            if 'menu_selection' not in st.session_state:
+                st.session_state['menu_selection'] = "ダッシュボード"
+                
             menu_selection = st.radio(
                 "機能を選択",
-                ["ダッシュボード (月別集計)", "レシート取込", "レシート手入力", "レシート修正", "カレンダー", "設定・ヘルプ"]
+                ["ダッシュボード", "レシート取込", "レシート手入力", "レシート修正", "カレンダー", "ヘルプ"],
+                key="menu_selection"
             )
             st.markdown("---")
             if st.button("ログアウト", use_container_width=True):
@@ -454,18 +463,29 @@ def main():
                 st.rerun()
 
         # メインコンテンツの切り替え
-        if menu_selection == "ダッシュボード (月別集計)":
+        if menu_selection == "ダッシュボード":
             show_dashboard()
         elif menu_selection == "レシート取込":
-            st.header("レシート取込")
-            st.info("カメラ撮影または画像ファイルからレシートを読み取り、自動で入力します。")
+            st.header("📸 レシート取込")
+            st.info("カメラで撮影するか、画像ファイルをアップロードしてレシートを解析します。")
             
-            uploaded_file = st.file_uploader("レシートの画像をアップロード（またはカメラで撮影）", type=['png', 'jpg', 'jpeg'], accept_multiple_files=False)
+            tab_camera, tab_upload = st.tabs(["📷 カメラで撮影", "📁 画像をアップロード"])
+            uploaded_file = None
+            
+            with tab_camera:
+                camera_image = st.camera_input("カメラでレシートを撮影してください")
+                if camera_image:
+                    uploaded_file = camera_image
+                    
+            with tab_upload:
+                file_img = st.file_uploader("レシートの画像をアップロード", type=['png', 'jpg', 'jpeg'], accept_multiple_files=False)
+                if file_img:
+                    uploaded_file = file_img
             
             if uploaded_file is not None:
-                st.image(uploaded_file, caption="アップロードされたレシート", width=300)
+                st.image(uploaded_file, caption="取得したレシート画像", width=300)
                 
-                if st.button("画像を解析して保存する", type="primary"):
+                if st.button("✨ 画像を解析して保存する", type="primary"):
                     try:
                         with st.spinner("画像を解析中... Geminiが読み取っています"):
                             results = parse_receipt_with_gemini(uploaded_file)
@@ -514,7 +534,12 @@ def main():
                                     sheet.append_row(row_data)
                                     written_count += 1
                                 
-                                st.success(f"解析が完了し、{written_count}件のデータをスプレッドシートに保存しました！")
+                                st.session_state.flash_message = f"✅ 解析が完了し、{written_count}件のデータを保存しました！"
+                                
+                                import time
+                                time.sleep(1)
+                                st.session_state['redirect_to_dashboard'] = True
+                                st.rerun()
                                 
                             except Exception as e:
                                 st.error(f"保存エラー: {e}")
@@ -530,9 +555,9 @@ def main():
         elif menu_selection == "カレンダー":
             st.header("カレンダー")
             st.info("準備中: カレンダーUIは今後のフェーズで実装されます。")
-        elif menu_selection == "設定・ヘルプ":
-            st.header("設定・ヘルプ")
-            st.info("準備中: 設定およびチャットボット機能は今後のフェーズで実装されます。")
+        elif menu_selection == "ヘルプ":
+            st.header("ヘルプ")
+            st.info("準備中: ヘルプ・チャットボット機能は今後のフェーズで実装されます。")
             
     # 未ログインの状態 (ログイン・登録画面)
     else:
