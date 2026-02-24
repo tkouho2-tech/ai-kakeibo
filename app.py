@@ -445,7 +445,7 @@ def main():
             
         # サイドバーメニューの実装
         with st.sidebar:
-            st.title("メインメニュー [Ver 1.0.0]")
+            st.title("メインメニュー [Ver 1.0.1]")
             st.write(f"🔑 ユーザー: **{st.session_state['username']}**")
             st.markdown("---")
             if 'menu_selection' not in st.session_state:
@@ -467,25 +467,61 @@ def main():
             show_dashboard()
         elif menu_selection == "レシート取込":
             st.header("📸 レシート取込")
-            st.info("カメラで撮影するか、画像ファイルをアップロードしてレシートを解析します。")
+            st.info("画像ファイルをアップロードしてレシートを解析します。")
             
-            tab_camera, tab_upload = st.tabs(["📷 カメラで撮影", "📁 画像をアップロード"])
+            if "uploader_key" not in st.session_state:
+                st.session_state.uploader_key = 0
+            
             uploaded_file = None
             
-            with tab_camera:
-                camera_image = st.camera_input("カメラでレシートを撮影してください")
-                if camera_image:
-                    uploaded_file = camera_image
-                    
-            with tab_upload:
-                file_img = st.file_uploader("レシートの画像をアップロード", type=['png', 'jpg', 'jpeg'], accept_multiple_files=False)
-                if file_img:
-                    uploaded_file = file_img
+            file_img = st.file_uploader("レシートの画像をアップロード", type=['png', 'jpg', 'jpeg'], accept_multiple_files=False, key=f"uploader_{st.session_state.uploader_key}")
+            if file_img:
+                uploaded_file = file_img
             
             if uploaded_file is not None:
                 st.image(uploaded_file, caption="取得したレシート画像", width=300)
                 
-                if st.button("✨ 画像を解析して保存する", type="primary"):
+                # Streamlitのボタンに色をつける（このページのみに適用される）
+                st.markdown("""
+                <style>
+                    /* 登録ボタン(Primary) を青色に */
+                    div.stButton > button[kind="primary"] {
+                        background-color: #007bff !important;
+                        color: white !important;
+                        border-color: #007bff !important;
+                    }
+                    div.stButton > button[kind="primary"]:hover {
+                        background-color: #0056b3 !important;
+                        border-color: #0056b3 !important;
+                    }
+
+                    /* キャンセルボタン(Secondary) を赤色に */
+                    div.stButton > button[kind="secondary"] {
+                        background-color: #dc3545 !important;
+                        color: white !important;
+                        border-color: #dc3545 !important;
+                    }
+                    div.stButton > button[kind="secondary"]:hover {
+                        background-color: #c82333 !important;
+                        border-color: #c82333 !important;
+                        color: white !important;
+                    }
+                </style>
+                """, unsafe_allow_html=True)
+                
+                col1, col2 = st.columns(2)
+                with col1:
+                    # 登録ボタンは青色
+                    submit_btn = st.button("登録", type="primary", use_container_width=True)
+                with col2:
+                    # キャンセルボタンは赤色
+                    cancel_btn = st.button("キャンセル", type="secondary", use_container_width=True)
+                    
+                if cancel_btn:
+                    st.session_state.uploader_key += 1
+                    st.rerun()
+                
+                if submit_btn:
                     try:
                         with st.spinner("画像を解析中... Geminiが読み取っています"):
                             results = parse_receipt_with_gemini(uploaded_file)
