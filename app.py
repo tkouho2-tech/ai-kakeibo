@@ -192,6 +192,9 @@ def load_transactions_data(target_month):
     if not records:
          return pd.DataFrame()
          
+    for i, r in enumerate(records):
+        r['_row_index'] = i + 2  # ヘッダー行を考慮して+2
+         
     df = pd.DataFrame(records)
     
     # クレンジング（不要なスペース等削除、データ型変換）
@@ -445,7 +448,7 @@ def main():
             
         # サイドバーメニューの実装
         with st.sidebar:
-            st.title("メインメニュー [Ver 1.0.1]")
+            st.title("メインメニュー [Ver 1.0.2]")
             st.write(f"🔑 ユーザー: **{st.session_state['username']}**")
             st.markdown("---")
             if 'menu_selection' not in st.session_state:
@@ -586,8 +589,233 @@ def main():
             st.header("レシート手入力")
             st.info("準備中: 手動でのレシート入力機能は今後のフェーズで実装されます。")
         elif menu_selection == "レシート修正":
-            st.header("レシート修正")
-            st.info("準備中: 登録したデータの修正機能は今後のフェーズで実装されます。")
+            st.header("⚙️ レシート修正")
+            
+            # 月の切替UI
+            col1, col2, col3, col4, col5 = st.columns([3, 1, 2, 1, 3])
+            with col2:
+                if st.button("◀ 前月", key="prev_mod_btn", use_container_width=True):
+                    st.session_state['current_month'] -= relativedelta(months=1)
+                    st.rerun()
+            with col3:
+                st.markdown(f"<h3 style='text-align: center; margin: 0;'>{st.session_state['current_month'].strftime('%Y年%m月')}</h3>", unsafe_allow_html=True)
+            with col4:
+                if st.button("翌月 ▶", key="next_mod_btn", use_container_width=True):
+                    st.session_state['current_month'] += relativedelta(months=1)
+                    st.rerun()
+                    
+            st.markdown("---")
+            
+            with st.spinner("データを読み込み中..."):
+                df = load_transactions_data(st.session_state['current_month'])
+                
+            if df.empty:
+                st.info("※この月のデータはありません。")
+            else:
+                # 店舗名と商品名のカラムを動的に判定
+                store_col = "store_name" if "store_name" in df.columns else "store" if "store" in df.columns else None
+                item_col = "item_name" if "item_name" in df.columns else "item" if "item" in df.columns else "items" if "items" in df.columns else None
+                
+                if not store_col:
+                    st.warning("スプレッドシートに店舗名（'store_name' または 'store'）の列が見つかりません。")
+                else:
+                    # レシート単位に集約（日付と店舗名が同じものを同一レシートとみなす）
+                    receipts_df = df.groupby(["date", store_col], as_index=False).agg(
+                        amount=("amount", "sum"),
+                        明細数=("amount", "count")
+                    )
+                    receipts_df.columns = ["日付", "店舗名", "金額合計", "明細数"]
+                    receipts_df["日付"] = receipts_df["日付"].dt.strftime('%Y-%m-%d')
+                    receipts_df["金額合計"] = receipts_df["金額合計"].apply(lambda x: int(x))
+                    receipts_df = receipts_df.sort_values(by="日付", ascending=False).reset_index(drop=True)
+                    
+                    # 総合計行を追加
+                    total_amount = receipts_df["金額合計"].sum()
+                    total_items = receipts_df["明細数"].sum()
+                    total_row = pd.DataFrame([{
+                        "日付": "総合計",
+                        "店舗名": "",
+                        "金額合計": int(total_amount),
+                        "明細数": int(total_items)
+                    }])
+                    receipts_df = pd.concat([receipts_df, total_row], ignore_index=True)
+                    
+                    st.write("##### ▶レシート一覧表（対象レシートを選択してください）")
+                    
+                    # dataframe 選択
+                    event = st.dataframe(
+                        receipts_df, 
+                        use_container_width=True, 
+                        hide_index=True, 
+                        selection_mode="single-row",
+                        on_select="rerun"
+                    )
+                    
+                    if len(event.selection.rows) > 0:
+                        selected_idx = event.selection.rows[0]
+                        selected_receipt = receipts_df.iloc[selected_idx]
+                        
+                        # 総合計行が選択された場合は詳細表示しない
+                        if selected_receipt["日付"] != "総合計":
+                            target_date = pd.to_datetime(selected_receipt["日付"])
+                            target_store = selected_receipt["店舗名"]
+                            
+                            st.markdown("---")
+                            st.write(f"##### 対象レシート明細： {selected_receipt['日付']} - {target_store}")
+                            
+                            # 該当レシートの明細を取得
+                            details = df[(df["date"] == target_date) & (df[store_col] == target_store)].copy()
+                            
+                            # session_state 上の変更状態を初期化（対象が変わった場合用）
+                            receipt_key = f"{selected_receipt['日付']}_{target_store}"
+                            if st.session_state.get('current_receipt_key') != receipt_key:
+                                st.session_state['current_receipt_key'] = receipt_key
+                                st.session_state['edit_data'] = {}
+                            
+                            for idx, row in details.iterrows():
+                                row_index_gs = row["_row_index"]
+                                
+                                if row_index_gs not in st.session_state['edit_data']:
+                                    major = row.get("category", "その他")
+                                    # subcategoryカラムの特定
+                                    sub_cols = [c for c in ["subcategory", "sub_category", "小分類"] if c in df.columns]
+                                    sub = row.get(sub_cols[0], "❓その他") if sub_cols else "❓その他"
+                                    
+                                    st.session_state['edit_data'][row_index_gs] = {
+                                        "amount": int(row.get("amount", 0)),
+                                        "major": major,
+                                        "minor": sub
+                                    }
+                                    
+                            st.write("##### 明細一覧")
+                            
+                            # ヘッダー行
+                            h_col1, h_col2, h_col3, h_col4 = st.columns([3, 2, 3, 3])
+                            h_col1.markdown("**商品名**")
+                            h_col2.markdown("**金額**")
+                            h_col3.markdown("**大分類**")
+                            h_col4.markdown("**小分類**")
+                            
+                            modified = False
+                            
+                            for idx, row in details.iterrows():
+                                row_index_gs = row["_row_index"]
+                                item_name = row.get(item_col, "不明な商品") if item_col else "不明な商品"
+                                
+                                edit_vals = st.session_state['edit_data'].get(row_index_gs)
+                                if not edit_vals:
+                                    continue
+                                
+                                disp_amount = edit_vals['amount']
+                                disp_major = edit_vals['major']
+                                disp_minor = edit_vals['minor']
+                                
+                                row_col1, row_col2, row_col3, row_col4 = st.columns([3, 2, 3, 3])
+                                
+                                # 商品名
+                                with row_col1:
+                                    st.markdown(f"<div style='margin-top: 8px;'>{item_name}</div>", unsafe_allow_html=True)
+                                    
+                                # 金額
+                                with row_col2:
+                                    new_amount = st.number_input("金額", value=disp_amount, step=1, key=f"amt_{row_index_gs}", label_visibility="collapsed")
+                                    
+                                # 大分類
+                                with row_col3:
+                                    majors = list(EXPENSE_CATEGORIES.keys())
+                                    default_major_idx = majors.index(disp_major) if disp_major in majors else majors.index("その他")
+                                    new_major = st.selectbox("大分類", majors, index=default_major_idx, key=f"maj_{row_index_gs}", label_visibility="collapsed")
+                                    
+                                # 小分類
+                                with row_col4:
+                                    minors = EXPENSE_CATEGORIES.get(new_major, EXPENSE_CATEGORIES["その他"])
+                                    default_minor_idx = minors.index(disp_minor) if disp_minor in minors else len(minors)-1
+                                    new_minor = st.selectbox("小分類", minors, index=default_minor_idx, key=f"min_{row_index_gs}", label_visibility="collapsed")
+                                
+                                if new_amount != disp_amount or new_major != disp_major or new_minor != disp_minor:
+                                    st.session_state['edit_data'][row_index_gs]["amount"] = new_amount
+                                    st.session_state['edit_data'][row_index_gs]["major"] = new_major
+                                    st.session_state['edit_data'][row_index_gs]["minor"] = new_minor
+                                    modified = True
+                                    
+                            if modified:
+                                st.rerun()
+                                
+                            st.markdown("---")
+                            
+                            # ボタン（戻すボタンを削除し、2列に変更）
+                            col1, col2 = st.columns(2)
+                            with col1:
+                                if st.button("登録", use_container_width=True):
+                                    try:
+                                        with st.spinner("保存中..."):
+                                            sheet = get_sheet(TRANSACTIONS_WORKSHEET_NAME)
+                                            headers = sheet.row_values(1)
+                                            amount_col_idx = headers.index("amount") + 1 if "amount" in headers else None
+                                            category_col_idx = headers.index("category") + 1 if "category" in headers else None
+                                            
+                                            # subcategoryの列名を特定
+                                            sub_col_idx = None
+                                            for c in ["subcategory", "sub_category", "小分類"]:
+                                                if c in headers:
+                                                    sub_col_idx = headers.index(c) + 1
+                                                    break
+                                            
+                                            updates = []
+                                            for r_idx_gs, vals in st.session_state['edit_data'].items():
+                                                if amount_col_idx: updates.append(gspread.Cell(row=r_idx_gs, col=amount_col_idx, value=vals["amount"]))
+                                                if category_col_idx: updates.append(gspread.Cell(row=r_idx_gs, col=category_col_idx, value=vals["major"]))
+                                                if sub_col_idx: updates.append(gspread.Cell(row=r_idx_gs, col=sub_col_idx, value=vals["minor"]))
+                                                
+                                            if updates:
+                                                sheet.update_cells(updates)
+                                                
+                                            st.success("✅ レシート明細を更新しました")
+                                            st.session_state['edit_data'] = {} # リセット
+                                            import time; time.sleep(1)
+                                            st.rerun()
+                                    except Exception as e:
+                                        st.error(f"エラー: {e}")
+                                        
+                            with col2:
+                                # 削除ボタン
+                                if st.button("削除", use_container_width=True):
+                                    try:
+                                        with st.spinner("削除中..."):
+                                            sheet = get_sheet(TRANSACTIONS_WORKSHEET_NAME)
+                                            # 下から順に削除する（インデックスがずれないように）
+                                            rows_to_delete = sorted(list(st.session_state['edit_data'].keys()), reverse=True)
+                                            for r_idx in rows_to_delete:
+                                                sheet.delete_rows(r_idx)
+                                                
+                                            st.success("✅ レシートを削除しました")
+                                            st.session_state['edit_data'] = {}
+                                            import time; time.sleep(1)
+                                            st.rerun()
+                                    except Exception as e:
+                                        st.error(f"エラー: {e}")
+                            
+                            # CSSの代わりにJSを使ってより確実にボタンの色を変更
+                            import streamlit.components.v1 as components
+                            components.html("""
+                            <script>
+                            const elements = window.parent.document.querySelectorAll('button');
+                            elements.forEach(b => {
+                                const text = b.innerText.trim();
+                                if (text === '登録') {
+                                    b.style.backgroundColor = '#007bff';
+                                    b.style.color = 'white';
+                                    b.style.borderColor = '#007bff';
+                                }
+                                if (text === '削除') {
+                                    b.style.backgroundColor = '#ff4b4b';
+                                    b.style.color = 'white';
+                                    b.style.borderColor = '#ff4b4b';
+                                }
+                            });
+                            </script>
+                            """, height=0, width=0)
+
         elif menu_selection == "カレンダー":
             st.header("カレンダー")
             st.info("準備中: カレンダーUIは今後のフェーズで実装されます。")
