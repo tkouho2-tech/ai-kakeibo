@@ -780,8 +780,8 @@ def main():
                                     /* 各項目の幅を固定して過剰な広がりを防ぐ */
                                     div[data-testid="column"]:nth-child(1) { width: 110px !important; } /* 商品名 */
                                     div[data-testid="column"]:nth-child(2) { width: 70px !important; }  /* 金額 */
-                                    div[data-testid="column"]:nth-child(3) { width: 85px !important; }  /* 大分類 */
-                                    div[data-testid="column"]:nth-child(4) { width: 85px !important; }  /* 小分類 */
+                                    div[data-testid="column"]:nth-child(3) { width: 70px !important; }  /* 大分類 */
+                                    div[data-testid="column"]:nth-child(4) { width: 70px !important; }  /* 小分類 */
                                 }
                             </style>
                             """, unsafe_allow_html=True)
@@ -817,9 +817,10 @@ def main():
                                 with row_col1:
                                     st.markdown(f"<div style='margin-top: 8px; font-size: 0.85em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;' title='{item_name}'>{item_name}</div>", unsafe_allow_html=True)
                                     
-                                # 金額
+                                # 金額 (変更不可にする)
                                 with row_col2:
-                                    new_amount = st.number_input("金額", value=disp_amount, step=1, key=f"amt_{row_index_gs}", label_visibility="collapsed")
+                                    # disabled=Trueにするとグレーアウトして編集不可になる
+                                    new_amount = st.number_input("金額", value=disp_amount, step=1, key=f"amt_{row_index_gs}", label_visibility="collapsed", disabled=True)
                                     
                                 # 大分類
                                 with row_col3:
