@@ -777,11 +777,11 @@ def main():
                                         padding-left: 0.1rem !important;
                                         padding-right: 0.1rem !important;
                                     }
-                                    /* 各項目の幅を固定して過剰な広がりを防ぐ */
-                                    div[data-testid="column"]:nth-child(1) { width: 110px !important; } /* 商品名 */
-                                    div[data-testid="column"]:nth-child(2) { width: 70px !important; }  /* 金額 */
-                                    div[data-testid="column"]:nth-child(3) { width: 70px !important; }  /* 大分類 */
-                                    div[data-testid="column"]:nth-child(4) { width: 70px !important; }  /* 小分類 */
+                                    /* 各項目の幅を文字数に合わせて最小限化する */
+                                    div[data-testid="column"]:nth-child(1) { width: 140px !important; } /* 商品名: 少し余裕を持たせる */
+                                    div[data-testid="column"]:nth-child(2) { width: 50px !important; }  /* 金額: 単なるテキストなので最小限 */
+                                    div[data-testid="column"]:nth-child(3) { width: max-content !important; min-width: 60px !important; }  /* 大分類: リストの文字幅に合わせる */
+                                    div[data-testid="column"]:nth-child(4) { width: max-content !important; min-width: 60px !important; }  /* 小分類: リストの文字幅に合わせる */
                                 }
                             </style>
                             """, unsafe_allow_html=True)
@@ -791,7 +791,7 @@ def main():
                             st.markdown('<div class="scrollable-container">', unsafe_allow_html=True)
                             
                             # ヘッダー
-                            h_col1, h_col2, h_col3, h_col4 = st.columns([3, 2, 2.5, 2.5])
+                            h_col1, h_col2, h_col3, h_col4 = st.columns([4, 1.5, 2.25, 2.25])
                             h_col1.markdown("<div style='font-size: 0.85em; font-weight: bold; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;'>商品名</div>", unsafe_allow_html=True)
                             h_col2.markdown("<div style='font-size: 0.85em; font-weight: bold;'>金額</div>", unsafe_allow_html=True)
                             h_col3.markdown("<div style='font-size: 0.85em; font-weight: bold;'>大分類</div>", unsafe_allow_html=True)
@@ -811,16 +811,16 @@ def main():
                                 disp_major = edit_vals['major']
                                 disp_minor = edit_vals['minor']
                                 
-                                row_col1, row_col2, row_col3, row_col4 = st.columns([3, 2, 2.5, 2.5])
+                                row_col1, row_col2, row_col3, row_col4 = st.columns([4, 1.5, 2.25, 2.25])
                                 
                                 # 商品名
                                 with row_col1:
                                     st.markdown(f"<div style='margin-top: 8px; font-size: 0.85em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;' title='{item_name}'>{item_name}</div>", unsafe_allow_html=True)
                                     
-                                # 金額 (変更不可にする)
+                                # 金額 (表示のみにする)
                                 with row_col2:
-                                    # disabled=Trueにするとグレーアウトして編集不可になる
-                                    new_amount = st.number_input("金額", value=disp_amount, step=1, key=f"amt_{row_index_gs}", label_visibility="collapsed", disabled=True)
+                                    st.markdown(f"<div style='margin-top: 8px; font-size: 0.85em;'>¥{disp_amount:,}</div>", unsafe_allow_html=True)
+                                    new_amount = disp_amount # 変更不可なため保持
                                     
                                 # 大分類
                                 with row_col3:
