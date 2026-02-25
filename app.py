@@ -448,7 +448,7 @@ def main():
             
         # サイドバーメニューの実装
         with st.sidebar:
-            st.title("メインメニュー [Ver 1.0.2]")
+            st.title("メインメニュー [Ver 1.0.3]")
             st.write(f"🔑 ユーザー: **{st.session_state['username']}**")
             st.markdown("---")
             if 'menu_selection' not in st.session_state:
@@ -474,6 +474,9 @@ def main():
             
             if "uploader_key" not in st.session_state:
                 st.session_state.uploader_key = 0
+                
+            if "parsed_results" not in st.session_state:
+                st.session_state.parsed_results = None
             
             uploaded_file = None
             
@@ -512,29 +515,89 @@ def main():
                 </style>
                 """, unsafe_allow_html=True)
                 
-                col1, col2 = st.columns(2)
-                with col1:
-                    # 登録ボタンは青色
-                    submit_btn = st.button("登録", type="primary", use_container_width=True)
-                with col2:
-                    # キャンセルボタンは赤色
-                    cancel_btn = st.button("キャンセル", type="secondary", use_container_width=True)
-                    
-                if cancel_btn:
-                    st.session_state.uploader_key += 1
-                    st.rerun()
+                if st.session_state.parsed_results is None:
+                    # まだ解析していない場合
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        parse_btn = st.button("レシートを解析する", type="primary", use_container_width=True)
+                    with col2:
+                        cancel_parse_btn = st.button("キャンセル", type="secondary", use_container_width=True, key="cancel_upload")
+                        
+                    if cancel_parse_btn:
+                        st.session_state.uploader_key += 1
+                        st.rerun()
+                        
+                    if parse_btn:
+                        try:
+                            with st.spinner("画像を解析中... Geminiが読み取っています"):
+                                results = parse_receipt_with_gemini(uploaded_file)
+                                
+                            if isinstance(results, list) and len(results) > 0 and isinstance(results[0], dict) and "error" in results[0]:
+                                st.error(f"解析に失敗しました: {results[0]['error']}")
+                            elif isinstance(results, dict) and "error" in results:
+                                st.error(f"解析に失敗しました: {results['error']}")
+                            else:
+                                st.session_state.parsed_results = results
+                                st.rerun()
+                        except Exception as e:
+                            st.error(f"解析処理中に予期せぬエラーが発生しました: {e}")
                 
-                if submit_btn:
-                    try:
-                        with st.spinner("画像を解析中... Geminiが読み取っています"):
-                            results = parse_receipt_with_gemini(uploaded_file)
-                            
-                        if isinstance(results, list) and len(results) > 0 and isinstance(results[0], dict) and "error" in results[0]:
-                            st.error(f"解析に失敗しました: {results[0]['error']}")
-                        elif isinstance(results, dict) and "error" in results:
-                            st.error(f"解析に失敗しました: {results['error']}")
-                        else:
-                            try:
+                else:
+                    # 解析完了後、プレビューと確認画面を表示
+                    results = st.session_state.parsed_results
+                    
+                    if len(results) > 0:
+                        preview_date = results[0].get("date", "")
+                        preview_store = results[0].get("store_name", "")
+                    else:
+                        preview_date = ""
+                        preview_store = ""
+                        
+                    total_amount = sum(int(item.get("amount", 0)) for item in results)
+                    
+                    # 大分類別の内訳を集計
+                    category_totals = {}
+                    for item in results:
+                        cat = item.get("major_category", "その他")
+                        # 正規化処理を適用して大分類を揃える
+                        majors = list(EXPENSE_CATEGORIES.keys())
+                        final_major = "その他"
+                        for m in majors:
+                            if m in cat or cat in m:
+                                final_major = m
+                                break
+                        
+                        amt = int(item.get("amount", 0))
+                        category_totals[final_major] = category_totals.get(final_major, 0) + amt
+                    
+                    st.markdown("### 📋 解析結果の確認")
+                    st.write(f"**日付**: {preview_date}")
+                    st.write(f"**店舗**: {preview_store}")
+                    st.write(f"**合計金額**: ￥{total_amount:,}")
+                    
+                    # DataFrameで一覧表示
+                    cat_df = pd.DataFrame([
+                        {"大分類": k, "金額": f"￥{v:,}"} for k, v in category_totals.items()
+                    ])
+                    st.dataframe(cat_df, hide_index=True, use_container_width=True)
+                    
+                    st.markdown("---")
+                    st.write("この内容で登録しますか？")
+                    
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        submit_btn = st.button("登録", type="primary", use_container_width=True)
+                    with col2:
+                        cancel_btn = st.button("キャンセル", type="secondary", use_container_width=True)
+                        
+                    if cancel_btn:
+                        st.session_state.parsed_results = None
+                        st.session_state.uploader_key += 1
+                        st.rerun()
+                        
+                    if submit_btn:
+                        try:
+                            with st.spinner("保存中..."):
                                 sheet = get_sheet(TRANSACTIONS_WORKSHEET_NAME)
                                 init_transactions_sheet(sheet)
                                 
@@ -577,13 +640,13 @@ def main():
                                 
                                 import time
                                 time.sleep(1)
-                                st.session_state['redirect_to_dashboard'] = True
+                                
+                                st.session_state.parsed_results = None
+                                st.session_state.uploader_key += 1
                                 st.rerun()
                                 
-                            except Exception as e:
-                                st.error(f"保存エラー: {e}")
-                    except Exception as e:
-                        st.error(f"解析処理中に予期せぬエラーが発生しました: {e}")
+                        except Exception as e:
+                            st.error(f"保存エラー: {e}")
 
         elif menu_selection == "レシート手入力":
             st.header("レシート手入力")
@@ -690,11 +753,22 @@ def main():
                             st.write("##### 明細一覧")
                             
                             # ヘッダー行
-                            h_col1, h_col2, h_col3, h_col4 = st.columns([3, 2, 3, 3])
-                            h_col1.markdown("**商品名**")
-                            h_col2.markdown("**金額**")
-                            h_col3.markdown("**大分類**")
-                            h_col4.markdown("**小分類**")
+                            st.markdown("""
+                            <style>
+                                /* スマホ等でカラムが縦積みになるのを防ぎ、1行に強制表示するCSS */
+                                [data-testid="column"] {
+                                    min-width: 0 !important;
+                                    padding-left: 0.2rem !important;
+                                    padding-right: 0.2rem !important;
+                                }
+                            </style>
+                            """, unsafe_allow_html=True)
+                            
+                            h_col1, h_col2, h_col3, h_col4 = st.columns([3.5, 2.5, 3, 3])
+                            h_col1.markdown("<div style='font-size: 0.9em; font-weight: bold; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;'>商品名</div>", unsafe_allow_html=True)
+                            h_col2.markdown("<div style='font-size: 0.9em; font-weight: bold;'>金額</div>", unsafe_allow_html=True)
+                            h_col3.markdown("<div style='font-size: 0.9em; font-weight: bold;'>大分類</div>", unsafe_allow_html=True)
+                            h_col4.markdown("<div style='font-size: 0.9em; font-weight: bold;'>小分類</div>", unsafe_allow_html=True)
                             
                             modified = False
                             
@@ -710,11 +784,11 @@ def main():
                                 disp_major = edit_vals['major']
                                 disp_minor = edit_vals['minor']
                                 
-                                row_col1, row_col2, row_col3, row_col4 = st.columns([3, 2, 3, 3])
+                                row_col1, row_col2, row_col3, row_col4 = st.columns([3.5, 2.5, 3, 3])
                                 
                                 # 商品名
                                 with row_col1:
-                                    st.markdown(f"<div style='margin-top: 8px;'>{item_name}</div>", unsafe_allow_html=True)
+                                    st.markdown(f"<div style='margin-top: 8px; font-size: 0.85em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;' title='{item_name}'>{item_name}</div>", unsafe_allow_html=True)
                                     
                                 # 金額
                                 with row_col2:
@@ -820,8 +894,98 @@ def main():
             st.header("カレンダー")
             st.info("準備中: カレンダーUIは今後のフェーズで実装されます。")
         elif menu_selection == "ヘルプ":
-            st.header("ヘルプ")
-            st.info("準備中: ヘルプ・チャットボット機能は今後のフェーズで実装されます。")
+            st.header("🤖 ヘルプ・サポート")
+            st.info("アプリの機能や使い方、データの保存先などについて何でも聞いてください！")
+            
+            # セッション状態の初期化
+            if "help_messages" not in st.session_state:
+                st.session_state.help_messages = [
+                    {"role": "assistant", "content": "こんにちは！AI家計簿アプリのサポートAIです。\n機能の使い方や、データがどこに保存されているかなど、質問があればどうぞ！"}
+                ]
+                
+            # メッセージ履歴の表示
+            for msg in st.session_state.help_messages:
+                with st.chat_message(msg["role"]):
+                    st.markdown(msg["content"])
+                    
+            # ユーザー入力
+            if user_input := st.chat_input("質問を入力してください...（例: レシートはどうやって登録するの？）"):
+                # ユーザーのメッセージを表示して履歴に追加
+                st.session_state.help_messages.append({"role": "user", "content": user_input})
+                with st.chat_message("user"):
+                    st.markdown(user_input)
+                    
+                # APIクライアントの取得
+                client = st.session_state.get('genai_client')
+                if not client:
+                    with st.chat_message("assistant"):
+                        st.error("APIキーが設定されていないため、回答できません。secrets.toml を確認してください。")
+                else:
+                    with st.chat_message("assistant"):
+                        message_placeholder = st.empty()
+                        message_placeholder.markdown("回答を生成中...")
+                        
+                        try:
+                            # システムプロンプトの構築（アプリの仕様とデータの管理場所）
+                            system_prompt = """あなたは「AI家計簿アプリ」のサポート用チャットボットです。
+ユーザーからの質問に対して、以下のアプリ仕様に基づいて丁寧かつ分かりやすく、日本語で回答してください。
+
+【アプリの機能一覧と操作方法】
+1. ダッシュボード
+   - 月ごとの支出を円グラフ（大分類別）と一覧表（大分類からの展開で小分類、または明細）で確認できます。
+   - 画面上部の「◀ 前月」「翌月 ▶」ボタンで表示する月を切り替えられます。
+2. レシート取込
+   - スマホやPCからレシートや領収書の画像をアップロードし、「レシートを解析する」ボタンを押すとAI（Gemini）が自動的に内容（日付、店舗名、商品名、金額、大分類、小分類）を読み取ります。
+   - 解析後、内容を確認する画面が表示されます。確認して問題なければ青い「登録」ボタンで保存します。やり直す場合は赤い「キャンセル」ボタンを押してください。
+3. レシート手入力
+   - （現在準備中）手動で直接レシート情報を入力する機能です。今後のフェーズで実装予定です。
+4. レシート修正
+   - 過去に登録したレシート明細を月ごとに確認し、金額や分類（大分類・小分類）を修正できます。
+   - 対象のレシート（店舗名と日付でグループ化されています）を選択し、内容を変更した後「登録」ボタンで上書き保存するか、「削除」ボタンでそのレシートを一件まるごと削除できます。
+5. カレンダー
+   - （現在準備中）日別の支出をカレンダー形式で確認できる機能です。今後のフェーズで実装予定です。
+6. ヘルプ
+   - 今あなたが使っているこのチャット機能です。
+
+【データ管理とセキュリティについて】
+- ユーザー認証：ユーザー名とパスワードでログインします。パスワードは暗号化（bcrypt）されて安全に保存されます。
+- データの保存先（重要）：すべてのデータ（ユーザー情報、家計簿の明細データ）は、開発者が管理する「Google スプレッドシート」に保存されています。
+  - `users` シート：ユーザー名と暗号化されたパスワードを保存。
+  - `transactions` シート：各ユーザーの家計簿データ（レシート情報など）を保存。「username」列によってデータが区別されるため、他のユーザーのデータが混ざって表示されることはありません。
+- 認証基盤：Google API（GCPのサービスアカウント、または credentials.json）を利用して、アプリからスプレッドシートへ安全にアクセスしています。
+
+【回答のガイドライン】
+- アプリの仕様に関すること以外を聞かれた場合は、「私はAI家計簿アプリのサポートボットですので、それについてはお答えできません」と優しく断ってください。
+- 回答は長すぎず、箇条書きなどを活用して見やすくしてください。
+"""
+                            # チャット履歴をGeminiAPIの形式に変換
+                            # system_instruction を使うか、プロンプトの先頭にシステムプロンプトを入れる
+                            # ここでは安全に、各やり取りのコンテキストとして user プロンプトの先頭に入れる簡易方式をとるか、
+                            # genai の chat セッション機能を使うことができます。
+                            # 複雑さを避けるため、generate_content に system instruction として渡します
+                            
+                            
+                            prompt_parts = [{"text": system_prompt}]
+                            for m in st.session_state.help_messages:
+                                prefix = "ユーザー: " if m["role"] == "user" else "AI: "
+                                prompt_parts.append({"text": f"{prefix}{m['content']}"})
+                                
+                            prompt_parts.append({"text": "以上の会話を踏まえて、最後のユーザーの質問に返答してください。"})
+
+                            response = client.models.generate_content(
+                                model='gemini-2.5-flash',
+                                contents=prompt_parts
+                            )
+                            
+                            full_response = response.text
+                            message_placeholder.markdown(full_response)
+                            
+                            st.session_state.help_messages.append({"role": "assistant", "content": full_response})
+                            
+                        except Exception as e:
+                            error_msg = f"エラーが発生しました: {e}"
+                            message_placeholder.error(error_msg)
+                            st.session_state.help_messages.append({"role": "assistant", "content": error_msg})
             
     # 未ログインの状態 (ログイン・登録画面)
     else:
