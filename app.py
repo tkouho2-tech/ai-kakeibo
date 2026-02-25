@@ -983,29 +983,35 @@ def main():
                 color = "#ff4b4b" if i == 6 else "#1f77b4" if i == 5 else "black"
                 cols[i].markdown(f"<div style='text-align: center; font-weight: bold; font-size: 0.9em; color: {color};'>{wd}</div>", unsafe_allow_html=True)
                 
-            # カレンダー全体にのみ影響を与えるためのCSS
-            # st.container(border=True) は内部に div[data-testid="stVerticalBlockBorderWrapper"] を生成する
+            # カレンダー全体にのみ影響を与えるためのCSS（.cal-cell を持つ要素の親に適用）
             st.markdown("""
             <style>
-            div[data-testid="column"] div[data-testid="stVerticalBlockBorderWrapper"] {
+            div[data-testid="column"] div[data-testid="stVerticalBlockBorderWrapper"]:has(.cal-cell) {
                 position: relative;
                 min-height: 80px;
                 padding: 0 !important;
             }
-            div[data-testid="column"] div[data-testid="stVerticalBlockBorderWrapper"] div[data-testid="stButton"] {
-                position: absolute;
-                top: 0;
-                left: 0;
-                width: 100%;
-                height: 100%;
-                opacity: 0.01;
-                z-index: 10;
+            div[data-testid="column"] div[data-testid="stVerticalBlockBorderWrapper"]:has(.cal-cell) div[data-testid="stButton"] button {
+                position: absolute !important;
+                top: 0 !important;
+                left: 0 !important;
+                width: 100% !important;
+                height: 100% !important;
+                opacity: 0 !important;
+                z-index: 10 !important;
+                padding: 0 !important;
+                margin: 0 !important;
+                border: none !important;
+                background: transparent !important;
+                box-shadow: none !important;
             }
-            div[data-testid="column"] div[data-testid="stVerticalBlockBorderWrapper"] div[data-testid="stButton"] button {
-                width: 100%;
-                height: 100%;
-                padding: 0;
-                margin: 0;
+            div[data-testid="column"] div[data-testid="stVerticalBlockBorderWrapper"]:has(.cal-cell) div[data-testid="stButton"] button:focus {
+                outline: none !important;
+                box-shadow: none !important;
+            }
+            div[data-testid="column"] div[data-testid="stVerticalBlockBorderWrapper"]:has(.cal-cell) div[data-testid="stButton"] button:hover {
+                border: none !important;
+                background: transparent !important;
             }
             </style>
             """, unsafe_allow_html=True)
@@ -1016,13 +1022,16 @@ def main():
                 for i, day in enumerate(week):
                     with cols[i]:
                         if day == 0:
-                            # 空セル
-                            st.markdown("<div style='min-height: 80px;'></div>", unsafe_allow_html=True)
+                            # 空セル（Streamlitのマークダウン不具合回避のため、不可視文字を入れる）
+                            st.markdown("<div style='min-height: 80px; opacity: 0;'>0</div>", unsafe_allow_html=True)
                         else:
                             total = daily_totals.get(day, 0)
                             bg_color = "#e6f7ff" if st.session_state['selected_day'] == day else "transparent"
                             
                             with st.container(border=True):
+                                # CSS適用のための一時的クラスマーカー
+                                st.markdown('<div class="cal-cell" style="display:none;"></div>', unsafe_allow_html=True)
+                                
                                 # CSSラップとセルのレイアウト描画（背景色、日付は黒、金額は赤）
                                 st.markdown(f'''
                                 <div style="background-color: {bg_color}; height: 100%; min-height: 70px; margin: -1rem; padding: 0.5rem; position: relative; border-radius: 0.5rem;">
@@ -1050,21 +1059,26 @@ def main():
                     
                     st.markdown(f"#### {month}月{sel_day}日の明細一覧")
                     
-                    # 店舗（レシート）ごとにグループ化
-                    if "store_name" not in day_df.columns:
-                        day_df["store_name"] = "店舗名不明"
+                    # 店舗（レシート）ごとにグループ化するための列を特定
+                    store_col = next((c for c in ["store_name", "store", "店舗名", "店舗"] if c in day_df.columns), None)
+                    if not store_col:
+                        day_df["_store"] = "店舗名不明"
+                        store_col = "_store"
                         
-                    store_groups = day_df.groupby("store_name", dropna=False)
+                    # 空白やNaNのものは「店舗名不明」に置き換える
+                    day_df[store_col] = day_df[store_col].replace(r'^\s*$', '店舗名不明', regex=True).fillna("店舗名不明")
+                    
+                    store_groups = day_df.groupby(store_col)
                     
                     for store_name, group in store_groups:
                         store_total = int(group["amount"].sum())
-                        disp_store = store_name if pd.notna(store_name) and str(store_name).strip() != "" else "店舗名不明"
+                        disp_store = str(store_name)
                         
                         # st.expander() がブラインド表示（アコーディオン形式）になります
                         with st.expander(f"🛒 **{disp_store}**　　（合計: ￥{store_total:,}）", expanded=False):
                             
-                            # そのレシートの大分類と金額一覧を表示する
-                            cat_groups = group.groupby("category", dropna=False)["amount"].sum()
+                            # そのレシートの大分類を金額が多い順に一覧表示する
+                            cat_groups = group.groupby("category", dropna=False)["amount"].sum().sort_values(ascending=False)
                             for cat, cat_amount in cat_groups.items():
                                 disp_cat = cat if pd.notna(cat) else "その他"
                                 st.markdown(f"""
