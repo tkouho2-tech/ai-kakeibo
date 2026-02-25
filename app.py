@@ -971,16 +971,17 @@ def main():
                 df['day'] = df['date'].dt.day
                 daily_totals = df.groupby('day')["amount"].sum().to_dict()
                 
-            # カレンダーの描画（カレンダー構造取得）
+            # カレンダーの描画（日曜始まりに設定）
+            calendar.setfirstweekday(calendar.SUNDAY)
             year = st.session_state['current_month'].year
             month = st.session_state['current_month'].month
             cal = calendar.monthcalendar(year, month)
             
-            # 曜日ヘッダー
-            weekdays = ["月", "火", "水", "木", "金", "土", "日"]
+            # 曜日ヘッダー (日曜始まり)
+            weekdays = ["日", "月", "火", "水", "木", "金", "土"]
             cols = st.columns(7)
             for i, wd in enumerate(weekdays):
-                color = "#ff4b4b" if i == 6 else "#1f77b4" if i == 5 else "black"
+                color = "#ff4b4b" if wd == "日" else "#1f77b4" if wd == "土" else "black"
                 cols[i].markdown(f"<div style='text-align: center; font-weight: bold; font-size: 0.9em; color: {color};'>{wd}</div>", unsafe_allow_html=True)
                 
             # カレンダー全体にのみ影響を与えるためのCSS
@@ -1033,7 +1034,7 @@ def main():
                             bg_div = f'<div style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; background-color: #e6f7ff; z-index: 0; border-radius: 0.4rem;"></div>' if st.session_state['selected_day'] == day else ''
                             
                             with st.container(border=True):
-                                # CSSラップとセルのレイアウト描画（絶対配置で確実に分離し、マージンのクリッピング崩れを防ぐ）
+                                # CSSラップとセルのレイアウト描画
                                 st.markdown(f'''
                                 {bg_div}
                                 <div style="position: absolute; top: 4px; left: 6px; color: black; font-weight: bold; font-size: 1.1rem; z-index: 1;">{day}</div>
@@ -1060,21 +1061,20 @@ def main():
                     
                     st.markdown(f"#### {month}月{sel_day}日の明細一覧")
                     
-                    # 店舗名が取れる列を探す
-                    target_store_col = None
-                    for c in ["store_name", "store", "店舗名", "店舗"]:
-                        if c in day_df.columns:
-                            target_store_col = c
-                            break
-                            
-                    if target_store_col:
-                        day_df["_display_store"] = day_df[target_store_col].apply(
+                    # 店舗名を確実に取得
+                    # カレンダー以外の画面でも同じロジックが使用されているため統一して正確に元のデータを取得する
+                    # df作成時の正規化済みのカラムを使うのが安全
+                    store_col = next((c for c in ["store_name", "store", "店舗名", "店舗"] if c in day_df.columns), None)
+                    
+                    if store_col:
+                        day_df["_display_store"] = day_df[store_col].apply(
                             lambda x: str(x).strip() if pd.notna(x) and str(x).strip() != "" else "店舗名不明"
                         )
                     else:
                         day_df["_display_store"] = "店舗名不明"
                         
-                    store_groups = day_df.groupby("_display_store")
+                    # 取引明細としての順番を保持しつつ集計する
+                    store_groups = day_df.groupby("_display_store", sort=False)
                     
                     for store_name, group in store_groups:
                         store_total = int(group["amount"].sum())
