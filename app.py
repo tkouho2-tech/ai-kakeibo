@@ -6,6 +6,7 @@ import bcrypt
 import os
 import json
 import io
+import calendar
 from datetime import datetime
 from dateutil.relativedelta import relativedelta
 from PIL import Image
@@ -935,8 +936,149 @@ def main():
                             """, height=0, width=0)
 
         elif menu_selection == "カレンダー":
-            st.header("カレンダー")
-            st.info("準備中: カレンダーUIは今後のフェーズで実装されます。")
+            st.header("📅 カレンダー")
+            
+            # カレンダー用のセッション状態を初期化
+            if 'selected_day' not in st.session_state:
+                st.session_state['selected_day'] = None
+                
+            # 表示月が変更された場合は選択日をリセット
+            if 'last_cal_month' not in st.session_state or st.session_state['last_cal_month'] != st.session_state['current_month']:
+                st.session_state['selected_day'] = None
+                st.session_state['last_cal_month'] = st.session_state['current_month']
+                
+            # ダッシュボードと共通の月選択UI
+            col1, col2, col3, col4, col5 = st.columns([3, 1, 2, 1, 3])
+            with col2:
+                if st.button("◀ 前月", use_container_width=True, key="cal_prev"):
+                    st.session_state['current_month'] -= relativedelta(months=1)
+                    st.rerun()
+            with col3:
+                st.markdown(f"<h3 style='text-align: center; margin: 0;'>{st.session_state['current_month'].strftime('%Y年%m月')}</h3>", unsafe_allow_html=True)
+            with col4:
+                if st.button("翌月 ▶", use_container_width=True, key="cal_next"):
+                    st.session_state['current_month'] += relativedelta(months=1)
+                    st.rerun()
+                    
+            st.markdown("---")
+            
+            # データ取得と日次集計
+            with st.spinner("データを読み込み中..."):
+                df = load_transactions_data(st.session_state['current_month'])
+                
+            daily_totals = {}
+            if not df.empty and "date" in df.columns and "amount" in df.columns:
+                df['day'] = df['date'].dt.day
+                daily_totals = df.groupby('day')["amount"].sum().to_dict()
+                
+            # カレンダーの描画（カレンダー構造取得）
+            year = st.session_state['current_month'].year
+            month = st.session_state['current_month'].month
+            cal = calendar.monthcalendar(year, month)
+            
+            # 曜日ヘッダー
+            weekdays = ["月", "火", "水", "木", "金", "土", "日"]
+            cols = st.columns(7)
+            for i, wd in enumerate(weekdays):
+                color = "#ff4b4b" if i == 6 else "#1f77b4" if i == 5 else "inherit"
+                cols[i].markdown(f"<div style='text-align: center; font-weight: bold; font-size: 0.9em; color: {color};'>{wd}</div>", unsafe_allow_html=True)
+                
+            # セル全体をボタン化する魔法のCSS
+            st.markdown("""
+            <style>
+            .cal-cell-wrapper {
+                position: relative;
+                min-height: 55px;
+            }
+            .cal-cell-wrapper div[data-testid="stButton"] {
+                position: absolute;
+                top: 0;
+                left: 0;
+                width: 100%;
+                height: 100%;
+                opacity: 0;
+                z-index: 10;
+            }
+            .cal-cell-wrapper div[data-testid="stButton"] button {
+                width: 100%;
+                height: 100%;
+            }
+            </style>
+            """, unsafe_allow_html=True)
+            
+            # カレンダーグリッド描画
+            for week in cal:
+                cols = st.columns(7)
+                for i, day in enumerate(week):
+                    with cols[i]:
+                        if day == 0:
+                            # 空セル
+                            st.markdown("<div style='min-height: 80px;'></div>", unsafe_allow_html=True)
+                        else:
+                            total = daily_totals.get(day, 0)
+                            day_color = "#ff4b4b" if i == 6 else "#1f77b4" if i == 5 else "inherit"
+                            bg_color = "#e6f7ff" if st.session_state['selected_day'] == day else "transparent"
+                            
+                            with st.container(border=True):
+                                # CSSラップ開始
+                                st.markdown(f'<div class="cal-cell-wrapper" style="background-color: {bg_color}; margin: -1rem; padding: 0.5rem; height: 100%;">', unsafe_allow_html=True)
+                                
+                                # 左上に日付
+                                st.markdown(f"<div style='font-weight: bold; font-size: 0.9em; color: {day_color};'>{day}</div>", unsafe_allow_html=True)
+                                
+                                # 右下に赤字で合計額
+                                if total > 0:
+                                    st.markdown(f"<div style='position: absolute; bottom: 0; right: 0; color: #ff4b4b; font-weight: bold; font-size: 0.85em;'>￥{int(total):,}</div>", unsafe_allow_html=True)
+                                
+                                # 透明なボタンを配置してクリックを検知
+                                if st.button(" ", key=f"cal_btn_{day}", use_container_width=True):
+                                    st.session_state['selected_day'] = day
+                                    st.rerun()
+                                    
+                                st.markdown('</div>', unsafe_allow_html=True)
+                                
+            # 指定日の明細一覧表示
+            if st.session_state['selected_day']:
+                sel_day = st.session_state['selected_day']
+                st.markdown("---")
+                
+                if df.empty or sel_day not in daily_totals:
+                    st.info(f"{sel_day}日の明細はありません。")
+                else:
+                    day_df = df[df["day"] == sel_day].copy()
+                    day_total = int(day_df["amount"].sum())
+                    
+                    st.markdown(f"#### {month}月{sel_day}日の明細一覧")
+                    
+                    # 枠線付きのエリア
+                    with st.container(border=True):
+                        # ヘッダーに合計金額を右上に表示するためのHTMLとCSS
+                        st.markdown(f"""
+                        <div style='display: flex; justify-content: space-between; align-items: flex-end; border-bottom: 2px solid #ddd; padding-bottom: 5px; margin-bottom: 10px;'>
+                            <div style='font-weight: bold; color: gray; flex: 1;'>大分類</div>
+                            <div style='font-weight: bold; color: gray; width: 100px; text-align: right;'>金額</div>
+                        </div>
+                        """, unsafe_allow_html=True)
+                        
+                        # 明細行
+                        for _, row in day_df.iterrows():
+                            c_major = row.get("category", "不明")
+                            c_amount = int(row.get("amount", 0))
+                            
+                            st.markdown(f"""
+                            <div style='display: flex; justify-content: space-between; border-bottom: 1px solid #eee; padding: 8px 0;'>
+                                <div style='flex: 1;'>{c_major}</div>
+                                <div style='width: 100px; text-align: right;'>￥{c_amount:,}</div>
+                            </div>
+                            """, unsafe_allow_html=True)
+                            
+                        # 最終行の合計
+                        st.markdown(f"""
+                        <div style='display: flex; justify-content: space-between; padding-top: 10px; margin-top: 5px;'>
+                            <div style='font-weight: bold; font-size: 1.1em;'>合計</div>
+                            <div style='font-weight: bold; font-size: 1.2em; color: #ff4b4b; text-align: right;'>￥{day_total:,}</div>
+                        </div>
+                        """, unsafe_allow_html=True)
         elif menu_selection == "ヘルプ":
             st.header("🤖 ヘルプ・サポート")
             st.info("アプリの機能や使い方、データの保存先などについて何でも聞いてください！")
