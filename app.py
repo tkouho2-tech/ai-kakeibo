@@ -764,23 +764,25 @@ def main():
                                     width: 100%;
                                 }
                                 
-                                /* 明細行（4カラム構成）の折り返しを無効化し、画面幅に関わらず左詰めでコンパクトに表示する */
-                                div[data-testid="stHorizontalBlock"]:has(> div[data-testid="column"]:nth-child(4):last-child) {
+                                /* 明細行の折り返しを無効化し、モバイルでも強制的に1行に収める */
+                                .scrollable-container [data-testid="stHorizontalBlock"] {
+                                    flex-direction: row !important; /* モバイル時の強制縦並び(column)を解除 */
                                     flex-wrap: nowrap !important;
                                     width: max-content !important;  /* 無駄に広がらない */
                                     justify-content: flex-start !important; /* 左寄せ */
                                     gap: 0.2rem !important;         /* カラム間の隙間を極力狭く */
                                 }
-                                div[data-testid="stHorizontalBlock"]:has(> div[data-testid="column"]:nth-child(4):last-child) > div[data-testid="column"] {
+                                .scrollable-container [data-testid="column"] {
                                     flex: 0 0 auto !important;      /* 自動伸長をオフ */
+                                    width: auto !important;         /* モバイル時の強制100%幅を解除 */
                                     padding-left: 0.1rem !important;
                                     padding-right: 0.1rem !important;
                                 }
                                 /* 各項目の幅を文字数に合わせて設定する */
-                                div[data-testid="stHorizontalBlock"]:has(> div[data-testid="column"]:nth-child(4):last-child) > div[data-testid="column"]:nth-child(1) { width: 140px !important; } /* 商品名: 約10文字分 */
-                                div[data-testid="stHorizontalBlock"]:has(> div[data-testid="column"]:nth-child(4):last-child) > div[data-testid="column"]:nth-child(2) { width: 50px !important; }  /* 金額 */
-                                div[data-testid="stHorizontalBlock"]:has(> div[data-testid="column"]:nth-child(4):last-child) > div[data-testid="column"]:nth-child(3) { width: max-content !important; min-width: 60px !important; }  /* 大分類 */
-                                div[data-testid="stHorizontalBlock"]:has(> div[data-testid="column"]:nth-child(4):last-child) > div[data-testid="column"]:nth-child(4) { width: max-content !important; min-width: 60px !important; }  /* 小分類 */
+                                .scrollable-container [data-testid="stHorizontalBlock"] > [data-testid="column"]:nth-child(1) { width: 140px !important; } /* 商品名: 約10文字分 */
+                                .scrollable-container [data-testid="stHorizontalBlock"] > [data-testid="column"]:nth-child(2) { width: 50px !important; }  /* 金額 */
+                                .scrollable-container [data-testid="stHorizontalBlock"] > [data-testid="column"]:nth-child(3) { width: max-content !important; min-width: 60px !important; }  /* 大分類 */
+                                .scrollable-container [data-testid="stHorizontalBlock"] > [data-testid="column"]:nth-child(4) { width: max-content !important; min-width: 60px !important; }  /* 小分類 */
                                 
                                 /* ポップオーバー（大分類・小分類ボタン）の表示を極力コンパクトに */
                                 div[data-testid="stPopover"] > button {
