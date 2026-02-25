@@ -752,41 +752,39 @@ def main():
                                     
                             st.write("##### 明細一覧")
                             
-                            # ヘッダー行
+                            # ヘッダー行と明細行を横スクロールさせるためのCSS
                             st.markdown("""
                             <style>
-                                /* 明細行（4カラム構成）をスマホでも縦積みさせず、横に並べてスクロールさせる */
-                                div[data-testid="stHorizontalBlock"]:has(> div[data-testid="column"]:nth-child(4):last-child) {
-                                    flex-wrap: nowrap !important;
-                                    overflow-x: auto !important; /* はみ出る場合は横スクロール */
-                                    -webkit-overflow-scrolling: touch; /* iOSでのスクロールを滑らかに */
-                                    gap: 0.2rem !important; /* カラム間の隙間を極限まで小さく */
-                                    padding-bottom: 5px; /* スクロールバー用に下マージン */
+                                /* 明細ブロック全体を包むコンテナ（横スクロール用） */
+                                .scrollable-container {
+                                    overflow-x: auto;
+                                    white-space: nowrap;
+                                    padding-bottom: 10px;
+                                    -webkit-overflow-scrolling: touch;
+                                    width: 100%;
                                 }
                                 
-                                /* 各カラムの幅とパディングを最小化 */
-                                div[data-testid="stHorizontalBlock"]:has(> div[data-testid="column"]:nth-child(4):last-child) > div[data-testid="column"] {
-                                    width: auto !important;
-                                    flex: 1 1 auto !important;
-                                    padding-left: 0.1rem !important;
-                                    padding-right: 0.1rem !important;
-                                    min-width: 0 !important;
-                                }
-
-                                /* 各項目の最小幅を定義して極端に潰れるのを防ぐ */
-                                div[data-testid="stHorizontalBlock"]:has(> div[data-testid="column"]:nth-child(4):last-child) > div[data-testid="column"]:nth-child(1) { min-width: 80px !important; } /* 商品名 */
-                                div[data-testid="stHorizontalBlock"]:has(> div[data-testid="column"]:nth-child(4):last-child) > div[data-testid="column"]:nth-child(2) { min-width: 70px !important; } /* 金額 */
-                                div[data-testid="stHorizontalBlock"]:has(> div[data-testid="column"]:nth-child(4):last-child) > div[data-testid="column"]:nth-child(3) { min-width: 80px !important; } /* 大分類 */
-                                div[data-testid="stHorizontalBlock"]:has(> div[data-testid="column"]:nth-child(4):last-child) > div[data-testid="column"]:nth-child(4) { min-width: 80px !important; } /* 小分類 */
-                                
-                                /* ウィジェット内の文字や余白もコンパクトに */
-                                div[data-testid="stHorizontalBlock"]:has(> div[data-testid="column"]:nth-child(4):last-child) * {
-                                    font-size: 0.85rem !important;
+                                /* Streamlitのカラムのモバイル時の折り返しを強制的に無効化する */
+                                @media (max-width: 576px) {
+                                    div[data-testid="stHorizontalBlock"] {
+                                        flex-wrap: nowrap !important;
+                                        min-width: 600px !important; /* 全カラムが1行に収まるための最低限の幅を指定 */
+                                    }
+                                    div[data-testid="column"] {
+                                        width: auto !important;
+                                        flex: 1 !important;
+                                        min-width: 0 !important;
+                                    }
                                 }
                             </style>
                             """, unsafe_allow_html=True)
                             
-                            h_col1, h_col2, h_col3, h_col4 = st.columns([3.5, 2.5, 3, 3])
+                            # 全体をスクロール可能にするために、HTMLのdivでラップ（Streamlitのマークダウン内包機能は限定的だが、CSSのmin-widthで担保するアプローチに変更）
+                            
+                            st.markdown('<div class="scrollable-container">', unsafe_allow_html=True)
+                            
+                            # ヘッダー
+                            h_col1, h_col2, h_col3, h_col4 = st.columns([3, 2, 2.5, 2.5])
                             h_col1.markdown("<div style='font-size: 0.85em; font-weight: bold; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;'>商品名</div>", unsafe_allow_html=True)
                             h_col2.markdown("<div style='font-size: 0.85em; font-weight: bold;'>金額</div>", unsafe_allow_html=True)
                             h_col3.markdown("<div style='font-size: 0.85em; font-weight: bold;'>大分類</div>", unsafe_allow_html=True)
@@ -806,7 +804,7 @@ def main():
                                 disp_major = edit_vals['major']
                                 disp_minor = edit_vals['minor']
                                 
-                                row_col1, row_col2, row_col3, row_col4 = st.columns([3.5, 2.5, 3, 3])
+                                row_col1, row_col2, row_col3, row_col4 = st.columns([3, 2, 2.5, 2.5])
                                 
                                 # 商品名
                                 with row_col1:
@@ -833,6 +831,8 @@ def main():
                                     st.session_state['edit_data'][row_index_gs]["major"] = new_major
                                     st.session_state['edit_data'][row_index_gs]["minor"] = new_minor
                                     modified = True
+                                    
+                            st.markdown('</div>', unsafe_allow_html=True)
                                     
                             if modified:
                                 st.rerun()
