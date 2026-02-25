@@ -980,28 +980,32 @@ def main():
             weekdays = ["月", "火", "水", "木", "金", "土", "日"]
             cols = st.columns(7)
             for i, wd in enumerate(weekdays):
-                color = "#ff4b4b" if i == 6 else "#1f77b4" if i == 5 else "inherit"
+                color = "#ff4b4b" if i == 6 else "#1f77b4" if i == 5 else "black"
                 cols[i].markdown(f"<div style='text-align: center; font-weight: bold; font-size: 0.9em; color: {color};'>{wd}</div>", unsafe_allow_html=True)
                 
-            # セル全体をボタン化する魔法のCSS
+            # カレンダー全体にのみ影響を与えるためのCSS
+            # st.container(border=True) は内部に div[data-testid="stVerticalBlockBorderWrapper"] を生成する
             st.markdown("""
             <style>
-            .cal-cell-wrapper {
+            div[data-testid="column"] div[data-testid="stVerticalBlockBorderWrapper"] {
                 position: relative;
-                min-height: 55px;
+                min-height: 80px;
+                padding: 0 !important;
             }
-            .cal-cell-wrapper div[data-testid="stButton"] {
+            div[data-testid="column"] div[data-testid="stVerticalBlockBorderWrapper"] div[data-testid="stButton"] {
                 position: absolute;
                 top: 0;
                 left: 0;
                 width: 100%;
                 height: 100%;
-                opacity: 0;
+                opacity: 0.01;
                 z-index: 10;
             }
-            .cal-cell-wrapper div[data-testid="stButton"] button {
+            div[data-testid="column"] div[data-testid="stVerticalBlockBorderWrapper"] div[data-testid="stButton"] button {
                 width: 100%;
                 height: 100%;
+                padding: 0;
+                margin: 0;
             }
             </style>
             """, unsafe_allow_html=True)
@@ -1016,69 +1020,67 @@ def main():
                             st.markdown("<div style='min-height: 80px;'></div>", unsafe_allow_html=True)
                         else:
                             total = daily_totals.get(day, 0)
-                            day_color = "#ff4b4b" if i == 6 else "#1f77b4" if i == 5 else "inherit"
                             bg_color = "#e6f7ff" if st.session_state['selected_day'] == day else "transparent"
                             
                             with st.container(border=True):
-                                # CSSラップ開始
-                                st.markdown(f'<div class="cal-cell-wrapper" style="background-color: {bg_color}; margin: -1rem; padding: 0.5rem; height: 100%;">', unsafe_allow_html=True)
-                                
-                                # 左上に日付
-                                st.markdown(f"<div style='font-weight: bold; font-size: 0.9em; color: {day_color};'>{day}</div>", unsafe_allow_html=True)
-                                
-                                # 右下に赤字で合計額
-                                if total > 0:
-                                    st.markdown(f"<div style='position: absolute; bottom: 0; right: 0; color: #ff4b4b; font-weight: bold; font-size: 0.85em;'>￥{int(total):,}</div>", unsafe_allow_html=True)
+                                # CSSラップとセルのレイアウト描画（背景色、日付は黒、金額は赤）
+                                st.markdown(f'''
+                                <div style="background-color: {bg_color}; height: 100%; min-height: 70px; margin: -1rem; padding: 0.5rem; position: relative; border-radius: 0.5rem;">
+                                    <div style="color: black; font-weight: bold; font-size: 1rem; line-height: 1;">{day}</div>
+                                    <div style="color: red; font-weight: bold; font-size: 0.85em; position: absolute; bottom: 0.5rem; right: 0.5rem;">
+                                        {'￥{:,}'.format(int(total)) if total > 0 else ''}
+                                    </div>
+                                </div>
+                                ''', unsafe_allow_html=True)
                                 
                                 # 透明なボタンを配置してクリックを検知
                                 if st.button(" ", key=f"cal_btn_{day}", use_container_width=True):
                                     st.session_state['selected_day'] = day
                                     st.rerun()
                                     
-                                st.markdown('</div>', unsafe_allow_html=True)
-                                
-            # 指定日の明細一覧表示
+            # 指定日の明細一覧表示（ブラインド表示・アコーディオン形式）
             if st.session_state['selected_day']:
                 sel_day = st.session_state['selected_day']
                 st.markdown("---")
                 
                 if df.empty or sel_day not in daily_totals:
-                    st.info(f"{sel_day}日の明細はありません。")
+                    st.info(f"{month}月{sel_day}日の明細はありません。")
                 else:
                     day_df = df[df["day"] == sel_day].copy()
-                    day_total = int(day_df["amount"].sum())
                     
                     st.markdown(f"#### {month}月{sel_day}日の明細一覧")
                     
-                    # 枠線付きのエリア
-                    with st.container(border=True):
-                        # ヘッダーに合計金額を右上に表示するためのHTMLとCSS
-                        st.markdown(f"""
-                        <div style='display: flex; justify-content: space-between; align-items: flex-end; border-bottom: 2px solid #ddd; padding-bottom: 5px; margin-bottom: 10px;'>
-                            <div style='font-weight: bold; color: gray; flex: 1;'>大分類</div>
-                            <div style='font-weight: bold; color: gray; width: 100px; text-align: right;'>金額</div>
-                        </div>
-                        """, unsafe_allow_html=True)
+                    # 店舗（レシート）ごとにグループ化
+                    if "store_name" not in day_df.columns:
+                        day_df["store_name"] = "店舗名不明"
                         
-                        # 明細行
-                        for _, row in day_df.iterrows():
-                            c_major = row.get("category", "不明")
-                            c_amount = int(row.get("amount", 0))
+                    store_groups = day_df.groupby("store_name", dropna=False)
+                    
+                    for store_name, group in store_groups:
+                        store_total = int(group["amount"].sum())
+                        disp_store = store_name if pd.notna(store_name) and str(store_name).strip() != "" else "店舗名不明"
+                        
+                        # st.expander() がブラインド表示（アコーディオン形式）になります
+                        with st.expander(f"🛒 **{disp_store}**　　（合計: ￥{store_total:,}）", expanded=False):
                             
+                            # そのレシートの大分類と金額一覧を表示する
+                            cat_groups = group.groupby("category", dropna=False)["amount"].sum()
+                            for cat, cat_amount in cat_groups.items():
+                                disp_cat = cat if pd.notna(cat) else "その他"
+                                st.markdown(f"""
+                                <div style='display: flex; justify-content: space-between; border-bottom: 1px dotted #ccc; padding: 6px 0; font-size: 0.9em;'>
+                                    <div>{disp_cat}</div>
+                                    <div style='text-align: right;'>￥{int(cat_amount):,}</div>
+                                </div>
+                                """, unsafe_allow_html=True)
+                                
+                            # 最終行に合計金額
                             st.markdown(f"""
-                            <div style='display: flex; justify-content: space-between; border-bottom: 1px solid #eee; padding: 8px 0;'>
-                                <div style='flex: 1;'>{c_major}</div>
-                                <div style='width: 100px; text-align: right;'>￥{c_amount:,}</div>
+                            <div style='display: flex; justify-content: space-between; padding-top: 10px; font-weight: bold;'>
+                                <div>合計</div>
+                                <div style='color: #ff4b4b; text-align: right;'>￥{store_total:,}</div>
                             </div>
                             """, unsafe_allow_html=True)
-                            
-                        # 最終行の合計
-                        st.markdown(f"""
-                        <div style='display: flex; justify-content: space-between; padding-top: 10px; margin-top: 5px;'>
-                            <div style='font-weight: bold; font-size: 1.1em;'>合計</div>
-                            <div style='font-weight: bold; font-size: 1.2em; color: #ff4b4b; text-align: right;'>￥{day_total:,}</div>
-                        </div>
-                        """, unsafe_allow_html=True)
         elif menu_selection == "ヘルプ":
             st.header("🤖 ヘルプ・サポート")
             st.info("アプリの機能や使い方、データの保存先などについて何でも聞いてください！")
