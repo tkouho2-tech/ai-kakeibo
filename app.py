@@ -764,17 +764,24 @@ def main():
                                     width: 100%;
                                 }
                                 
-                                /* Streamlitのカラムのモバイル時の折り返しを強制的に無効化する */
-                                @media (max-width: 576px) {
+                                /* Streamlitのカラムのモバイル時の折り返しを強制的に無効化し、極限までコンパクトにする */
+                                @media (max-width: 768px) {
                                     div[data-testid="stHorizontalBlock"] {
                                         flex-wrap: nowrap !important;
-                                        min-width: 600px !important; /* 全カラムが1行に収まるための最低限の幅を指定 */
+                                        width: max-content !important;  /* 中身のサイズに合わせる（必要以上に広がらない） */
+                                        min-width: 100% !important;     /* 最低でも画面幅はいっぱい使う */
+                                        gap: 0.2rem !important;         /* カラム間の隙間を極力狭く */
                                     }
                                     div[data-testid="column"] {
-                                        width: auto !important;
-                                        flex: 1 !important;
-                                        min-width: 0 !important;
+                                        flex: 0 0 auto !important;      /* 自動伸長をオフにし、下の固定幅を適用 */
+                                        padding-left: 0.1rem !important;
+                                        padding-right: 0.1rem !important;
                                     }
+                                    /* 各項目の幅を固定して過剰な広がりを防ぐ */
+                                    div[data-testid="column"]:nth-child(1) { width: 110px !important; } /* 商品名 */
+                                    div[data-testid="column"]:nth-child(2) { width: 70px !important; }  /* 金額 */
+                                    div[data-testid="column"]:nth-child(3) { width: 85px !important; }  /* 大分類 */
+                                    div[data-testid="column"]:nth-child(4) { width: 85px !important; }  /* 小分類 */
                                 }
                             </style>
                             """, unsafe_allow_html=True)
