@@ -764,25 +764,23 @@ def main():
                                     width: 100%;
                                 }
                                 
-                                /* Streamlitのカラムのモバイル時の折り返しを強制的に無効化し、極限までコンパクトにする */
-                                @media (max-width: 768px) {
-                                    div[data-testid="stHorizontalBlock"] {
-                                        flex-wrap: nowrap !important;
-                                        width: max-content !important;  /* 中身のサイズに合わせる（必要以上に広がらない） */
-                                        min-width: 100% !important;     /* 最低でも画面幅はいっぱい使う */
-                                        gap: 0.2rem !important;         /* カラム間の隙間を極力狭く */
-                                    }
-                                    div[data-testid="column"] {
-                                        flex: 0 0 auto !important;      /* 自動伸長をオフにし、下の固定幅を適用 */
-                                        padding-left: 0.1rem !important;
-                                        padding-right: 0.1rem !important;
-                                    }
-                                    /* 各項目の幅を文字数に合わせて最小限化する */
-                                    div[data-testid="column"]:nth-child(1) { width: 140px !important; } /* 商品名: 少し余裕を持たせる */
-                                    div[data-testid="column"]:nth-child(2) { width: 50px !important; }  /* 金額: 単なるテキストなので最小限 */
-                                    div[data-testid="column"]:nth-child(3) { width: max-content !important; min-width: 60px !important; }  /* 大分類: リストの文字幅に合わせる */
-                                    div[data-testid="column"]:nth-child(4) { width: max-content !important; min-width: 60px !important; }  /* 小分類: リストの文字幅に合わせる */
+                                /* 明細行（4カラム構成）の折り返しを無効化し、画面幅に関わらず左詰めでコンパクトに表示する */
+                                div[data-testid="stHorizontalBlock"]:has(> div[data-testid="column"]:nth-child(4):last-child) {
+                                    flex-wrap: nowrap !important;
+                                    width: max-content !important;  /* 無駄に広がらない */
+                                    justify-content: flex-start !important; /* 左寄せ */
+                                    gap: 0.2rem !important;         /* カラム間の隙間を極力狭く */
                                 }
+                                div[data-testid="stHorizontalBlock"]:has(> div[data-testid="column"]:nth-child(4):last-child) > div[data-testid="column"] {
+                                    flex: 0 0 auto !important;      /* 自動伸長をオフ */
+                                    padding-left: 0.1rem !important;
+                                    padding-right: 0.1rem !important;
+                                }
+                                /* 各項目の幅を文字数に合わせて設定する */
+                                div[data-testid="stHorizontalBlock"]:has(> div[data-testid="column"]:nth-child(4):last-child) > div[data-testid="column"]:nth-child(1) { width: 140px !important; } /* 商品名: 約10文字分 */
+                                div[data-testid="stHorizontalBlock"]:has(> div[data-testid="column"]:nth-child(4):last-child) > div[data-testid="column"]:nth-child(2) { width: 50px !important; }  /* 金額 */
+                                div[data-testid="stHorizontalBlock"]:has(> div[data-testid="column"]:nth-child(4):last-child) > div[data-testid="column"]:nth-child(3) { width: max-content !important; min-width: 60px !important; }  /* 大分類 */
+                                div[data-testid="stHorizontalBlock"]:has(> div[data-testid="column"]:nth-child(4):last-child) > div[data-testid="column"]:nth-child(4) { width: max-content !important; min-width: 60px !important; }  /* 小分類 */
                                 
                                 /* ポップオーバー（大分類・小分類ボタン）の表示を極力コンパクトに */
                                 div[data-testid="stPopover"] > button {
@@ -809,6 +807,8 @@ def main():
                             for idx, row in details.iterrows():
                                 row_index_gs = row["_row_index"]
                                 item_name = row.get(item_col, "不明な商品") if item_col else "不明な商品"
+                                # 商品名を全角10文字までに切り詰め
+                                display_item_name = item_name[:10] + "…" if len(item_name) > 10 else item_name
                                 
                                 edit_vals = st.session_state['edit_data'].get(row_index_gs)
                                 if not edit_vals:
@@ -822,7 +822,7 @@ def main():
                                 
                                 # 商品名
                                 with row_col1:
-                                    st.markdown(f"<div style='margin-top: 8px; font-size: 0.85em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;' title='{item_name}'>{item_name}</div>", unsafe_allow_html=True)
+                                    st.markdown(f"<div style='margin-top: 8px; font-size: 0.85em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;' title='{item_name}'>{display_item_name}</div>", unsafe_allow_html=True)
                                     
                                 # 金額 (表示のみにする)
                                 with row_col2:
