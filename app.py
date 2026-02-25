@@ -755,20 +755,42 @@ def main():
                             # ヘッダー行
                             st.markdown("""
                             <style>
-                                /* スマホ等でカラムが縦積みになるのを防ぎ、1行に強制表示するCSS */
-                                [data-testid="column"] {
+                                /* 明細行（4カラム構成）をスマホでも縦積みさせず、横に並べてスクロールさせる */
+                                div[data-testid="stHorizontalBlock"]:has(> div[data-testid="column"]:nth-child(4):last-child) {
+                                    flex-wrap: nowrap !important;
+                                    overflow-x: auto !important; /* はみ出る場合は横スクロール */
+                                    -webkit-overflow-scrolling: touch; /* iOSでのスクロールを滑らかに */
+                                    gap: 0.2rem !important; /* カラム間の隙間を極限まで小さく */
+                                    padding-bottom: 5px; /* スクロールバー用に下マージン */
+                                }
+                                
+                                /* 各カラムの幅とパディングを最小化 */
+                                div[data-testid="stHorizontalBlock"]:has(> div[data-testid="column"]:nth-child(4):last-child) > div[data-testid="column"] {
+                                    width: auto !important;
+                                    flex: 1 1 auto !important;
+                                    padding-left: 0.1rem !important;
+                                    padding-right: 0.1rem !important;
                                     min-width: 0 !important;
-                                    padding-left: 0.2rem !important;
-                                    padding-right: 0.2rem !important;
+                                }
+
+                                /* 各項目の最小幅を定義して極端に潰れるのを防ぐ */
+                                div[data-testid="stHorizontalBlock"]:has(> div[data-testid="column"]:nth-child(4):last-child) > div[data-testid="column"]:nth-child(1) { min-width: 80px !important; } /* 商品名 */
+                                div[data-testid="stHorizontalBlock"]:has(> div[data-testid="column"]:nth-child(4):last-child) > div[data-testid="column"]:nth-child(2) { min-width: 70px !important; } /* 金額 */
+                                div[data-testid="stHorizontalBlock"]:has(> div[data-testid="column"]:nth-child(4):last-child) > div[data-testid="column"]:nth-child(3) { min-width: 80px !important; } /* 大分類 */
+                                div[data-testid="stHorizontalBlock"]:has(> div[data-testid="column"]:nth-child(4):last-child) > div[data-testid="column"]:nth-child(4) { min-width: 80px !important; } /* 小分類 */
+                                
+                                /* ウィジェット内の文字や余白もコンパクトに */
+                                div[data-testid="stHorizontalBlock"]:has(> div[data-testid="column"]:nth-child(4):last-child) * {
+                                    font-size: 0.85rem !important;
                                 }
                             </style>
                             """, unsafe_allow_html=True)
                             
                             h_col1, h_col2, h_col3, h_col4 = st.columns([3.5, 2.5, 3, 3])
-                            h_col1.markdown("<div style='font-size: 0.9em; font-weight: bold; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;'>商品名</div>", unsafe_allow_html=True)
-                            h_col2.markdown("<div style='font-size: 0.9em; font-weight: bold;'>金額</div>", unsafe_allow_html=True)
-                            h_col3.markdown("<div style='font-size: 0.9em; font-weight: bold;'>大分類</div>", unsafe_allow_html=True)
-                            h_col4.markdown("<div style='font-size: 0.9em; font-weight: bold;'>小分類</div>", unsafe_allow_html=True)
+                            h_col1.markdown("<div style='font-size: 0.85em; font-weight: bold; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;'>商品名</div>", unsafe_allow_html=True)
+                            h_col2.markdown("<div style='font-size: 0.85em; font-weight: bold;'>金額</div>", unsafe_allow_html=True)
+                            h_col3.markdown("<div style='font-size: 0.85em; font-weight: bold;'>大分類</div>", unsafe_allow_html=True)
+                            h_col4.markdown("<div style='font-size: 0.85em; font-weight: bold;'>小分類</div>", unsafe_allow_html=True)
                             
                             modified = False
                             
