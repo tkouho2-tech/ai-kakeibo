@@ -783,6 +783,13 @@ def main():
                                     div[data-testid="column"]:nth-child(3) { width: max-content !important; min-width: 60px !important; }  /* 大分類: リストの文字幅に合わせる */
                                     div[data-testid="column"]:nth-child(4) { width: max-content !important; min-width: 60px !important; }  /* 小分類: リストの文字幅に合わせる */
                                 }
+                                
+                                /* ポップオーバー（大分類・小分類ボタン）の表示を極力コンパクトに */
+                                div[data-testid="stPopover"] > button {
+                                    padding: 2px 8px !important;
+                                    font-size: 0.8em !important;
+                                    min-height: 28px !important;
+                                }
                             </style>
                             """, unsafe_allow_html=True)
                             
@@ -822,17 +829,19 @@ def main():
                                     st.markdown(f"<div style='margin-top: 8px; font-size: 0.85em;'>¥{disp_amount:,}</div>", unsafe_allow_html=True)
                                     new_amount = disp_amount # 変更不可なため保持
                                     
-                                # 大分類
+                                # 大分類 (ポップオーバーリストに変更)
                                 with row_col3:
                                     majors = list(EXPENSE_CATEGORIES.keys())
                                     default_major_idx = majors.index(disp_major) if disp_major in majors else majors.index("その他")
-                                    new_major = st.selectbox("大分類", majors, index=default_major_idx, key=f"maj_{row_index_gs}", label_visibility="collapsed")
+                                    with st.popover(disp_major):
+                                        new_major = st.radio("大分類", majors, index=default_major_idx, key=f"maj_{row_index_gs}", label_visibility="collapsed")
                                     
-                                # 小分類
+                                # 小分類 (ポップオーバーリストに変更)
                                 with row_col4:
                                     minors = EXPENSE_CATEGORIES.get(new_major, EXPENSE_CATEGORIES["その他"])
                                     default_minor_idx = minors.index(disp_minor) if disp_minor in minors else len(minors)-1
-                                    new_minor = st.selectbox("小分類", minors, index=default_minor_idx, key=f"min_{row_index_gs}", label_visibility="collapsed")
+                                    with st.popover(disp_minor):
+                                        new_minor = st.radio("小分類", minors, index=default_minor_idx, key=f"min_{row_index_gs}", label_visibility="collapsed")
                                 
                                 if new_amount != disp_amount or new_major != disp_major or new_minor != disp_minor:
                                     st.session_state['edit_data'][row_index_gs]["amount"] = new_amount
