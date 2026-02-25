@@ -766,8 +766,9 @@ def main():
                                 
                                 /* 明細行の折り返しを無効化し、モバイルでも強制的に1行に収める */
                                 .scrollable-container [data-testid="stHorizontalBlock"] {
+                                    display: flex !important;       /* モバイルでblockになるのを防ぐ */
                                     flex-direction: row !important; /* モバイル時の強制縦並び(column)を解除 */
-                                    flex-wrap: nowrap !important;
+                                    flex-wrap: nowrap !important;   /* 絶対に折り返さない */
                                     width: max-content !important;  /* 無駄に広がらない */
                                     justify-content: flex-start !important; /* 左寄せ */
                                     gap: 0.2rem !important;         /* カラム間の隙間を極力狭く */
@@ -775,6 +776,8 @@ def main():
                                 .scrollable-container [data-testid="column"] {
                                     flex: 0 0 auto !important;      /* 自動伸長をオフ */
                                     width: auto !important;         /* モバイル時の強制100%幅を解除 */
+                                    min-width: 0 !important;        /* Streamlitのmin-width: 100%を上書き！ */
+                                    max-width: none !important;     /* 最大幅制限も解除 */
                                     padding-left: 0.1rem !important;
                                     padding-right: 0.1rem !important;
                                 }
