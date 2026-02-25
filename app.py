@@ -983,35 +983,38 @@ def main():
                 color = "#ff4b4b" if i == 6 else "#1f77b4" if i == 5 else "black"
                 cols[i].markdown(f"<div style='text-align: center; font-weight: bold; font-size: 0.9em; color: {color};'>{wd}</div>", unsafe_allow_html=True)
                 
-            # カレンダー全体にのみ影響を与えるためのCSS（.cal-cell を持つ要素の親に適用）
+            # カレンダー全体にのみ影響を与えるためのCSS
             st.markdown("""
             <style>
-            div[data-testid="column"] div[data-testid="stVerticalBlockBorderWrapper"]:has(.cal-cell) {
-                position: relative;
-                min-height: 80px;
+            /* 枠線の内側要素をターゲットにして、ボタンを浮かせ、透明にする */
+            div[data-testid="column"] div[data-testid="stVerticalBlockBorderWrapper"] {
+                position: relative !important;
+                min-height: 70px !important;
                 padding: 0 !important;
             }
-            div[data-testid="column"] div[data-testid="stVerticalBlockBorderWrapper"]:has(.cal-cell) div[data-testid="stButton"] button {
+            div[data-testid="column"] div[data-testid="stVerticalBlockBorderWrapper"] div[data-testid="stButton"] {
                 position: absolute !important;
                 top: 0 !important;
                 left: 0 !important;
                 width: 100% !important;
                 height: 100% !important;
-                opacity: 0 !important;
                 z-index: 10 !important;
-                padding: 0 !important;
+            }
+            div[data-testid="column"] div[data-testid="stVerticalBlockBorderWrapper"] div[data-testid="stButton"] button {
+                width: 100% !important;
+                height: 100% !important;
+                opacity: 0.001 !important;
+                border: none !important;
+                background: transparent !important;
                 margin: 0 !important;
-                border: none !important;
-                background: transparent !important;
-                box-shadow: none !important;
+                padding: 0 !important;
             }
-            div[data-testid="column"] div[data-testid="stVerticalBlockBorderWrapper"]:has(.cal-cell) div[data-testid="stButton"] button:focus {
+            div[data-testid="column"] div[data-testid="stVerticalBlockBorderWrapper"] div[data-testid="stButton"] button:hover,
+            div[data-testid="column"] div[data-testid="stVerticalBlockBorderWrapper"] div[data-testid="stButton"] button:focus {
+                background: transparent !important;
+                border: none !important;
+                box-shadow: none !important;
                 outline: none !important;
-                box-shadow: none !important;
-            }
-            div[data-testid="column"] div[data-testid="stVerticalBlockBorderWrapper"]:has(.cal-cell) div[data-testid="stButton"] button:hover {
-                border: none !important;
-                background: transparent !important;
             }
             </style>
             """, unsafe_allow_html=True)
@@ -1022,24 +1025,22 @@ def main():
                 for i, day in enumerate(week):
                     with cols[i]:
                         if day == 0:
-                            # 空セル（Streamlitのマークダウン不具合回避のため、不可視文字を入れる）
-                            st.markdown("<div style='min-height: 80px; opacity: 0;'>0</div>", unsafe_allow_html=True)
+                            # 空セル
+                            st.markdown("<div style='min-height: 70px;'></div>", unsafe_allow_html=True)
                         else:
                             total = daily_totals.get(day, 0)
-                            bg_color = "#e6f7ff" if st.session_state['selected_day'] == day else "transparent"
+                            # 選択状態の背景レイヤー
+                            bg_div = f'<div style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; background-color: #e6f7ff; z-index: 0; border-radius: 0.4rem;"></div>' if st.session_state['selected_day'] == day else ''
                             
                             with st.container(border=True):
-                                # CSS適用のための一時的クラスマーカー
-                                st.markdown('<div class="cal-cell" style="display:none;"></div>', unsafe_allow_html=True)
-                                
-                                # CSSラップとセルのレイアウト描画（背景色、日付は黒、金額は赤）
+                                # CSSラップとセルのレイアウト描画（絶対配置で確実に分離し、マージンのクリッピング崩れを防ぐ）
                                 st.markdown(f'''
-                                <div style="background-color: {bg_color}; height: 100%; min-height: 70px; margin: -1rem; padding: 0.5rem; position: relative; border-radius: 0.5rem;">
-                                    <div style="color: black; font-weight: bold; font-size: 1rem; line-height: 1;">{day}</div>
-                                    <div style="color: red; font-weight: bold; font-size: 0.85em; position: absolute; bottom: 0.5rem; right: 0.5rem;">
-                                        {'￥{:,}'.format(int(total)) if total > 0 else ''}
-                                    </div>
+                                {bg_div}
+                                <div style="position: absolute; top: 4px; left: 6px; color: black; font-weight: bold; font-size: 1.1rem; z-index: 1;">{day}</div>
+                                <div style="position: absolute; bottom: 4px; right: 6px; color: #ff4b4b; font-weight: bold; font-size: 0.85em; z-index: 1;">
+                                    {'￥{:,}'.format(int(total)) if total > 0 else ''}
                                 </div>
+                                <div style="min-height: 55px; opacity: 0;">0</div>
                                 ''', unsafe_allow_html=True)
                                 
                                 # 透明なボタンを配置してクリックを検知
@@ -1059,16 +1060,19 @@ def main():
                     
                     st.markdown(f"#### {month}月{sel_day}日の明細一覧")
                     
-                    # 店舗（レシート）ごとにグループ化するための列を特定
+                    # 店舗名が取れる列を探す
                     store_col = next((c for c in ["store_name", "store", "店舗名", "店舗"] if c in day_df.columns), None)
-                    if not store_col:
-                        day_df["_store"] = "店舗名不明"
-                        store_col = "_store"
-                        
-                    # 空白やNaNのものは「店舗名不明」に置き換える
-                    day_df[store_col] = day_df[store_col].replace(r'^\s*$', '店舗名不明', regex=True).fillna("店舗名不明")
                     
-                    store_groups = day_df.groupby(store_col)
+                    # 取引ごとの店舗名を判定してクリーニングする
+                    def get_clean_store(row):
+                        if store_col:
+                            val = row.get(store_col)
+                            if pd.notna(val) and str(val).strip() != "":
+                                return str(val).strip()
+                        return "店舗名不明"
+                        
+                    day_df["_display_store"] = day_df.apply(get_clean_store, axis=1)
+                    store_groups = day_df.groupby("_display_store")
                     
                     for store_name, group in store_groups:
                         store_total = int(group["amount"].sum())
