@@ -1061,17 +1061,19 @@ def main():
                     st.markdown(f"#### {month}月{sel_day}日の明細一覧")
                     
                     # 店舗名が取れる列を探す
-                    store_col = next((c for c in ["store_name", "store", "店舗名", "店舗"] if c in day_df.columns), None)
-                    
-                    # 取引ごとの店舗名を判定してクリーニングする
-                    def get_clean_store(row):
-                        if store_col:
-                            val = row.get(store_col)
-                            if pd.notna(val) and str(val).strip() != "":
-                                return str(val).strip()
-                        return "店舗名不明"
+                    target_store_col = None
+                    for c in ["store_name", "store", "店舗名", "店舗"]:
+                        if c in day_df.columns:
+                            target_store_col = c
+                            break
+                            
+                    if target_store_col:
+                        day_df["_display_store"] = day_df[target_store_col].apply(
+                            lambda x: str(x).strip() if pd.notna(x) and str(x).strip() != "" else "店舗名不明"
+                        )
+                    else:
+                        day_df["_display_store"] = "店舗名不明"
                         
-                    day_df["_display_store"] = day_df.apply(get_clean_store, axis=1)
                     store_groups = day_df.groupby("_display_store")
                     
                     for store_name, group in store_groups:
