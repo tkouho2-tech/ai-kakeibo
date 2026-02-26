@@ -958,16 +958,8 @@ def main():
             if 'selected_day' not in st.session_state:
                 st.session_state['selected_day'] = None
                 
-            # URLパラメータから選択日を取得（HTMLリンクからの遷移用）
-            query_params = st.query_params
-            if "sel_day" in query_params:
-                try:
-                    st.session_state['selected_day'] = int(query_params["sel_day"])
-                    # パラメータを消費したら消去してURLをクリーンに保つ
-                    st.query_params.clear()
-                except ValueError:
-                    pass
-                
+            # URLパラメータからの取得をやめて、隠しボタンによる状態更新を使用する
+            
             # 表示月が変更された場合は選択日をリセット
             if 'last_cal_month' not in st.session_state or st.session_state['last_cal_month'] != st.session_state['current_month']:
                 st.session_state['selected_day'] = None
@@ -1091,9 +1083,12 @@ def main():
                         bg_html = '<div class="sel-bg"></div>' if st.session_state.get('selected_day') == day else ''
                         amount_html = f'<div class="cal-amount">￥{"{:,}".format(int(total))}</div>' if total > 0 else ''
                         
-                        # 金額がある日はリンクで囲む
+                        # 金額がある日はJSで隠しボタンをクリックさせる（画面リロードを防ぎログイン維持）
                         if total > 0:
-                            cell_content = f'<a href="?sel_day={day}" target="_self" class="cal-cell-link">{bg_html}<div class="cal-date">{day}</div>{amount_html}</a>'
+                            # 隠しボタンの data-testid="stButton" と中の button 要素のテキスト等で特定してクリックさせるスクリプト
+                            # StreamlitのDOM構造内で該当日のボタンを探してクリックする
+                            js_click = f"window.parent.document.querySelector('button[kind=\"secondary\"] p') && Array.from(window.parent.document.querySelectorAll('button p')).find(el => el.textContent === 'hbtn_{day}')?.parentElement.click()"
+                            cell_content = f'<div onclick="{js_click}" class="cal-cell-link" style="cursor: pointer;">{bg_html}<div class="cal-date">{day}</div>{amount_html}</div>'
                         else:
                             cell_content = f'<div class="cal-cell-link" style="cursor: default;">{bg_html}<div class="cal-date">{day}</div>{amount_html}</div>'
                         
@@ -1102,6 +1097,16 @@ def main():
                 
             html_cal += '</tbody></table>'
             st.markdown(html_cal, unsafe_allow_html=True)
+            
+            # カレンダーからのクリックを受け取るための隠しボタン群
+            # 画面上に表示されないようにCSSで隠す
+            st.markdown('<div style="display: none;">', unsafe_allow_html=True)
+            for day in daily_totals.keys():
+                if daily_totals[day] > 0:
+                    if st.button(f"hbtn_{day}", key=f"hidden_btn_{day}"):
+                        st.session_state['selected_day'] = day
+                        st.rerun()
+            st.markdown('</div>', unsafe_allow_html=True)
                                     
             # 指定日の明細一覧表示（ブラインド表示・アコーディオン形式）
             if st.session_state['selected_day']:
