@@ -767,37 +767,6 @@ def main():
                                 # 明細行を1行のインラインテキストのように表示させるためのCSS
                                 st.markdown("""
                                 <style>
-                                    /* カスタムコンテナ：receipt-table-target を含む一番内側の stVerticalBlock を横スクロール化 */
-                                    div[data-testid="stVerticalBlock"]:has(span#receipt-table-target):not(:has(div[data-testid="stVerticalBlock"] span#receipt-table-target)) {
-                                        overflow-x: auto !important;
-                                        -webkit-overflow-scrolling: touch;
-                                        padding-bottom: 4px !important;
-                                        width: 100%;
-                                    }
-                                    
-                                    /* コンテナ内の各行(stHorizontalBlock)の設定 */
-                                    div[data-testid="stVerticalBlock"]:has(span#receipt-table-target):not(:has(div[data-testid="stVerticalBlock"] span#receipt-table-target)) div[data-testid="stHorizontalBlock"] {
-                                        display: flex !important;
-                                        flex-direction: row !important; 
-                                        flex-wrap: nowrap !important;   
-                                        justify-content: flex-start !important; 
-                                        align-items: center !important; /* 縦位置を中央揃え */
-                                        gap: 0.25em !important;         /* スペース１つ分の隙間 */
-                                        white-space: nowrap !important;
-                                        margin-bottom: 4px !important;  
-                                        padding-bottom: 0 !important;
-                                    }
-                                    
-                                    /* その中の各列(column)の設定 */
-                                    div[data-testid="stVerticalBlock"]:has(span#receipt-table-target):not(:has(div[data-testid="stVerticalBlock"] span#receipt-table-target)) div[data-testid="column"] {
-                                        flex: 0 1 auto !important;      /* コンテンツの幅に合わせて自動調整 */
-                                        width: auto !important;         /* 強制的な幅を解除 */
-                                        min-width: 0 !important;
-                                        max-width: none !important;
-                                        padding: 0 !important;          
-                                        margin: 0 !important;
-                                    }
-                                    
                                     /* ウィジェット下マージンを消去して余白を完全削除 */
                                     div[data-testid="stVerticalBlock"]:has(span#receipt-table-target):not(:has(div[data-testid="stVerticalBlock"] span#receipt-table-target)) div.stMarkdown,
                                     div[data-testid="stVerticalBlock"]:has(span#receipt-table-target):not(:has(div[data-testid="stVerticalBlock"] span#receipt-table-target)) div.stPopover {
@@ -908,90 +877,39 @@ def main():
                                 
                                 st.markdown("""
                                 <style>
-                                .readonly-list {
+                                /* 閲覧モード用：各コンテナを少しコンパクトにする */
+                                .readonly-row {
                                     font-size: 0.9em;
-                                    line-height: 1.6;
-                                    font-family: monospace; /* 等幅フォントで文字位置を揃える */
-                                    white-space: pre; /* 連続するスペースを保持 */
                                 }
                                 </style>
                                 """, unsafe_allow_html=True)
                                 
-                                # 全角・半角混じりの文字列から見た目の文字幅（全角2/半角1）を計算する関数
-                                import unicodedata
-                                def get_east_asian_width_count(text):
-                                    count = 0
-                                    for c in text:
-                                        if unicodedata.east_asian_width(c) in 'FWA':
-                                            count += 2
-                                        else:
-                                            count += 1
-                                    return count
+                                total_amount = 0
+                                for i, (idx, row) in enumerate(details.iterrows(), 1):
+                                    item_name = row.get(item_col, "不明な商品") if item_col else "不明な商品"
+                                    # 商品名を全角10文字までに切り詰め
+                                    display_item_name = item_name[:10] + "…" if len(item_name) > 10 else item_name
                                     
-                                def pad_string(text, target_width, pad_char=' '):
-                                    current_width = get_east_asian_width_count(text)
-                                    if current_width >= target_width:
-                                        # 切り詰める処理（厳密には文字幅計算しながら16文字分で切る必要があるが、簡易的に）
-                                        # 指定の「16文字」をご要望通りに適用
-                                        return text[:16]
-                                    else:
-                                        # 不足分をスペースで埋める
-                                        return text + pad_char * (target_width - current_width)
-
-                                # 最大文字幅を求めるための事前計算
-                                max_major_width = 0
-                                max_minor_width = 0
-                                for _, row in details.iterrows():
                                     major = row.get("category", "その他")
                                     sub_cols = [c for c in ["subcategory", "sub_category", "小分類"] if c in df.columns]
                                     sub = row.get(sub_cols[0], "❓その他") if sub_cols else "❓その他"
-                                    max_major_width = max(max_major_width, get_east_asian_width_count(major))
-                                    max_minor_width = max(max_minor_width, get_east_asian_width_count(sub))
-                                
-                                # 枠線つきコンテナで明細一覧を囲み、表示位置を固定化する
-                                with st.container(border=True):
-                                    # ヘッダー出力
-                                    header_sno = "SNO".ljust(3)
-                                    header_name = pad_string("商品名", 20) # 全角10文字 = 幅20
-                                    header_amount = "金額".rjust(8)
-                                    header_major = pad_string("大分類", max_major_width)
-                                    header_minor = pad_string("小分類", max_minor_width)
+                                    amount = int(row.get("amount", 0))
+                                    total_amount += amount
                                     
-                                    st.markdown('<div class="readonly-list">', unsafe_allow_html=True)
-                                    st.markdown(f"**{header_sno} {header_name} {header_amount} {header_major} {header_minor}**")
-                                    # 区切り線の長さを動的計算
-                                    st.markdown("-" * (3 + 1 + 20 + 1 + 8 + 1 + max_major_width + 1 + max_minor_width))
-                                    
-                                    total_amount = 0
-                                    for i, (idx, row) in enumerate(details.iterrows(), 1):
-                                        item_name = row.get(item_col, "不明な商品") if item_col else "不明な商品"
-                                        major = row.get("category", "その他")
-                                        sub_cols = [c for c in ["subcategory", "sub_category", "小分類"] if c in df.columns]
-                                        sub = row.get(sub_cols[0], "❓その他") if sub_cols else "❓その他"
-                                        amount = int(row.get("amount", 0))
-                                        total_amount += amount
+                                    with st.container(border=True):
+                                        st.markdown('<div class="readonly-row">', unsafe_allow_html=True)
+                                        rc1, rc2, rc3, rc4 = st.columns([1, 4.5, 2.5, 4])
+                                        with rc1:
+                                            st.markdown(f"**{i}**")
+                                        with rc2:
+                                            st.markdown(f"{display_item_name}")
+                                        with rc3:
+                                            st.markdown(f"¥{amount:,}")
+                                        with rc4:
+                                            st.markdown(f"{major} / {sub}")
+                                        st.markdown('</div>', unsafe_allow_html=True)
                                         
-                                        # SNO: 3桁右詰め
-                                        sno_str = str(i).rjust(3)
-                                        
-                                        # 商品名: 10文字(全角想定幅20)でパディング/カット
-                                        name_str = pad_string(item_name[:10], 20)
-                                        
-                                        # 金額: 右揃え (最大8文字幅想定)
-                                        amount_str = f"¥{amount:,}".rjust(8)
-                                        
-                                        # 大・小分類: 最大幅でパディング
-                                        major_str = pad_string(major, max_major_width)
-                                        minor_str = pad_string(sub, max_minor_width)
-                                        
-                                        st.markdown(f"{sno_str} {name_str} {amount_str} {major_str} {minor_str}")
-                                        
-                                    st.markdown("-" * (3 + 1 + 20 + 1 + 8 + 1 + max_major_width + 1 + max_minor_width))
-                                    total_str = f"¥{total_amount:,}".rjust(8)
-                                    # 合計という文字の幅は SNO(3) + Space(1) + Name(20) = 24 に合わせる
-                                    st.markdown(f"**{pad_string('合計', 24)} {total_str}**")
-                                    st.markdown('</div>', unsafe_allow_html=True)
-                                
+                                st.markdown(f"**合計金額: ¥{total_amount:,}**")
                                 st.markdown("---")
                                 
                                 # 閲覧用アクションボタン（修正 / 削除）
