@@ -753,163 +753,205 @@ def main():
                                     
                             st.write("##### 明細一覧")
                             
-                            # 明細行を1行のインラインテキストのように表示させるためのCSS
-                            st.markdown("""
-                            <style>
-                                /* カスタムコンテナ：receipt-table-target を含む一番内側の stVerticalBlock を横スクロール化 */
-                                div[data-testid="stVerticalBlock"]:has(span#receipt-table-target):not(:has(div[data-testid="stVerticalBlock"] span#receipt-table-target)) {
-                                    overflow-x: auto !important;
-                                    -webkit-overflow-scrolling: touch;
-                                    padding-bottom: 4px !important;
-                                    width: 100%;
-                                }
+                            # 閲覧モードと修正モードを管理するState
+                            # レシートが切り替わった時に状態をリセットするためのキー制御
+                            mode_key = f"mode_{receipt_key}"
+                            if mode_key not in st.session_state:
+                                st.session_state[mode_key] = False # 初期設定は閲覧モード(False)
                                 
-                                /* コンテナ内の各行(stHorizontalBlock)の設定 */
-                                div[data-testid="stVerticalBlock"]:has(span#receipt-table-target):not(:has(div[data-testid="stVerticalBlock"] span#receipt-table-target)) div[data-testid="stHorizontalBlock"] {
-                                    display: flex !important;
-                                    flex-direction: row !important; 
-                                    flex-wrap: nowrap !important;   
-                                    justify-content: flex-start !important; 
-                                    align-items: center !important; /* 縦位置を中央揃え */
-                                    gap: 0.25em !important;         /* スペース１つ分の隙間 */
-                                    white-space: nowrap !important;
-                                    margin-bottom: 4px !important;  
-                                    padding-bottom: 0 !important;
-                                }
-                                
-                                /* その中の各列(column)の設定 */
-                                div[data-testid="stVerticalBlock"]:has(span#receipt-table-target):not(:has(div[data-testid="stVerticalBlock"] span#receipt-table-target)) div[data-testid="column"] {
-                                    flex: 0 1 auto !important;      /* コンテンツの幅に合わせて自動調整 */
-                                    width: auto !important;         /* 強制的な幅を解除 */
-                                    min-width: 0 !important;
-                                    max-width: none !important;
-                                    padding: 0 !important;          
-                                    margin: 0 !important;
-                                }
-                                
-                                /* ウィジェット下マージンを消去して余白を完全削除 */
-                                div[data-testid="stVerticalBlock"]:has(span#receipt-table-target):not(:has(div[data-testid="stVerticalBlock"] span#receipt-table-target)) div.stMarkdown,
-                                div[data-testid="stVerticalBlock"]:has(span#receipt-table-target):not(:has(div[data-testid="stVerticalBlock"] span#receipt-table-target)) div.stPopover {
-                                    margin-bottom: 0 !important;
-                                }
-                                
-                                /* ポップオーバー（大分類・小分類ボタン）の表示を極力コンパクトに */
-                                div[data-testid="stPopover"] > button {
-                                    padding: 0px 4px !important;
-                                    font-size: 0.8em !important;
-                                    min-height: 24px !important;
-                                    height: 26px !important;
-                                    width: auto !important;
-                                }
-                            </style>
-                            """, unsafe_allow_html=True)
+                            edit_mode = st.session_state[mode_key]
                             
-                            with st.container():
-                                st.markdown('<span id="receipt-table-target"></span>', unsafe_allow_html=True)
+                            if edit_mode:
+                                # 【修正モード】のレイアウト
                                 
-                                modified = False
+                                # 明細行を1行のインラインテキストのように表示させるためのCSS
+                                st.markdown("""
+                                <style>
+                                    /* カスタムコンテナ：receipt-table-target を含む一番内側の stVerticalBlock を横スクロール化 */
+                                    div[data-testid="stVerticalBlock"]:has(span#receipt-table-target):not(:has(div[data-testid="stVerticalBlock"] span#receipt-table-target)) {
+                                        overflow-x: auto !important;
+                                        -webkit-overflow-scrolling: touch;
+                                        padding-bottom: 4px !important;
+                                        width: 100%;
+                                    }
+                                    
+                                    /* コンテナ内の各行(stHorizontalBlock)の設定 */
+                                    div[data-testid="stVerticalBlock"]:has(span#receipt-table-target):not(:has(div[data-testid="stVerticalBlock"] span#receipt-table-target)) div[data-testid="stHorizontalBlock"] {
+                                        display: flex !important;
+                                        flex-direction: row !important; 
+                                        flex-wrap: nowrap !important;   
+                                        justify-content: flex-start !important; 
+                                        align-items: center !important; /* 縦位置を中央揃え */
+                                        gap: 0.25em !important;         /* スペース１つ分の隙間 */
+                                        white-space: nowrap !important;
+                                        margin-bottom: 4px !important;  
+                                        padding-bottom: 0 !important;
+                                    }
+                                    
+                                    /* その中の各列(column)の設定 */
+                                    div[data-testid="stVerticalBlock"]:has(span#receipt-table-target):not(:has(div[data-testid="stVerticalBlock"] span#receipt-table-target)) div[data-testid="column"] {
+                                        flex: 0 1 auto !important;      /* コンテンツの幅に合わせて自動調整 */
+                                        width: auto !important;         /* 強制的な幅を解除 */
+                                        min-width: 0 !important;
+                                        max-width: none !important;
+                                        padding: 0 !important;          
+                                        margin: 0 !important;
+                                    }
+                                    
+                                    /* ウィジェット下マージンを消去して余白を完全削除 */
+                                    div[data-testid="stVerticalBlock"]:has(span#receipt-table-target):not(:has(div[data-testid="stVerticalBlock"] span#receipt-table-target)) div.stMarkdown,
+                                    div[data-testid="stVerticalBlock"]:has(span#receipt-table-target):not(:has(div[data-testid="stVerticalBlock"] span#receipt-table-target)) div.stPopover {
+                                        margin-bottom: 0 !important;
+                                    }
+                                    
+                                    /* ポップオーバー（大分類・小分類ボタン）の表示を極力コンパクトに */
+                                    div[data-testid="stPopover"] > button {
+                                        padding: 0px 4px !important;
+                                        font-size: 0.8em !important;
+                                        min-height: 24px !important;
+                                        height: 26px !important;
+                                        width: auto !important;
+                                    }
+                                </style>
+                                """, unsafe_allow_html=True)
                                 
+                                with st.container():
+                                    st.markdown('<span id="receipt-table-target"></span>', unsafe_allow_html=True)
+                                    
+                                    modified = False
+                                    
+                                    for idx, row in details.iterrows():
+                                        row_index_gs = row["_row_index"]
+                                        item_name = row.get(item_col, "不明な商品") if item_col else "不明な商品"
+                                        display_item_name = item_name[:10] + "…" if len(item_name) > 10 else item_name
+                                        
+                                        edit_vals = st.session_state['edit_data'].get(row_index_gs)
+                                        if not edit_vals:
+                                            continue
+                                        
+                                        disp_amount = edit_vals['amount']
+                                        disp_major = edit_vals['major']
+                                        disp_minor = edit_vals['minor']
+                                        
+                                        row_col1, row_col2, row_col3, row_col4 = st.columns(4)
+                                        
+                                        with row_col1:
+                                            st.markdown(f"<div style='font-size: 0.85em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;' title='{item_name}'>{display_item_name}</div>", unsafe_allow_html=True)
+                                        with row_col2:
+                                            st.markdown(f"<div style='font-size: 0.85em;'>¥{disp_amount:,}</div>", unsafe_allow_html=True)
+                                            new_amount = disp_amount 
+                                        with row_col3:
+                                            majors = list(EXPENSE_CATEGORIES.keys())
+                                            default_major_idx = majors.index(disp_major) if disp_major in majors else majors.index("その他")
+                                            with st.popover(disp_major):
+                                                new_major = st.radio("大分類", majors, index=default_major_idx, key=f"maj_{row_index_gs}", label_visibility="collapsed")
+                                        with row_col4:
+                                            minors = EXPENSE_CATEGORIES.get(new_major, EXPENSE_CATEGORIES["その他"])
+                                            default_minor_idx = minors.index(disp_minor) if disp_minor in minors else len(minors)-1
+                                            with st.popover(disp_minor):
+                                                new_minor = st.radio("小分類", minors, index=default_minor_idx, key=f"min_{row_index_gs}", label_visibility="collapsed")
+                                        
+                                        if new_amount != disp_amount or new_major != disp_major or new_minor != disp_minor:
+                                            st.session_state['edit_data'][row_index_gs]["amount"] = new_amount
+                                            st.session_state['edit_data'][row_index_gs]["major"] = new_major
+                                            st.session_state['edit_data'][row_index_gs]["minor"] = new_minor
+                                            modified = True
+                                        
+                                if modified:
+                                    st.rerun()
+                                    
+                                st.markdown("---")
+                                
+                                # 修正用ボタン（登録 / キャンセル）
+                                col1, col2 = st.columns(2)
+                                with col1:
+                                    if st.button("登録", use_container_width=True, key="save_receipt"):
+                                        try:
+                                            with st.spinner("保存中..."):
+                                                sheet = get_sheet(TRANSACTIONS_WORKSHEET_NAME)
+                                                headers = sheet.row_values(1)
+                                                amount_col_idx = headers.index("amount") + 1 if "amount" in headers else None
+                                                category_col_idx = headers.index("category") + 1 if "category" in headers else None
+                                                
+                                                sub_col_idx = None
+                                                for c in ["subcategory", "sub_category", "小分類"]:
+                                                    if c in headers:
+                                                        sub_col_idx = headers.index(c) + 1
+                                                        break
+                                                
+                                                updates = []
+                                                for r_idx_gs, vals in st.session_state['edit_data'].items():
+                                                    if amount_col_idx: updates.append(gspread.Cell(row=r_idx_gs, col=amount_col_idx, value=vals["amount"]))
+                                                    if category_col_idx: updates.append(gspread.Cell(row=r_idx_gs, col=category_col_idx, value=vals["major"]))
+                                                    if sub_col_idx: updates.append(gspread.Cell(row=r_idx_gs, col=sub_col_idx, value=vals["minor"]))
+                                                    
+                                                if updates:
+                                                    sheet.update_cells(updates)
+                                                    
+                                                st.success("✅ レシート明細を更新しました")
+                                                st.session_state['edit_data'] = {} # リセット
+                                                st.session_state[mode_key] = False # 閲覧モードに戻す
+                                                import time; time.sleep(1)
+                                                st.rerun()
+                                        except Exception as e:
+                                            st.error(f"エラー: {e}")
+                                            
+                                with col2:
+                                    if st.button("キャンセル", use_container_width=True, key="cancel_receipt_edit"):
+                                        # 状態をリセットし閲覧モードに戻る
+                                        st.session_state['current_receipt_key'] = "" # キーを空にして初期化処理を無理やり再実行させる
+                                        st.session_state[mode_key] = False
+                                        st.rerun()
+                                
+                            else:
+                                # 【閲覧モード】のレイアウト
+                                
+                                st.markdown("""
+                                <style>
+                                .readonly-list {
+                                    font-size: 0.9em;
+                                    line-height: 1.6;
+                                }
+                                </style>
+                                """, unsafe_allow_html=True)
+                                
+                                st.markdown('<div class="readonly-list">', unsafe_allow_html=True)
                                 for idx, row in details.iterrows():
-                                    row_index_gs = row["_row_index"]
                                     item_name = row.get(item_col, "不明な商品") if item_col else "不明な商品"
-                                    # 商品名を全角10文字までに切り詰め
-                                    display_item_name = item_name[:10] + "…" if len(item_name) > 10 else item_name
+                                    major = row.get("category", "その他")
+                                    sub_cols = [c for c in ["subcategory", "sub_category", "小分類"] if c in df.columns]
+                                    sub = row.get(sub_cols[0], "❓その他") if sub_cols else "❓その他"
+                                    amount = int(row.get("amount", 0))
                                     
-                                    edit_vals = st.session_state['edit_data'].get(row_index_gs)
-                                    if not edit_vals:
-                                        continue
-                                    
-                                    disp_amount = edit_vals['amount']
-                                    disp_major = edit_vals['major']
-                                    disp_minor = edit_vals['minor']
-                                    
-                                    row_col1, row_col2, row_col3, row_col4 = st.columns(4)
-                                    
-                                    # 商品名
-                                    with row_col1:
-                                        st.markdown(f"<div style='font-size: 0.85em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;' title='{item_name}'>{display_item_name}</div>", unsafe_allow_html=True)
-                                        
-                                    # 金額 (表示のみにする)
-                                    with row_col2:
-                                        st.markdown(f"<div style='font-size: 0.85em;'>¥{disp_amount:,}</div>", unsafe_allow_html=True)
-                                        new_amount = disp_amount # 変更不可なため保持
-                                        
-                                    # 大分類 (ポップオーバーリストに変更)
-                                    with row_col3:
-                                        majors = list(EXPENSE_CATEGORIES.keys())
-                                        default_major_idx = majors.index(disp_major) if disp_major in majors else majors.index("その他")
-                                        with st.popover(disp_major):
-                                            new_major = st.radio("大分類", majors, index=default_major_idx, key=f"maj_{row_index_gs}", label_visibility="collapsed")
-                                        
-                                    # 小分類 (ポップオーバーリストに変更)
-                                    with row_col4:
-                                        minors = EXPENSE_CATEGORIES.get(new_major, EXPENSE_CATEGORIES["その他"])
-                                        default_minor_idx = minors.index(disp_minor) if disp_minor in minors else len(minors)-1
-                                        with st.popover(disp_minor):
-                                            new_minor = st.radio("小分類", minors, index=default_minor_idx, key=f"min_{row_index_gs}", label_visibility="collapsed")
-                                    
-                                    if new_amount != disp_amount or new_major != disp_major or new_minor != disp_minor:
-                                        st.session_state['edit_data'][row_index_gs]["amount"] = new_amount
-                                        st.session_state['edit_data'][row_index_gs]["major"] = new_major
-                                        st.session_state['edit_data'][row_index_gs]["minor"] = new_minor
-                                        modified = True
-                                    
-                            if modified:
-                                st.rerun()
+                                    st.markdown(f"・{item_name} ¥{amount:,} / {major} / {sub}")
+                                st.markdown('</div>', unsafe_allow_html=True)
                                 
-                            st.markdown("---")
-                            
-                            # ボタン（戻すボタンを削除し、2列に変更）
-                            col1, col2 = st.columns(2)
-                            with col1:
-                                if st.button("登録", use_container_width=True):
-                                    try:
-                                        with st.spinner("保存中..."):
-                                            sheet = get_sheet(TRANSACTIONS_WORKSHEET_NAME)
-                                            headers = sheet.row_values(1)
-                                            amount_col_idx = headers.index("amount") + 1 if "amount" in headers else None
-                                            category_col_idx = headers.index("category") + 1 if "category" in headers else None
-                                            
-                                            # subcategoryの列名を特定
-                                            sub_col_idx = None
-                                            for c in ["subcategory", "sub_category", "小分類"]:
-                                                if c in headers:
-                                                    sub_col_idx = headers.index(c) + 1
-                                                    break
-                                            
-                                            updates = []
-                                            for r_idx_gs, vals in st.session_state['edit_data'].items():
-                                                if amount_col_idx: updates.append(gspread.Cell(row=r_idx_gs, col=amount_col_idx, value=vals["amount"]))
-                                                if category_col_idx: updates.append(gspread.Cell(row=r_idx_gs, col=category_col_idx, value=vals["major"]))
-                                                if sub_col_idx: updates.append(gspread.Cell(row=r_idx_gs, col=sub_col_idx, value=vals["minor"]))
-                                                
-                                            if updates:
-                                                sheet.update_cells(updates)
-                                                
-                                            st.success("✅ レシート明細を更新しました")
-                                            st.session_state['edit_data'] = {} # リセット
-                                            import time; time.sleep(1)
-                                            st.rerun()
-                                    except Exception as e:
-                                        st.error(f"エラー: {e}")
+                                st.markdown("---")
+                                
+                                # 閲覧用アクションボタン（修正 / 削除）
+                                col1, col2 = st.columns(2)
+                                with col1:
+                                    if st.button("修正", use_container_width=True, key="edit_receipt"):
+                                        st.session_state[mode_key] = True
+                                        st.rerun()
                                         
-                            with col2:
-                                # 削除ボタン
-                                if st.button("削除", use_container_width=True):
-                                    try:
-                                        with st.spinner("削除中..."):
-                                            sheet = get_sheet(TRANSACTIONS_WORKSHEET_NAME)
-                                            # 下から順に削除する（インデックスがずれないように）
-                                            rows_to_delete = sorted(list(st.session_state['edit_data'].keys()), reverse=True)
-                                            for r_idx in rows_to_delete:
-                                                sheet.delete_rows(r_idx)
-                                                
-                                            st.success("✅ レシートを削除しました")
-                                            st.session_state['edit_data'] = {}
-                                            import time; time.sleep(1)
-                                            st.rerun()
-                                    except Exception as e:
-                                        st.error(f"エラー: {e}")
+                                with col2:
+                                    if st.button("削除", use_container_width=True, key="delete_receipt"):
+                                        try:
+                                            with st.spinner("削除中..."):
+                                                sheet = get_sheet(TRANSACTIONS_WORKSHEET_NAME)
+                                                # 下から順に削除する（インデックスがずれないように）
+                                                rows_to_delete = sorted(list(st.session_state['edit_data'].keys()), reverse=True)
+                                                for r_idx in rows_to_delete:
+                                                    sheet.delete_rows(r_idx)
+                                                    
+                                                st.success("✅ レシートを削除しました")
+                                                st.session_state['edit_data'] = {}
+                                                st.session_state[mode_key] = False
+                                                import time; time.sleep(1)
+                                                st.rerun()
+                                        except Exception as e:
+                                            st.error(f"エラー: {e}")
                             
                             # CSSの代わりにJSを使ってより確実にボタンの色を変更
                             import streamlit.components.v1 as components
@@ -918,15 +960,15 @@ def main():
                             const elements = window.parent.document.querySelectorAll('button');
                             elements.forEach(b => {
                                 const text = b.innerText.trim();
-                                if (text === '登録') {
+                                if (text === '修正' || text === '登録') {
                                     b.style.backgroundColor = '#007bff';
                                     b.style.color = 'white';
                                     b.style.borderColor = '#007bff';
                                 }
-                                if (text === '削除') {
-                                    b.style.backgroundColor = '#ff4b4b';
+                                if (text === '削除' || text === 'キャンセル') {
+                                    b.style.backgroundColor = '#dc3545';
                                     b.style.color = 'white';
-                                    b.style.borderColor = '#ff4b4b';
+                                    b.style.borderColor = '#dc3545';
                                 }
                             });
                             </script>
