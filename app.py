@@ -756,37 +756,38 @@ def main():
                             # ヘッダー行と明細行を横スクロールさせるためのCSS
                             st.markdown("""
                             <style>
-                                /* 明細ブロック全体を包むコンテナ（横スクロール用） */
-                                .scrollable-container {
-                                    overflow-x: auto;
-                                    white-space: nowrap;
-                                    padding-bottom: 10px;
+                                /* カスタムコンテナ：receipt-table-target を含む一番内側の stVerticalBlock を横スクロール化 */
+                                div[data-testid="stVerticalBlock"]:has(span#receipt-table-target):not(:has(div[data-testid="stVerticalBlock"] span#receipt-table-target)) {
+                                    overflow-x: auto !important;
                                     -webkit-overflow-scrolling: touch;
+                                    padding-bottom: 10px;
                                     width: 100%;
                                 }
                                 
-                                /* 明細行の折り返しを無効化し、モバイルでも強制的に1行に収める */
-                                .scrollable-container [data-testid="stHorizontalBlock"] {
-                                    display: flex !important;       /* モバイルでblockになるのを防ぐ */
-                                    flex-direction: row !important; /* モバイル時の強制縦並び(column)を解除 */
-                                    flex-wrap: nowrap !important;   /* 絶対に折り返さない・最重要 */
-                                    white-space: nowrap !important; /* 改行禁止 */
-                                    width: max-content !important;  /* 無駄に広がらない */
-                                    justify-content: flex-start !important; /* 左寄せ */
-                                    gap: 0.2rem !important;         /* カラム間の隙間を極力狭く */
+                                /* そのコンテナ内の各行(stHorizontalBlock)の設定 */
+                                div[data-testid="stVerticalBlock"]:has(span#receipt-table-target):not(:has(div[data-testid="stVerticalBlock"] span#receipt-table-target)) div[data-testid="stHorizontalBlock"] {
+                                    display: flex !important;
+                                    flex-direction: row !important; /* モバイルでの縦積みを解除 */
+                                    flex-wrap: nowrap !important;   /* 絶対に改行・折り返ししない */
+                                    min-width: 480px !important;    /* 狭い画面でも幅を維持して横スクロールを強制 */
+                                    gap: 0.2rem !important;
+                                    white-space: nowrap !important;
                                 }
-                                .scrollable-container [data-testid="column"] {
-                                    flex: 0 0 auto !important;      /* 自動伸長をオフ */
-                                    width: auto !important;         /* モバイル時の強制100%幅を解除 */
-                                    max-width: none !important;     /* 最大幅制限も解除 */
-                                    padding-left: 0.1rem !important;
-                                    padding-right: 0.1rem !important;
+                                
+                                /* その中の各列(column)の設定 */
+                                div[data-testid="stVerticalBlock"]:has(span#receipt-table-target):not(:has(div[data-testid="stVerticalBlock"] span#receipt-table-target)) div[data-testid="column"] {
+                                    flex: 0 0 auto !important;      /* 自動調整をオフ */
+                                    width: auto !important;         /* モバイルの100%幅を解除 */
+                                    min-width: 0 !important;
+                                    max-width: none !important;
+                                    padding: 0 4px !important;      /* 余白を縮める */
                                 }
-                                /* 各項目の幅を文字数に合わせて設定する（min-widthで確実に潰れないようにする） */
-                                .scrollable-container [data-testid="stHorizontalBlock"] > [data-testid="column"]:nth-child(1) { min-width: 120px !important; width: 140px !important; } /* 商品名 */
-                                .scrollable-container [data-testid="stHorizontalBlock"] > [data-testid="column"]:nth-child(2) { min-width: 60px !important; width: 60px !important; }  /* 金額 */
-                                .scrollable-container [data-testid="stHorizontalBlock"] > [data-testid="column"]:nth-child(3) { min-width: 80px !important; width: max-content !important; }  /* 大分類 */
-                                .scrollable-container [data-testid="stHorizontalBlock"] > [data-testid="column"]:nth-child(4) { min-width: 80px !important; width: max-content !important; }  /* 小分類 */
+                                
+                                /* 各列の幅を固定（合計で480px程度） */
+                                div[data-testid="stVerticalBlock"]:has(span#receipt-table-target):not(:has(div[data-testid="stVerticalBlock"] span#receipt-table-target)) div[data-testid="stHorizontalBlock"] > div[data-testid="column"]:nth-child(1) { width: 150px !important; }
+                                div[data-testid="stVerticalBlock"]:has(span#receipt-table-target):not(:has(div[data-testid="stVerticalBlock"] span#receipt-table-target)) div[data-testid="stHorizontalBlock"] > div[data-testid="column"]:nth-child(2) { width: 70px !important; }
+                                div[data-testid="stVerticalBlock"]:has(span#receipt-table-target):not(:has(div[data-testid="stVerticalBlock"] span#receipt-table-target)) div[data-testid="stHorizontalBlock"] > div[data-testid="column"]:nth-child(3) { width: 130px !important; }
+                                div[data-testid="stVerticalBlock"]:has(span#receipt-table-target):not(:has(div[data-testid="stVerticalBlock"] span#receipt-table-target)) div[data-testid="stHorizontalBlock"] > div[data-testid="column"]:nth-child(4) { width: 130px !important; }
                                 
                                 /* ポップオーバー（大分類・小分類ボタン）の表示を極力コンパクトに */
                                 div[data-testid="stPopover"] > button {
@@ -797,65 +798,62 @@ def main():
                             </style>
                             """, unsafe_allow_html=True)
                             
-                            # 全体をスクロール可能にするために、HTMLのdivでラップ（Streamlitのマークダウン内包機能は限定的だが、CSSのmin-widthで担保するアプローチに変更）
-                            
-                            st.markdown('<div class="scrollable-container">', unsafe_allow_html=True)
-                            
-                            # ヘッダー
-                            h_col1, h_col2, h_col3, h_col4 = st.columns([4, 1.5, 2.25, 2.25])
-                            h_col1.markdown("<div style='font-size: 0.85em; font-weight: bold; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;'>商品名</div>", unsafe_allow_html=True)
-                            h_col2.markdown("<div style='font-size: 0.85em; font-weight: bold;'>金額</div>", unsafe_allow_html=True)
-                            h_col3.markdown("<div style='font-size: 0.85em; font-weight: bold;'>大分類</div>", unsafe_allow_html=True)
-                            h_col4.markdown("<div style='font-size: 0.85em; font-weight: bold;'>小分類</div>", unsafe_allow_html=True)
-                            
-                            modified = False
-                            
-                            for idx, row in details.iterrows():
-                                row_index_gs = row["_row_index"]
-                                item_name = row.get(item_col, "不明な商品") if item_col else "不明な商品"
-                                # 商品名を全角10文字までに切り詰め
-                                display_item_name = item_name[:10] + "…" if len(item_name) > 10 else item_name
+                            with st.container():
+                                st.markdown('<span id="receipt-table-target"></span>', unsafe_allow_html=True)
                                 
-                                edit_vals = st.session_state['edit_data'].get(row_index_gs)
-                                if not edit_vals:
-                                    continue
+                                # ヘッダー
+                                h_col1, h_col2, h_col3, h_col4 = st.columns([4, 1.5, 2.25, 2.25])
+                                h_col1.markdown("<div style='font-size: 0.85em; font-weight: bold; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;'>商品名</div>", unsafe_allow_html=True)
+                                h_col2.markdown("<div style='font-size: 0.85em; font-weight: bold;'>金額</div>", unsafe_allow_html=True)
+                                h_col3.markdown("<div style='font-size: 0.85em; font-weight: bold;'>大分類</div>", unsafe_allow_html=True)
+                                h_col4.markdown("<div style='font-size: 0.85em; font-weight: bold;'>小分類</div>", unsafe_allow_html=True)
                                 
-                                disp_amount = edit_vals['amount']
-                                disp_major = edit_vals['major']
-                                disp_minor = edit_vals['minor']
+                                modified = False
                                 
-                                row_col1, row_col2, row_col3, row_col4 = st.columns([4, 1.5, 2.25, 2.25])
-                                
-                                # 商品名
-                                with row_col1:
-                                    st.markdown(f"<div style='margin-top: 8px; font-size: 0.85em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;' title='{item_name}'>{display_item_name}</div>", unsafe_allow_html=True)
+                                for idx, row in details.iterrows():
+                                    row_index_gs = row["_row_index"]
+                                    item_name = row.get(item_col, "不明な商品") if item_col else "不明な商品"
+                                    # 商品名を全角10文字までに切り詰め
+                                    display_item_name = item_name[:10] + "…" if len(item_name) > 10 else item_name
                                     
-                                # 金額 (表示のみにする)
-                                with row_col2:
-                                    st.markdown(f"<div style='margin-top: 8px; font-size: 0.85em;'>¥{disp_amount:,}</div>", unsafe_allow_html=True)
-                                    new_amount = disp_amount # 変更不可なため保持
+                                    edit_vals = st.session_state['edit_data'].get(row_index_gs)
+                                    if not edit_vals:
+                                        continue
                                     
-                                # 大分類 (ポップオーバーリストに変更)
-                                with row_col3:
-                                    majors = list(EXPENSE_CATEGORIES.keys())
-                                    default_major_idx = majors.index(disp_major) if disp_major in majors else majors.index("その他")
-                                    with st.popover(disp_major):
-                                        new_major = st.radio("大分類", majors, index=default_major_idx, key=f"maj_{row_index_gs}", label_visibility="collapsed")
+                                    disp_amount = edit_vals['amount']
+                                    disp_major = edit_vals['major']
+                                    disp_minor = edit_vals['minor']
                                     
-                                # 小分類 (ポップオーバーリストに変更)
-                                with row_col4:
-                                    minors = EXPENSE_CATEGORIES.get(new_major, EXPENSE_CATEGORIES["その他"])
-                                    default_minor_idx = minors.index(disp_minor) if disp_minor in minors else len(minors)-1
-                                    with st.popover(disp_minor):
-                                        new_minor = st.radio("小分類", minors, index=default_minor_idx, key=f"min_{row_index_gs}", label_visibility="collapsed")
-                                
-                                if new_amount != disp_amount or new_major != disp_major or new_minor != disp_minor:
-                                    st.session_state['edit_data'][row_index_gs]["amount"] = new_amount
-                                    st.session_state['edit_data'][row_index_gs]["major"] = new_major
-                                    st.session_state['edit_data'][row_index_gs]["minor"] = new_minor
-                                    modified = True
+                                    row_col1, row_col2, row_col3, row_col4 = st.columns([4, 1.5, 2.25, 2.25])
                                     
-                            st.markdown('</div>', unsafe_allow_html=True)
+                                    # 商品名
+                                    with row_col1:
+                                        st.markdown(f"<div style='margin-top: 8px; font-size: 0.85em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;' title='{item_name}'>{display_item_name}</div>", unsafe_allow_html=True)
+                                        
+                                    # 金額 (表示のみにする)
+                                    with row_col2:
+                                        st.markdown(f"<div style='margin-top: 8px; font-size: 0.85em;'>¥{disp_amount:,}</div>", unsafe_allow_html=True)
+                                        new_amount = disp_amount # 変更不可なため保持
+                                        
+                                    # 大分類 (ポップオーバーリストに変更)
+                                    with row_col3:
+                                        majors = list(EXPENSE_CATEGORIES.keys())
+                                        default_major_idx = majors.index(disp_major) if disp_major in majors else majors.index("その他")
+                                        with st.popover(disp_major):
+                                            new_major = st.radio("大分類", majors, index=default_major_idx, key=f"maj_{row_index_gs}", label_visibility="collapsed")
+                                        
+                                    # 小分類 (ポップオーバーリストに変更)
+                                    with row_col4:
+                                        minors = EXPENSE_CATEGORIES.get(new_major, EXPENSE_CATEGORIES["その他"])
+                                        default_minor_idx = minors.index(disp_minor) if disp_minor in minors else len(minors)-1
+                                        with st.popover(disp_minor):
+                                            new_minor = st.radio("小分類", minors, index=default_minor_idx, key=f"min_{row_index_gs}", label_visibility="collapsed")
+                                    
+                                    if new_amount != disp_amount or new_major != disp_major or new_minor != disp_minor:
+                                        st.session_state['edit_data'][row_index_gs]["amount"] = new_amount
+                                        st.session_state['edit_data'][row_index_gs]["major"] = new_major
+                                        st.session_state['edit_data'][row_index_gs]["minor"] = new_minor
+                                        modified = True
                                     
                             if modified:
                                 st.rerun()
