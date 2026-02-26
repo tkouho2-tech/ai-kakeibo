@@ -958,6 +958,16 @@ def main():
             if 'selected_day' not in st.session_state:
                 st.session_state['selected_day'] = None
                 
+            # URLパラメータから選択日を取得（HTMLリンクからの遷移用）
+            query_params = st.query_params
+            if "sel_day" in query_params:
+                try:
+                    st.session_state['selected_day'] = int(query_params["sel_day"])
+                    # パラメータを消費したら消去してURLをクリーンに保つ
+                    st.query_params.clear()
+                except ValueError:
+                    pass
+                
             # 表示月が変更された場合は選択日をリセット
             if 'last_cal_month' not in st.session_state or st.session_state['last_cal_month'] != st.session_state['current_month']:
                 st.session_state['selected_day'] = None
@@ -997,111 +1007,101 @@ def main():
             st.markdown("""
             <style>
             /* 曜日ヘッダー部分専用のスタイル */
-            .cal-header-row {
-                display: flex;
+            .calendar-table {
                 width: 100%;
-                border-top: 1px solid #ddd;
-                border-left: 1px solid #ddd;
-                border-right: 1px solid #ddd;
-                background-color: #f8f9fa;
+                border-collapse: collapse;
+                table-layout: fixed;
+                margin-bottom: 20px;
             }
-            .cal-header-cell {
-                flex: 1;
-                text-align: center;
+            .calendar-table th {
+                border: 1px solid #ddd;
                 padding: 8px 0;
+                text-align: center;
+                background-color: #f8f9fa;
                 font-weight: bold;
                 font-size: 0.9em;
-                border-right: 1px solid #ddd;
             }
-            .cal-header-cell:last-child {
-                border-right: none;
+            .calendar-table td {
+                border: 1px solid #ddd;
+                height: 80px;
+                vertical-align: top;
+                padding: 0;
+                position: relative;
             }
-            
-            /* カレンダー本体のスタイル（Streamlitのcolumnsギャップを消して罫線を繋げる） */
-            div[data-testid="column"] {
-                padding: 0 !important;
+            /* リンク全体をセルサイズに広げる */
+            .cal-cell-link {
+                display: block;
+                width: 100%;
+                height: 100%;
+                text-decoration: none;
+                color: inherit;
+                position: relative;
+                padding: 4px;
+                box-sizing: border-box;
             }
-            
-            /* 枠線の内側要素をターゲットにしてボタンを浮かせ透明にする */
-            div[data-testid="column"] div[data-testid="stVerticalBlockBorderWrapper"] {
-                position: relative !important;
-                min-height: 80px !important;
-                padding: 0 !important;
-                border-radius: 0 !important;
-                margin: 0 !important;
-                border: 1px solid #ddd !important;
-                /* すき間をなくして綺麗に見せるためにネガティブマージン */
-                margin-top: -1px !important;
-                margin-left: -1px !important;
+            .cal-cell-link:hover {
+                background-color: #f0f8ff;
+                text-decoration: none;
             }
-            div[data-testid="column"] div[data-testid="stVerticalBlockBorderWrapper"] div[data-testid="stButton"] {
-                position: absolute !important;
-                top: 0 !important;
-                left: 0 !important;
-                width: 100% !important;
-                height: 100% !important;
-                z-index: 10 !important;
+            .cal-date {
+                font-weight: bold;
+                font-size: 1.1em;
+                color: #333;
+                position: absolute;
+                top: 4px;
+                left: 6px;
+                z-index: 1;
             }
-            div[data-testid="column"] div[data-testid="stVerticalBlockBorderWrapper"] div[data-testid="stButton"] button {
-                width: 100% !important;
-                height: 100% !important;
-                opacity: 0.001 !important;
-                border: none !important;
-                background: transparent !important;
-                margin: 0 !important;
-                padding: 0 !important;
+            .cal-amount {
+                position: absolute;
+                bottom: 4px;
+                right: 6px;
+                color: #ff4b4b; /* 赤字 */
+                font-weight: bold;
+                font-size: 0.9em;
+                z-index: 1;
             }
-            div[data-testid="column"] div[data-testid="stVerticalBlockBorderWrapper"] div[data-testid="stButton"] button:hover,
-            div[data-testid="column"] div[data-testid="stVerticalBlockBorderWrapper"] div[data-testid="stButton"] button:focus {
-                background: transparent !important;
-                border: none !important;
-                box-shadow: none !important;
-                outline: none !important;
-                cursor: pointer;
+            .sel-bg {
+                position: absolute;
+                top: 0;
+                left: 0;
+                width: 100%;
+                height: 100%;
+                background-color: #e6f7ff;
+                z-index: 0;
             }
             </style>
             """, unsafe_allow_html=True)
             
-            # 曜日ヘッダー構築 (テーブル風)
+            # HTMLのカレンダー構築
+            html_cal = '<table class="calendar-table"><thead><tr>'
             weekdays = ["日", "月", "火", "水", "木", "金", "土"]
-            header_html = '<div class="cal-header-row">'
             for wd in weekdays:
                 color = "#ff4b4b" if wd == "日" else "#1f77b4" if wd == "土" else "black"
-                header_html += f'<div class="cal-header-cell" style="color: {color};">{wd}</div>'
-            header_html += '</div>'
-            st.markdown(header_html, unsafe_allow_html=True)
+                html_cal += f'<th style="color: {color};">{wd}</th>'
+            html_cal += '</tr></thead><tbody>'
             
-            # カレンダーグリッド描画（Streamlitコンポーネントでクリック検知）
             for week in cal:
-                cols = st.columns(7, gap="small")
-                for i, day in enumerate(week):
-                    with cols[i]:
-                        if day == 0:
-                            # 空セル
-                            with st.container(border=True):
-                                st.markdown("<div style='min-height: 80px; background-color: #fafafa;'></div>", unsafe_allow_html=True)
+                html_cal += '<tr>'
+                for day in week:
+                    if day == 0:
+                        html_cal += '<td><div style="min-height: 80px; background-color: #fafafa;"></div></td>'
+                    else:
+                        total = daily_totals.get(day, 0)
+                        bg_html = '<div class="sel-bg"></div>' if st.session_state.get('selected_day') == day else ''
+                        amount_html = f'<div class="cal-amount">￥{"{:,}".format(int(total))}</div>' if total > 0 else ''
+                        
+                        # 金額がある日はリンクで囲む
+                        if total > 0:
+                            cell_content = f'<a href="?sel_day={day}" target="_self" class="cal-cell-link">{bg_html}<div class="cal-date">{day}</div>{amount_html}</a>'
                         else:
-                            total = daily_totals.get(day, 0)
-                            # 選択状態の背景レイヤー
-                            bg_div = f'<div style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; background-color: #e6f7ff; z-index: 0;"></div>' if st.session_state['selected_day'] == day else ''
-                            
-                            with st.container(border=True):
-                                # セルのレイアウト描画: 日付は左上、金額は右下(赤字)
-                                amount_text = f'￥{int(total):,}' if total > 0 else ''
-                                st.markdown(f'''
-                                {bg_div}
-                                <div style="position: absolute; top: 4px; left: 6px; color: black; font-weight: bold; font-size: 1.1em; z-index: 1;">{day}</div>
-                                <div style="position: absolute; bottom: 4px; right: 6px; color: #ff4b4b; font-weight: bold; font-size: 0.9em; z-index: 1;">
-                                    {amount_text}
-                                </div>
-                                <div style="min-height: 65px; opacity: 0;">0</div>
-                                ''', unsafe_allow_html=True)
-                                
-                                # 透明なボタンを配置してクリックを検知
-                                if total > 0: # 金額がある日のみクリック可能にする仕様
-                                    if st.button(" ", key=f"cal_btn_{day}", use_container_width=True):
-                                        st.session_state['selected_day'] = day
-                                        st.rerun()
+                            cell_content = f'<div class="cal-cell-link" style="cursor: default;">{bg_html}<div class="cal-date">{day}</div>{amount_html}</div>'
+                        
+                        html_cal += f'<td>{cell_content}</td>'
+                html_cal += '</tr>'
+                
+            html_cal += '</tbody></table>'
+            st.markdown(html_cal, unsafe_allow_html=True)
                                     
             # 指定日の明細一覧表示（ブラインド表示・アコーディオン形式）
             if st.session_state['selected_day']:
@@ -1138,16 +1138,33 @@ def main():
                         with st.expander(f"🛒 **{disp_store}**　　（合計: ￥{store_total:,}）", expanded=False):
                             
                             # そのレシートの大分類を金額が多い順に一覧表示する
-                            cat_groups = group.groupby("category", dropna=False)["amount"].sum().sort_values(ascending=False)
-                            for cat, cat_amount in cat_groups.items():
-                                disp_cat = cat if pd.notna(cat) else "その他"
-                                st.markdown(f"""
-                                <div style='display: flex; justify-content: space-between; border-bottom: 1px dotted #ccc; padding: 6px 0; font-size: 0.9em;'>
-                                    <div>{disp_cat}</div>
-                                    <div style='text-align: right;'>￥{int(cat_amount):,}</div>
-                                </div>
-                                """, unsafe_allow_html=True)
+                            cat_groups = group.groupby("category", dropna=False)
+                            # 大分類ごとに合計金額を求めてソート
+                            cat_totals = cat_groups["amount"].sum().sort_values(ascending=False)
+                            
+                            for cat, cat_amount in cat_totals.items():
+                                disp_cat = str(cat) if pd.notna(cat) and str(cat) != "" else "その他"
                                 
+                                # 各大分類をアコーディオン形式で表示
+                                with st.expander(f"📁 **{disp_cat}**　　（小計: ￥{int(cat_amount):,}）", expanded=False):
+                                    # この大分類に属する小分類のデータを取得して集計
+                                    cat_df = group[group["category"] == cat] if pd.notna(cat) else group[pd.isna(group["category"])]
+                                    sub_cols = [c for c in ["subcategory", "sub_category", "小分類"] if c in cat_df.columns]
+                                    sub_col = sub_cols[0] if sub_cols else None
+                                    
+                                    if sub_col:
+                                        sub_groups = cat_df.groupby(sub_col, dropna=False)["amount"].sum().sort_values(ascending=False)
+                                    else:
+                                        sub_groups = pd.Series({ "詳細不明": cat_amount })
+                                        
+                                    for sub_cat, sub_amount in sub_groups.items():
+                                        disp_sub = str(sub_cat) if pd.notna(sub_cat) and str(sub_cat) != "" else "その他"
+                                        st.markdown(f"""
+                                        <div style='display: flex; justify-content: space-between; border-bottom: 1px dotted #ccc; padding: 4px 10px; font-size: 0.85em; color: #555;'>
+                                            <div>└ {disp_sub}</div>
+                                            <div style='text-align: right;'>￥{int(sub_amount):,}</div>
+                                        </div>
+                                        """, unsafe_allow_html=True)
                             # 最終行に合計金額
                             st.markdown(f"""
                             <div style='display: flex; justify-content: space-between; padding-top: 10px; font-weight: bold;'>
