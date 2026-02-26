@@ -1101,7 +1101,7 @@ def main():
                 if daily_totals[day] > 0:
                     if st.button(f"hbtn_{day}", key=f"hidden_btn_{day}"):
                         st.session_state['selected_day'] = day
-                        st.rerun()
+                        # st.rerun() はStreamlitのReact DOMを破壊する恐れがあるため使用しない
 
             # JSを注入して、隠しボタンの非表示化とマス目クリック時の連動を実装
             import streamlit.components.v1 as components
