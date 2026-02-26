@@ -1096,12 +1096,14 @@ def main():
             html_cal += '</tbody></table>'
             st.markdown(html_cal, unsafe_allow_html=True)
             
+            # 日付選択のコールバック関数
+            def select_day_callback(d):
+                st.session_state['selected_day'] = d
+
             # JS経由でPythonに状態を渡すための隠しボタンをレンダリング（後でJSでdisplay:noneにする）
             for day in daily_totals.keys():
                 if daily_totals[day] > 0:
-                    if st.button(f"hbtn_{day}", key=f"hidden_btn_{day}"):
-                        st.session_state['selected_day'] = day
-                        # st.rerun() はStreamlitのReact DOMを破壊する恐れがあるため使用しない
+                    st.button(f"hbtn_{day}", key=f"hidden_btn_{day}", on_click=select_day_callback, args=(day,))
 
             # JSを注入して、隠しボタンの非表示化とマス目クリック時の連動を実装
             import streamlit.components.v1 as components
