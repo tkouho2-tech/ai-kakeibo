@@ -457,7 +457,7 @@ def main():
                 
             menu_selection = st.radio(
                 "機能を選択",
-                ["ダッシュボード", "レシート取込", "レシート手入力", "レシート修正", "カレンダー", "ヘルプ"],
+                ["ダッシュボード", "レシート取込", "レシート手入力", "レシート修正", "カレンダー", "🤖 AI相談", "ヘルプ"],
                 key="menu_selection"
             )
             st.markdown("---")
@@ -1216,8 +1216,115 @@ def main():
                                 <div style='color: #ff4b4b; text-align: right;'>￥{store_total:,}</div>
                             </div>
                             """, unsafe_allow_html=True)
+                            
+        elif menu_selection == "🤖 AI相談":
+            st.header("🤖 AI相談（専属ファイナンシャルプランナー）")
+            st.info("あなたの過去の家計簿データに基づいて、AIが分析やアドバイスを行います。\n※プライバシーに配慮し、あなた自身のデータのみを暗号化通信で処理します。")
+            
+            # --- データの準備（直近3ヶ月分） ---
+            @st.cache_data(ttl=300)
+            def get_recent_user_data_for_ai(username, current_date):
+                all_dfs = []
+                for i in range(3):
+                    # 過去3ヶ月分のデータを取得
+                    target_m = current_date - relativedelta(months=i)
+                    df_m = load_transactions_data(target_m)
+                    if not df_m.empty:
+                        all_dfs.append(df_m)
+                
+                if all_dfs:
+                    combined_df = pd.concat(all_dfs, ignore_index=True)
+                    # セキュリティの最重要要件：現在ログインしているユーザーのデータのみに再フィルタリング（念押しの二重チェック）
+                    combined_df = combined_df[combined_df["username"].astype(str).str.lower() == username.lower()]
+                    return combined_df
+                return pd.DataFrame()
+                
+            recent_df = get_recent_user_data_for_ai(st.session_state['username'], st.session_state['current_month'])
+            
+            # データを軽量なテキスト形式（CSV風）に変換してトークン容量を節約
+            if not recent_df.empty:
+                # 送信するカラムを絞る
+                cols_to_keep = ["date", "store_name", "category", "amount"]
+                actual_cols = [c for c in cols_to_keep if c in recent_df.columns]
+                
+                # 日付フォーマットや金額を文字列化してコンパクトに
+                ai_df = recent_df[actual_cols].copy()
+                if "date" in ai_df.columns:
+                    ai_df["date"] = ai_df["date"].dt.strftime('%Y/%m/%d')
+                
+                # CSV形式の文字列に変換
+                csv_data_string = ai_df.to_csv(index=False)
+            else:
+                csv_data_string = "現在、参照できる家計簿データはありません。"
+
+            # --- チャットUIの構築 ---
+            if "ai_consult_messages" not in st.session_state:
+                st.session_state.ai_consult_messages = [
+                    {"role": "assistant", "content": f"こんにちは、{st.session_state['username']}さん！あなたの専属ファイナンシャルプランナーです。\n直近3ヶ月のデータを確認しました。今月の支出傾向や、節約のアドバイスなど、何でも聞いてください！"}
+                ]
+                
+            # メッセージ履歴の表示
+            for msg in st.session_state.ai_consult_messages:
+                with st.chat_message(msg["role"]):
+                    st.markdown(msg["content"])
+                    
+            # ユーザー入力ループ
+            if user_input := st.chat_input("質問を入力してください...（例: 今月の食費は上がりすぎてる？）"):
+                # ユーザーのメッセージを表示して履歴に追加
+                st.session_state.ai_consult_messages.append({"role": "user", "content": user_input})
+                with st.chat_message("user"):
+                    st.markdown(user_input)
+                    
+                # APIクライアントの取得
+                client = st.session_state.get('genai_client')
+                if not client:
+                    with st.chat_message("assistant"):
+                        st.error("APIキーが設定されていないため、回答できません。secrets.toml を確認してください。")
+                else:
+                    with st.chat_message("assistant"):
+                        message_placeholder = st.empty()
+                        message_placeholder.markdown("データを分析中...")
+                        
+                        try:
+                            # システムプロンプトの構築（厳格な指示とユーザーデータの埋め込み）
+                            # 指示通り 'gemini-1.5-flash' を想定しつつプロンプトを構築
+                            system_prompt = f"""あなたは優秀な専属ファイナンシャルプランナーです。
+提供されたデータは、このユーザー（{st.session_state['username']}）個人の直近の支出記録です。
+このデータのみに基づいて、ユーザーの質問に正確かつ親身に答えてください。データにない推測は避けてください。
+
+【ユーザーの支出データ（CSV形式）】
+{csv_data_string}
+"""
+                            prompt_parts = []
+                            # Gemini APIのsystem instructionに対応させるか、単純にプロンプトの先頭に添える
+                            # 今回は確実性を重視して最初のメッセージにコンテキストとして埋め込む
+                            prompt_parts.append({"text": system_prompt})
+                            
+                            for m in st.session_state.ai_consult_messages:
+                                prefix = f"{st.session_state['username']}: " if m["role"] == "user" else "FP: "
+                                prompt_parts.append({"text": f"{prefix}{m['content']}"})
+                                
+                            prompt_parts.append({"text": "以上のデータと会話を踏まえて、最後の質問にファイナンシャルプランナーとして親身に返答してください。"})
+
+                            # API呼び出し
+                            response = client.models.generate_content(
+                                model='gemini-1.5-flash',
+                                contents=prompt_parts
+                            )
+                            
+                            full_response = response.text
+                            message_placeholder.markdown(full_response)
+                            
+                            # 履歴に保存
+                            st.session_state.ai_consult_messages.append({"role": "assistant", "content": full_response})
+                            
+                        except Exception as e:
+                            error_msg = f"エラーが発生しました: {e}"
+                            message_placeholder.error(error_msg)
+                            st.session_state.ai_consult_messages.append({"role": "assistant", "content": error_msg})
+
         elif menu_selection == "ヘルプ":
-            st.header("🤖 ヘルプ・サポート")
+            st.header("💡 ヘルプ・サポート")
             st.info("アプリの機能や使い方、データの保存先などについて何でも聞いてください！")
             
             # セッション状態の初期化
