@@ -1159,11 +1159,11 @@ def main():
                     
                     st.markdown(f"#### {month}月{sel_day}日の明細一覧")
                     
-                    # 店舗名を確実に取得
-                    # ユーザー指定によりスプレッドシートの「store」カラムを優先して取得する
-                    # 古いデータや正規化の影響も考慮し、代替カラム名も残すが優先順位を変更
-                    store_col = next((c for c in ["store", "store_name", "店舗名", "店舗"] if c in day_df.columns), None)
+                    # 1. 日別合計の算出
+                    daily_total_amount = int(day_df["amount"].sum())
                     
+                    # 店舗名を確実に取得
+                    store_col = next((c for c in ["store", "store_name", "店舗名", "店舗"] if c in day_df.columns), None)
                     if store_col:
                         day_df["_display_store"] = day_df[store_col].apply(
                             lambda x: str(x).strip() if pd.notna(x) and str(x).strip() != "" else "店舗名不明"
@@ -1171,19 +1171,18 @@ def main():
                     else:
                         day_df["_display_store"] = "店舗名不明"
                         
-                    # 取引明細としての順番を保持しつつ集計する
-                    store_groups = day_df.groupby("_display_store", sort=False)
+                    # 2. 店舗別のグループ化と表示 (dropna=False で店舗名不明も落とさない)
+                    store_groups = day_df.groupby("_display_store", dropna=False, sort=False)
                     
                     for store_name, group in store_groups:
+                        disp_store = str(store_name) if pd.notna(store_name) and str(store_name) != "" else "店舗名不明"
                         store_total = int(group["amount"].sum())
-                        disp_store = str(store_name)
                         
                         # st.expander() がブラインド表示（アコーディオン形式）になります
                         with st.expander(f"🛒 **{disp_store}**　　（合計: ￥{store_total:,}）", expanded=False):
                             
-                            # そのレシートの大分類を金額が多い順に一覧表示する
+                            # 3. カテゴリ小計の表示
                             cat_groups = group.groupby("category", dropna=False)
-                            # 大分類ごとに合計金額を求めてソート
                             cat_totals = cat_groups["amount"].sum().sort_values(ascending=False)
                             
                             for cat, cat_amount in cat_totals.items():
@@ -1191,7 +1190,6 @@ def main():
                                 
                                 # 各大分類をアコーディオン形式で表示
                                 with st.expander(f"📁 **{disp_cat}**　　（小計: ￥{int(cat_amount):,}）", expanded=False):
-                                    # この大分類に属する小分類のデータを取得して集計
                                     cat_df = group[group["category"] == cat] if pd.notna(cat) else group[pd.isna(group["category"])]
                                     sub_cols = [c for c in ["subcategory", "sub_category", "小分類"] if c in cat_df.columns]
                                     sub_col = sub_cols[0] if sub_cols else None
@@ -1209,13 +1207,14 @@ def main():
                                             <div style='text-align: right;'>￥{int(sub_amount):,}</div>
                                         </div>
                                         """, unsafe_allow_html=True)
-                            # 最終行に合計金額
-                            st.markdown(f"""
-                            <div style='display: flex; justify-content: space-between; padding-top: 10px; font-weight: bold;'>
-                                <div>合計</div>
-                                <div style='color: #ff4b4b; text-align: right;'>￥{store_total:,}</div>
-                            </div>
-                            """, unsafe_allow_html=True)
+                                        
+                    # リストの一番下に日別合計を表示 (ループ外)
+                    st.markdown(f"""
+                    <div style='display: flex; justify-content: space-between; padding-top: 20px; font-weight: bold; font-size: 1.1em;'>
+                        <div>合計</div>
+                        <div style='color: #ff4b4b; text-align: right;'>{daily_total_amount:,}円</div>
+                    </div>
+                    """, unsafe_allow_html=True)
                             
         elif menu_selection == "🤖 AI相談":
             st.header("🤖 AI相談（専属ファイナンシャルプランナー）")
