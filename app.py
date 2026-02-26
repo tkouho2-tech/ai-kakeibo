@@ -769,7 +769,8 @@ def main():
                                 .scrollable-container [data-testid="stHorizontalBlock"] {
                                     display: flex !important;       /* モバイルでblockになるのを防ぐ */
                                     flex-direction: row !important; /* モバイル時の強制縦並び(column)を解除 */
-                                    flex-wrap: nowrap !important;   /* 絶対に折り返さない */
+                                    flex-wrap: nowrap !important;   /* 絶対に折り返さない・最重要 */
+                                    white-space: nowrap !important; /* 改行禁止 */
                                     width: max-content !important;  /* 無駄に広がらない */
                                     justify-content: flex-start !important; /* 左寄せ */
                                     gap: 0.2rem !important;         /* カラム間の隙間を極力狭く */
@@ -777,16 +778,15 @@ def main():
                                 .scrollable-container [data-testid="column"] {
                                     flex: 0 0 auto !important;      /* 自動伸長をオフ */
                                     width: auto !important;         /* モバイル時の強制100%幅を解除 */
-                                    min-width: 0 !important;        /* Streamlitのmin-width: 100%を上書き！ */
                                     max-width: none !important;     /* 最大幅制限も解除 */
                                     padding-left: 0.1rem !important;
                                     padding-right: 0.1rem !important;
                                 }
-                                /* 各項目の幅を文字数に合わせて設定する */
-                                .scrollable-container [data-testid="stHorizontalBlock"] > [data-testid="column"]:nth-child(1) { width: 140px !important; } /* 商品名: 約10文字分 */
-                                .scrollable-container [data-testid="stHorizontalBlock"] > [data-testid="column"]:nth-child(2) { width: 50px !important; }  /* 金額 */
-                                .scrollable-container [data-testid="stHorizontalBlock"] > [data-testid="column"]:nth-child(3) { width: max-content !important; min-width: 60px !important; }  /* 大分類 */
-                                .scrollable-container [data-testid="stHorizontalBlock"] > [data-testid="column"]:nth-child(4) { width: max-content !important; min-width: 60px !important; }  /* 小分類 */
+                                /* 各項目の幅を文字数に合わせて設定する（min-widthで確実に潰れないようにする） */
+                                .scrollable-container [data-testid="stHorizontalBlock"] > [data-testid="column"]:nth-child(1) { min-width: 120px !important; width: 140px !important; } /* 商品名 */
+                                .scrollable-container [data-testid="stHorizontalBlock"] > [data-testid="column"]:nth-child(2) { min-width: 60px !important; width: 60px !important; }  /* 金額 */
+                                .scrollable-container [data-testid="stHorizontalBlock"] > [data-testid="column"]:nth-child(3) { min-width: 80px !important; width: max-content !important; }  /* 大分類 */
+                                .scrollable-container [data-testid="stHorizontalBlock"] > [data-testid="column"]:nth-child(4) { min-width: 80px !important; width: max-content !important; }  /* 小分類 */
                                 
                                 /* ポップオーバー（大分類・小分類ボタン）の表示を極力コンパクトに */
                                 div[data-testid="stPopover"] > button {
