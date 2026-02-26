@@ -449,7 +449,7 @@ def main():
             
         # サイドバーメニューの実装
         with st.sidebar:
-            st.title("メインメニュー [Ver 1.0.3]")
+            st.title("メインメニュー [Ver 1.0.4]")
             st.write(f"🔑 ユーザー: **{st.session_state['username']}**")
             st.markdown("---")
             if 'menu_selection' not in st.session_state:
