@@ -948,42 +948,49 @@ def main():
                                     max_major_width = max(max_major_width, get_east_asian_width_count(major))
                                     max_minor_width = max(max_minor_width, get_east_asian_width_count(sub))
                                 
-                                # ヘッダー出力
-                                header_name = pad_string("商品名", 32) # 全角16文字 = 幅32
-                                header_amount = "金額".rjust(8)
-                                header_major = pad_string("大分類", max_major_width)
-                                header_minor = pad_string("小分類", max_minor_width)
-                                
-                                st.markdown('<div class="readonly-list">', unsafe_allow_html=True)
-                                st.markdown(f"**{header_name} {header_amount} {header_major} {header_minor}**")
-                                st.markdown("-" * (32 + 1 + 8 + 1 + max_major_width + 1 + max_minor_width))
-                                
-                                total_amount = 0
-                                for idx, row in details.iterrows():
-                                    item_name = row.get(item_col, "不明な商品") if item_col else "不明な商品"
-                                    major = row.get("category", "その他")
-                                    sub_cols = [c for c in ["subcategory", "sub_category", "小分類"] if c in df.columns]
-                                    sub = row.get(sub_cols[0], "❓その他") if sub_cols else "❓その他"
-                                    amount = int(row.get("amount", 0))
-                                    total_amount += amount
+                                # 枠線つきコンテナで明細一覧を囲み、表示位置を固定化する
+                                with st.container(border=True):
+                                    # ヘッダー出力
+                                    header_sno = "SNO".ljust(3)
+                                    header_name = pad_string("商品名", 20) # 全角10文字 = 幅20
+                                    header_amount = "金額".rjust(8)
+                                    header_major = pad_string("大分類", max_major_width)
+                                    header_minor = pad_string("小分類", max_minor_width)
                                     
-                                    # 商品名: 16文字(全角想定幅32)でパディング/カット
-                                    # 半角・全角混じりを考慮したパディング
-                                    name_str = pad_string(item_name[:16], 32)
+                                    st.markdown('<div class="readonly-list">', unsafe_allow_html=True)
+                                    st.markdown(f"**{header_sno} {header_name} {header_amount} {header_major} {header_minor}**")
+                                    # 区切り線の長さを動的計算
+                                    st.markdown("-" * (3 + 1 + 20 + 1 + 8 + 1 + max_major_width + 1 + max_minor_width))
                                     
-                                    # 金額: 右揃え (最大8文字幅想定)
-                                    amount_str = f"¥{amount:,}".rjust(8)
-                                    
-                                    # 大・小分類: 最大幅でパディング
-                                    major_str = pad_string(major, max_major_width)
-                                    minor_str = pad_string(sub, max_minor_width)
-                                    
-                                    st.markdown(f"{name_str} {amount_str} {major_str} {minor_str}")
-                                    
-                                st.markdown("-" * (32 + 1 + 8 + 1 + max_major_width + 1 + max_minor_width))
-                                total_str = f"¥{total_amount:,}".rjust(8)
-                                st.markdown(f"**{pad_string('合計', 32)} {total_str}**")
-                                st.markdown('</div>', unsafe_allow_html=True)
+                                    total_amount = 0
+                                    for i, (idx, row) in enumerate(details.iterrows(), 1):
+                                        item_name = row.get(item_col, "不明な商品") if item_col else "不明な商品"
+                                        major = row.get("category", "その他")
+                                        sub_cols = [c for c in ["subcategory", "sub_category", "小分類"] if c in df.columns]
+                                        sub = row.get(sub_cols[0], "❓その他") if sub_cols else "❓その他"
+                                        amount = int(row.get("amount", 0))
+                                        total_amount += amount
+                                        
+                                        # SNO: 3桁右詰め
+                                        sno_str = str(i).rjust(3)
+                                        
+                                        # 商品名: 10文字(全角想定幅20)でパディング/カット
+                                        name_str = pad_string(item_name[:10], 20)
+                                        
+                                        # 金額: 右揃え (最大8文字幅想定)
+                                        amount_str = f"¥{amount:,}".rjust(8)
+                                        
+                                        # 大・小分類: 最大幅でパディング
+                                        major_str = pad_string(major, max_major_width)
+                                        minor_str = pad_string(sub, max_minor_width)
+                                        
+                                        st.markdown(f"{sno_str} {name_str} {amount_str} {major_str} {minor_str}")
+                                        
+                                    st.markdown("-" * (3 + 1 + 20 + 1 + 8 + 1 + max_major_width + 1 + max_minor_width))
+                                    total_str = f"¥{total_amount:,}".rjust(8)
+                                    # 合計という文字の幅は SNO(3) + Space(1) + Name(20) = 24 に合わせる
+                                    st.markdown(f"**{pad_string('合計', 24)} {total_str}**")
+                                    st.markdown('</div>', unsafe_allow_html=True)
                                 
                                 st.markdown("---")
                                 
