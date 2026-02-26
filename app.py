@@ -310,7 +310,7 @@ JSONの出力形式は以下を厳守してください。マークダウンの 
 ]
 """
         response = client.models.generate_content(
-            model='gemini-2.5-flash',
+            model='gemini-1.5-flash',
             contents=[prompt, img]
         )
         
@@ -1278,7 +1278,7 @@ def main():
                             prompt_parts.append({"text": "以上の会話を踏まえて、最後のユーザーの質問に返答してください。"})
 
                             response = client.models.generate_content(
-                                model='gemini-2.5-flash',
+                                model='gemini-1.5-flash',
                                 contents=prompt_parts
                             )
                             
