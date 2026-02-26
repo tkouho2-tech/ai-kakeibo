@@ -1087,7 +1087,8 @@ def main():
                         if total > 0:
                             # 隠しボタンの data-testid="stButton" と中の button 要素のテキスト等で特定してクリックさせるスクリプト
                             # StreamlitのDOM構造内で該当日のボタンを探してクリックする
-                            js_click = f"window.parent.document.querySelector('button[kind=\"secondary\"] p') && Array.from(window.parent.document.querySelectorAll('button p')).find(el => el.textContent === 'hbtn_{day}')?.parentElement.click()"
+                            # JS内の引用符がHTMLのonclick属性を壊さないようシングルクォーテーションをエスケープ
+                            js_click = f"window.parent.document.querySelector(&quot;button[kind='secondary'] p&quot;) &amp;&amp; Array.from(window.parent.document.querySelectorAll(&quot;button p&quot;)).find(el =&gt; el.textContent === &quot;hbtn_{day}&quot;)?.parentElement.click()"
                             cell_content = f'<div onclick="{js_click}" class="cal-cell-link" style="cursor: pointer;">{bg_html}<div class="cal-date">{day}</div>{amount_html}</div>'
                         else:
                             cell_content = f'<div class="cal-cell-link" style="cursor: default;">{bg_html}<div class="cal-date">{day}</div>{amount_html}</div>'
