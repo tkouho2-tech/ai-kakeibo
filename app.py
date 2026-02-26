@@ -993,77 +993,67 @@ def main():
             month = st.session_state['current_month'].month
             cal = calendar.monthcalendar(year, month)
             
-            # 曜日ヘッダー (日曜始まり)
-            weekdays = ["日", "月", "火", "水", "木", "金", "土"]
-            cols = st.columns(7)
-            for i, wd in enumerate(weekdays):
-                color = "#ff4b4b" if wd == "日" else "#1f77b4" if wd == "土" else "black"
-                cols[i].markdown(f"<div style='text-align: center; font-weight: bold; font-size: 0.9em; color: {color};'>{wd}</div>", unsafe_allow_html=True)
-                
-            # カレンダー全体にのみ影響を与えるためのCSS
+            # カレンダーの描画（HTMLテーブルとCSSで罫線表示）
             st.markdown("""
             <style>
-            /* 枠線の内側要素をターゲットにしてボタンを浮かせ透明にする */
-            div[data-testid="column"] div[data-testid="stVerticalBlockBorderWrapper"] {
-                position: relative !important;
-                min-height: 70px !important;
-                padding: 0 !important;
+            .calendar-table {
+                width: 100%;
+                border-collapse: collapse;
+                table-layout: fixed;
+                margin-bottom: 20px;
             }
-            div[data-testid="column"] div[data-testid="stVerticalBlockBorderWrapper"] div[data-testid="stButton"] {
-                position: absolute !important;
-                top: 0 !important;
-                left: 0 !important;
-                width: 100% !important;
-                height: 100% !important;
-                z-index: 10 !important;
+            .calendar-table th {
+                border: 1px solid #ddd;
+                padding: 8px 0;
+                text-align: center;
+                background-color: #f8f9fa;
+                font-weight: bold;
+                font-size: 0.9em;
             }
-            div[data-testid="column"] div[data-testid="stVerticalBlockBorderWrapper"] div[data-testid="stButton"] button {
-                width: 100% !important;
-                height: 100% !important;
-                opacity: 0.001 !important;
-                border: none !important;
-                background: transparent !important;
-                margin: 0 !important;
-                padding: 0 !important;
+            .calendar-table td {
+                border: 1px solid #ddd;
+                height: 80px;
+                vertical-align: top;
+                padding: 4px;
+                position: relative;
             }
-            div[data-testid="column"] div[data-testid="stVerticalBlockBorderWrapper"] div[data-testid="stButton"] button:hover,
-            div[data-testid="column"] div[data-testid="stVerticalBlockBorderWrapper"] div[data-testid="stButton"] button:focus {
-                background: transparent !important;
-                border: none !important;
-                box-shadow: none !important;
-                outline: none !important;
+            .cal-date {
+                font-weight: bold;
+                font-size: 1.1em;
+                color: #333;
+            }
+            .cal-amount {
+                position: absolute;
+                bottom: 4px;
+                right: 6px;
+                color: #ff4b4b; /* 赤字 */
+                font-weight: bold;
+                font-size: 0.9em;
             }
             </style>
             """, unsafe_allow_html=True)
             
-            # カレンダーグリッド描画
+            # HTMLのカレンダー構築
+            html_cal = '<table class="calendar-table"><thead><tr>'
+            weekdays = ["日", "月", "火", "水", "木", "金", "土"]
+            for wd in weekdays:
+                color = "#ff4b4b" if wd == "日" else "#1f77b4" if wd == "土" else "black"
+                html_cal += f'<th style="color: {color};">{wd}</th>'
+            html_cal += '</tr></thead><tbody>'
+            
             for week in cal:
-                cols = st.columns(7)
-                for i, day in enumerate(week):
-                    with cols[i]:
-                        if day == 0:
-                            # 空セル
-                            st.markdown("<div style='min-height: 70px;'></div>", unsafe_allow_html=True)
-                        else:
-                            total = daily_totals.get(day, 0)
-                            # 選択状態の背景レイヤー
-                            bg_div = f'<div style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; background-color: #e6f7ff; z-index: 0; border-radius: 0.4rem;"></div>' if st.session_state['selected_day'] == day else ''
-                            
-                            with st.container(border=True):
-                                # CSSラップとセルのレイアウト描画
-                                st.markdown(f'''
-                                {bg_div}
-                                <div style="position: absolute; top: 4px; left: 6px; color: black; font-weight: bold; font-size: 1.1rem; z-index: 1;">{day}</div>
-                                <div style="position: absolute; bottom: 4px; right: 6px; color: #ff4b4b; font-weight: bold; font-size: 0.85em; z-index: 1;">
-                                    {'￥{:,}'.format(int(total)) if total > 0 else ''}
-                                </div>
-                                <div style="min-height: 55px; opacity: 0;">0</div>
-                                ''', unsafe_allow_html=True)
-                                
-                                # 透明なボタンを配置してクリックを検知
-                                if st.button(" ", key=f"cal_btn_{day}", use_container_width=True):
-                                    st.session_state['selected_day'] = day
-                                    st.rerun()
+                html_cal += '<tr>'
+                for day in week:
+                    if day == 0:
+                        html_cal += '<td></td>'
+                    else:
+                        total = daily_totals.get(day, 0)
+                        amount_html = f'<div class="cal-amount">{"{:,}".format(int(total))}</div>' if total > 0 else ''
+                        html_cal += f'<td><div class="cal-date">{day}</div>{amount_html}</td>'
+                html_cal += '</tr>'
+                
+            html_cal += '</tbody></table>'
+            st.markdown(html_cal, unsafe_allow_html=True)
                                     
             # 指定日の明細一覧表示（ブラインド表示・アコーディオン形式）
             if st.session_state['selected_day']:
