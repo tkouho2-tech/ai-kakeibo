@@ -1085,11 +1085,7 @@ def main():
                         
                         # 金額がある日はJSで隠しボタンをクリックさせる（画面リロードを防ぎログイン維持）
                         if total > 0:
-                            # 隠しボタンの data-testid="stButton" と中の button 要素のテキスト等で特定してクリックさせるスクリプト
-                            # StreamlitのDOM構造内で該当日のボタンを探してクリックする
-                            # JS内の引用符がHTMLのonclick属性を壊さないようシングルクォーテーションをエスケープ
-                            js_click = f"window.parent.document.querySelector(&quot;button[kind='secondary'] p&quot;) &amp;&amp; Array.from(window.parent.document.querySelectorAll(&quot;button p&quot;)).find(el =&gt; el.textContent === &quot;hbtn_{day}&quot;)?.parentElement.click()"
-                            cell_content = f'<div onclick="{js_click}" class="cal-cell-link" style="cursor: pointer;">{bg_html}<div class="cal-date">{day}</div>{amount_html}</div>'
+                            cell_content = f'<div onclick="clickCalDay({day})" class="cal-cell-link" style="cursor: pointer;">{bg_html}<div class="cal-date">{day}</div>{amount_html}</div>'
                         else:
                             cell_content = f'<div class="cal-cell-link" style="cursor: default;">{bg_html}<div class="cal-date">{day}</div>{amount_html}</div>'
                         
@@ -1099,15 +1095,42 @@ def main():
             html_cal += '</tbody></table>'
             st.markdown(html_cal, unsafe_allow_html=True)
             
-            # カレンダーからのクリックを受け取るための隠しボタン群
-            # 画面上に表示されないようにCSSで隠す
-            st.markdown('<div style="display: none;">', unsafe_allow_html=True)
+            # JS経由でPythonに状態を渡すための隠しボタンをレンダリング（後でJSでdisplay:noneにする）
             for day in daily_totals.keys():
                 if daily_totals[day] > 0:
                     if st.button(f"hbtn_{day}", key=f"hidden_btn_{day}"):
                         st.session_state['selected_day'] = day
                         st.rerun()
-            st.markdown('</div>', unsafe_allow_html=True)
+
+            # JSを注入して、隠しボタンの非表示化とマス目クリック時の連動を実装
+            import streamlit.components.v1 as components
+            components.html("""
+            <script>
+            // カレンダーの日付マスがクリックされたときに呼ばれる関数を親ウィンドウに登録
+            window.parent.clickCalDay = function(day) {
+                const buttons = window.parent.document.querySelectorAll('button p');
+                for (let el of Array.from(buttons)) {
+                    if (el.textContent === 'hbtn_' + day) {
+                        el.parentElement.click();
+                        break;
+                    }
+                }
+            };
+
+            // "hbtn_〇〇" というテキストを持つボタンを画面上から完全に非表示にする
+            setInterval(() => {
+                const buttons = window.parent.document.querySelectorAll('button p');
+                buttons.forEach(el => {
+                    if (el.textContent.startsWith('hbtn_')) {
+                        let btnWrapper = el.parentElement; // button element
+                        if(btnWrapper) {
+                            btnWrapper.style.display = 'none';
+                        }
+                    }
+                });
+            }, 100);
+            </script>
+            """, height=0, width=0)
                                     
             # 指定日の明細一覧表示（ブラインド表示・アコーディオン形式）
             if st.session_state['selected_day']:
