@@ -1119,7 +1119,8 @@ def main():
                             const buttons = window.parent.document.querySelectorAll('button p');
                             for (let el of Array.from(buttons)) {
                                 if (el.textContent === 'hbtn_' + day) {
-                                    el.parentElement.click();
+                                    const btn = el.closest('button');
+                                    if(btn) btn.click();
                                     break;
                                 }
                             }
@@ -1128,12 +1129,15 @@ def main():
                 });
 
                 // 2. "hbtn_〇〇" というテキストを持つボタンを画面上から完全に非表示にする
+                // Streamlitのコンテナも含めて消すことで、空の枠線だけが残るのを防ぐ
                 const buttons = window.parent.document.querySelectorAll('button p');
                 buttons.forEach(el => {
                     if (el.textContent.startsWith('hbtn_')) {
-                        let btnWrapper = el.parentElement; // button element
+                        let btnWrapper = el.closest('div[data-testid="element-container"]') || el.closest('div[data-testid="stButton"]');
                         if(btnWrapper) {
                             btnWrapper.style.display = 'none';
+                            btnWrapper.style.height = '0px';
+                            btnWrapper.style.margin = '0px';
                         }
                     }
                 });
@@ -1154,9 +1158,9 @@ def main():
                     st.markdown(f"#### {month}月{sel_day}日の明細一覧")
                     
                     # 店舗名を確実に取得
-                    # カレンダー以外の画面でも同じロジックが使用されているため統一して正確に元のデータを取得する
-                    # df作成時の正規化済みのカラムを使うのが安全
-                    store_col = next((c for c in ["store_name", "store", "店舗名", "店舗"] if c in day_df.columns), None)
+                    # ユーザー指定によりスプレッドシートの「store」カラムを優先して取得する
+                    # 古いデータや正規化の影響も考慮し、代替カラム名も残すが優先順位を変更
+                    store_col = next((c for c in ["store", "store_name", "店舗名", "店舗"] if c in day_df.columns), None)
                     
                     if store_col:
                         day_df["_display_store"] = day_df[store_col].apply(
