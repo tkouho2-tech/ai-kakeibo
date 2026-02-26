@@ -753,7 +753,7 @@ def main():
                                     
                             st.write("##### 明細一覧")
                             
-                            # ヘッダー行と明細行を横スクロールさせるためのCSS
+                            # 明細行を1行のインラインテキストのように表示させるためのCSS
                             st.markdown("""
                             <style>
                                 /* カスタムコンテナ：receipt-table-target を含む一番内側の stVerticalBlock を横スクロール化 */
@@ -764,70 +764,48 @@ def main():
                                     width: 100%;
                                 }
                                 
-                                /* そのコンテナ内の各行(stHorizontalBlock)の設定 */
+                                /* コンテナ内の各行(stHorizontalBlock)の設定 */
                                 div[data-testid="stVerticalBlock"]:has(span#receipt-table-target):not(:has(div[data-testid="stVerticalBlock"] span#receipt-table-target)) div[data-testid="stHorizontalBlock"] {
                                     display: flex !important;
-                                    flex-direction: row !important; /* モバイルでの縦積みを解除 */
-                                    flex-wrap: nowrap !important;   /* 絶対に改行・折り返ししない */
-                                    justify-content: flex-start !important; /* 左寄せ（間延び防止） */
-                                    gap: 4px !important;            /* 項目間の隙間を最小限に */
+                                    flex-direction: row !important; 
+                                    flex-wrap: nowrap !important;   
+                                    justify-content: flex-start !important; 
+                                    align-items: center !important; /* 縦位置を中央揃え */
+                                    gap: 0.25em !important;         /* スペース１つ分の隙間 */
                                     white-space: nowrap !important;
-                                    margin-bottom: 0 !important;    /* 行間の余白削除 */
+                                    margin-bottom: 4px !important;  
                                     padding-bottom: 0 !important;
                                 }
                                 
                                 /* その中の各列(column)の設定 */
                                 div[data-testid="stVerticalBlock"]:has(span#receipt-table-target):not(:has(div[data-testid="stVerticalBlock"] span#receipt-table-target)) div[data-testid="column"] {
-                                    flex: 0 0 auto !important;      /* 自動調整をオフ */
-                                    width: auto !important;         /* モバイルの100%幅を解除 */
-                                    padding: 0 !important;          /* 列内の左右の余白を極限まで削る */
+                                    flex: 0 1 auto !important;      /* コンテンツの幅に合わせて自動調整 */
+                                    width: auto !important;         /* 強制的な幅を解除 */
+                                    min-width: 0 !important;
+                                    max-width: none !important;
+                                    padding: 0 !important;          
                                     margin: 0 !important;
                                 }
                                 
-                                /* 各列の幅を固定し、勝手に広がらないようにする */
-                                /* 商品名 */
-                                div[data-testid="stVerticalBlock"]:has(span#receipt-table-target):not(:has(div[data-testid="stVerticalBlock"] span#receipt-table-target)) div[data-testid="stHorizontalBlock"] > div[data-testid="column"]:nth-child(1) { 
-                                    min-width: 140px !important; max-width: 140px !important; 
-                                }
-                                /* 金額 */
-                                div[data-testid="stVerticalBlock"]:has(span#receipt-table-target):not(:has(div[data-testid="stVerticalBlock"] span#receipt-table-target)) div[data-testid="stHorizontalBlock"] > div[data-testid="column"]:nth-child(2) { 
-                                    min-width: 80px !important; max-width: 80px !important; 
-                                }
-                                /* 大分類 */
-                                div[data-testid="stVerticalBlock"]:has(span#receipt-table-target):not(:has(div[data-testid="stVerticalBlock"] span#receipt-table-target)) div[data-testid="stHorizontalBlock"] > div[data-testid="column"]:nth-child(3) { 
-                                    min-width: 100px !important; max-width: 100px !important; 
-                                }
-                                /* 小分類 */
-                                div[data-testid="stVerticalBlock"]:has(span#receipt-table-target):not(:has(div[data-testid="stVerticalBlock"] span#receipt-table-target)) div[data-testid="stHorizontalBlock"] > div[data-testid="column"]:nth-child(4) { 
-                                    min-width: 100px !important; max-width: 100px !important; 
-                                }
-                                
-                                /* ウィジェット(radioやpopover等)の下マージンを消去して余白を完全削除 */
+                                /* ウィジェット下マージンを消去して余白を完全削除 */
                                 div[data-testid="stVerticalBlock"]:has(span#receipt-table-target):not(:has(div[data-testid="stVerticalBlock"] span#receipt-table-target)) div.stMarkdown,
                                 div[data-testid="stVerticalBlock"]:has(span#receipt-table-target):not(:has(div[data-testid="stVerticalBlock"] span#receipt-table-target)) div.stPopover {
-                                    margin-bottom: 2px !important;
+                                    margin-bottom: 0 !important;
                                 }
                                 
                                 /* ポップオーバー（大分類・小分類ボタン）の表示を極力コンパクトに */
                                 div[data-testid="stPopover"] > button {
-                                    padding: 2px 4px !important;
+                                    padding: 0px 4px !important;
                                     font-size: 0.8em !important;
                                     min-height: 24px !important;
                                     height: 26px !important;
-                                    width: 100% !important;
+                                    width: auto !important;
                                 }
                             </style>
                             """, unsafe_allow_html=True)
                             
                             with st.container():
                                 st.markdown('<span id="receipt-table-target"></span>', unsafe_allow_html=True)
-                                
-                                # ヘッダー
-                                h_col1, h_col2, h_col3, h_col4 = st.columns([4, 1.5, 2.25, 2.25])
-                                h_col1.markdown("<div style='font-size: 0.85em; font-weight: bold; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;'>商品名</div>", unsafe_allow_html=True)
-                                h_col2.markdown("<div style='font-size: 0.85em; font-weight: bold;'>金額</div>", unsafe_allow_html=True)
-                                h_col3.markdown("<div style='font-size: 0.85em; font-weight: bold;'>大分類</div>", unsafe_allow_html=True)
-                                h_col4.markdown("<div style='font-size: 0.85em; font-weight: bold;'>小分類</div>", unsafe_allow_html=True)
                                 
                                 modified = False
                                 
@@ -845,15 +823,15 @@ def main():
                                     disp_major = edit_vals['major']
                                     disp_minor = edit_vals['minor']
                                     
-                                    row_col1, row_col2, row_col3, row_col4 = st.columns([4, 1.5, 2.25, 2.25])
+                                    row_col1, row_col2, row_col3, row_col4 = st.columns(4)
                                     
                                     # 商品名
                                     with row_col1:
-                                        st.markdown(f"<div style='margin-top: 8px; font-size: 0.85em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;' title='{item_name}'>{display_item_name}</div>", unsafe_allow_html=True)
+                                        st.markdown(f"<div style='font-size: 0.85em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;' title='{item_name}'>{display_item_name}</div>", unsafe_allow_html=True)
                                         
                                     # 金額 (表示のみにする)
                                     with row_col2:
-                                        st.markdown(f"<div style='margin-top: 8px; font-size: 0.85em;'>¥{disp_amount:,}</div>", unsafe_allow_html=True)
+                                        st.markdown(f"<div style='font-size: 0.85em;'>¥{disp_amount:,}</div>", unsafe_allow_html=True)
                                         new_amount = disp_amount # 変更不可なため保持
                                         
                                     # 大分類 (ポップオーバーリストに変更)
