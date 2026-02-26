@@ -911,19 +911,78 @@ def main():
                                 .readonly-list {
                                     font-size: 0.9em;
                                     line-height: 1.6;
+                                    font-family: monospace; /* 等幅フォントで文字位置を揃える */
+                                    white-space: pre; /* 連続するスペースを保持 */
                                 }
                                 </style>
                                 """, unsafe_allow_html=True)
                                 
+                                # 全角・半角混じりの文字列から見た目の文字幅（全角2/半角1）を計算する関数
+                                import unicodedata
+                                def get_east_asian_width_count(text):
+                                    count = 0
+                                    for c in text:
+                                        if unicodedata.east_asian_width(c) in 'FWA':
+                                            count += 2
+                                        else:
+                                            count += 1
+                                    return count
+                                    
+                                def pad_string(text, target_width, pad_char=' '):
+                                    current_width = get_east_asian_width_count(text)
+                                    if current_width >= target_width:
+                                        # 切り詰める処理（厳密には文字幅計算しながら16文字分で切る必要があるが、簡易的に）
+                                        # 指定の「16文字」をご要望通りに適用
+                                        return text[:16]
+                                    else:
+                                        # 不足分をスペースで埋める
+                                        return text + pad_char * (target_width - current_width)
+
+                                # 最大文字幅を求めるための事前計算
+                                max_major_width = 0
+                                max_minor_width = 0
+                                for _, row in details.iterrows():
+                                    major = row.get("category", "その他")
+                                    sub_cols = [c for c in ["subcategory", "sub_category", "小分類"] if c in df.columns]
+                                    sub = row.get(sub_cols[0], "❓その他") if sub_cols else "❓その他"
+                                    max_major_width = max(max_major_width, get_east_asian_width_count(major))
+                                    max_minor_width = max(max_minor_width, get_east_asian_width_count(sub))
+                                
+                                # ヘッダー出力
+                                header_name = pad_string("商品名", 32) # 全角16文字 = 幅32
+                                header_amount = "金額".rjust(8)
+                                header_major = pad_string("大分類", max_major_width)
+                                header_minor = pad_string("小分類", max_minor_width)
+                                
                                 st.markdown('<div class="readonly-list">', unsafe_allow_html=True)
+                                st.markdown(f"**{header_name} {header_amount} {header_major} {header_minor}**")
+                                st.markdown("-" * (32 + 1 + 8 + 1 + max_major_width + 1 + max_minor_width))
+                                
+                                total_amount = 0
                                 for idx, row in details.iterrows():
                                     item_name = row.get(item_col, "不明な商品") if item_col else "不明な商品"
                                     major = row.get("category", "その他")
                                     sub_cols = [c for c in ["subcategory", "sub_category", "小分類"] if c in df.columns]
                                     sub = row.get(sub_cols[0], "❓その他") if sub_cols else "❓その他"
                                     amount = int(row.get("amount", 0))
+                                    total_amount += amount
                                     
-                                    st.markdown(f"・{item_name} ¥{amount:,} / {major} / {sub}")
+                                    # 商品名: 16文字(全角想定幅32)でパディング/カット
+                                    # 半角・全角混じりを考慮したパディング
+                                    name_str = pad_string(item_name[:16], 32)
+                                    
+                                    # 金額: 右揃え (最大8文字幅想定)
+                                    amount_str = f"¥{amount:,}".rjust(8)
+                                    
+                                    # 大・小分類: 最大幅でパディング
+                                    major_str = pad_string(major, max_major_width)
+                                    minor_str = pad_string(sub, max_minor_width)
+                                    
+                                    st.markdown(f"{name_str} {amount_str} {major_str} {minor_str}")
+                                    
+                                st.markdown("-" * (32 + 1 + 8 + 1 + max_major_width + 1 + max_minor_width))
+                                total_str = f"¥{total_amount:,}".rjust(8)
+                                st.markdown(f"**{pad_string('合計', 32)} {total_str}**")
                                 st.markdown('</div>', unsafe_allow_html=True)
                                 
                                 st.markdown("---")
