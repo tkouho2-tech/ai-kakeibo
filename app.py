@@ -1084,8 +1084,9 @@ def main():
                         amount_html = f'<div class="cal-amount">￥{"{:,}".format(int(total))}</div>' if total > 0 else ''
                         
                         # 金額がある日はJSで隠しボタンをクリックさせる（画面リロードを防ぎログイン維持）
+                        # ※Streamlitは生のonclick属性を削除するため、カスタム属性(data-day)を付与し後ほどJSからイベントをバインドする
                         if total > 0:
-                            cell_content = f'<div onclick="clickCalDay({day})" class="cal-cell-link" style="cursor: pointer;">{bg_html}<div class="cal-date">{day}</div>{amount_html}</div>'
+                            cell_content = f'<div class="cal-cell-link" data-day="{day}" style="cursor: pointer;">{bg_html}<div class="cal-date">{day}</div>{amount_html}</div>'
                         else:
                             cell_content = f'<div class="cal-cell-link" style="cursor: default;">{bg_html}<div class="cal-date">{day}</div>{amount_html}</div>'
                         
@@ -1106,19 +1107,27 @@ def main():
             import streamlit.components.v1 as components
             components.html("""
             <script>
-            // カレンダーの日付マスがクリックされたときに呼ばれる関数を親ウィンドウに登録
-            window.parent.clickCalDay = function(day) {
-                const buttons = window.parent.document.querySelectorAll('button p');
-                for (let el of Array.from(buttons)) {
-                    if (el.textContent === 'hbtn_' + day) {
-                        el.parentElement.click();
-                        break;
-                    }
-                }
-            };
-
-            // "hbtn_〇〇" というテキストを持つボタンを画面上から完全に非表示にする
             setInterval(() => {
+                // 1. カレンダーのマス目にクリックイベントをバインド
+                // Streamlitはonclickを消すため、data-day属性を持つ要素を探してJS側からイベントを付ける
+                const cells = window.parent.document.querySelectorAll('.cal-cell-link[data-day]');
+                cells.forEach(cell => {
+                    if (!cell.dataset.hasClickEvent) {
+                        cell.dataset.hasClickEvent = 'true';
+                        cell.addEventListener('click', function() {
+                            const day = this.getAttribute('data-day');
+                            const buttons = window.parent.document.querySelectorAll('button p');
+                            for (let el of Array.from(buttons)) {
+                                if (el.textContent === 'hbtn_' + day) {
+                                    el.parentElement.click();
+                                    break;
+                                }
+                            }
+                        });
+                    }
+                });
+
+                // 2. "hbtn_〇〇" というテキストを持つボタンを画面上から完全に非表示にする
                 const buttons = window.parent.document.querySelectorAll('button p');
                 buttons.forEach(el => {
                     if (el.textContent.startsWith('hbtn_')) {
@@ -1128,7 +1137,7 @@ def main():
                         }
                     }
                 });
-            }, 100);
+            }, 300);
             </script>
             """, height=0, width=0)
                                     
