@@ -1080,15 +1080,9 @@ def main():
                         html_cal += '<td><div style="min-height: 80px; background-color: #fafafa;"></div></td>'
                     else:
                         total = daily_totals.get(day, 0)
-                        bg_html = '<div class="sel-bg"></div>' if st.session_state.get('selected_day') == day else ''
                         amount_html = f'<div class="cal-amount">￥{"{:,}".format(int(total))}</div>' if total > 0 else ''
                         
-                        # 金額がある日はJSで隠しボタンをクリックさせる（画面リロードを防ぎログイン維持）
-                        # ※Streamlitは生のonclick属性を削除するため、カスタム属性(data-day)を付与し後ほどJSからイベントをバインドする
-                        if total > 0:
-                            cell_content = f'<div class="cal-cell-link" data-day="{day}" style="cursor: pointer;">{bg_html}<div class="cal-date">{day}</div>{amount_html}</div>'
-                        else:
-                            cell_content = f'<div class="cal-cell-link" style="cursor: default;">{bg_html}<div class="cal-date">{day}</div>{amount_html}</div>'
+                        cell_content = f'<div class="cal-cell-link" style="cursor: default;"><div class="cal-date">{day}</div>{amount_html}</div>'
                         
                         html_cal += f'<td>{cell_content}</td>'
                 html_cal += '</tr>'
@@ -1096,125 +1090,7 @@ def main():
             html_cal += '</tbody></table>'
             st.markdown(html_cal, unsafe_allow_html=True)
             
-            # 日付選択のコールバック関数
-            def select_day_callback(d):
-                st.session_state['selected_day'] = d
-
-            # JS経由でPythonに状態を渡すための隠しボタンをレンダリング（後でJSでdisplay:noneにする）
-            for day in daily_totals.keys():
-                if daily_totals[day] > 0:
-                    st.button(f"hbtn_{day}", key=f"hidden_btn_{day}", on_click=select_day_callback, args=(day,))
-
-            # JSを注入して、隠しボタンの非表示化とマス目クリック時の連動を実装
-            import streamlit.components.v1 as components
-            components.html("""
-            <script>
-            setInterval(() => {
-                // 1. カレンダーのマス目にクリックイベントをバインド
-                // Streamlitはonclickを消すため、data-day属性を持つ要素を探してJS側からイベントを付ける
-                const cells = window.parent.document.querySelectorAll('.cal-cell-link[data-day]');
-                cells.forEach(cell => {
-                    if (!cell.dataset.hasClickEvent) {
-                        cell.dataset.hasClickEvent = 'true';
-                        cell.addEventListener('click', function() {
-                            const day = this.getAttribute('data-day');
-                            const buttons = window.parent.document.querySelectorAll('button p');
-                            for (let el of Array.from(buttons)) {
-                                if (el.textContent === 'hbtn_' + day) {
-                                    const btn = el.closest('button');
-                                    if(btn) btn.click();
-                                    break;
-                                }
-                            }
-                        });
-                    }
-                });
-
-                // 2. "hbtn_〇〇" というテキストを持つボタンを画面上から完全に非表示にする
-                // Streamlitのコンテナも含めて消すことで、空の枠線だけが残るのを防ぐ
-                const buttons = window.parent.document.querySelectorAll('button p');
-                buttons.forEach(el => {
-                    if (el.textContent.startsWith('hbtn_')) {
-                        let btnWrapper = el.closest('div[data-testid="element-container"]') || el.closest('div[data-testid="stButton"]');
-                        if(btnWrapper) {
-                            btnWrapper.style.display = 'none';
-                            btnWrapper.style.height = '0px';
-                            btnWrapper.style.margin = '0px';
-                        }
-                    }
-                });
-            }, 300);
-            </script>
-            """, height=0, width=0)
-                                    
-            # 指定日の明細一覧表示（ブラインド表示・アコーディオン形式）
-            if st.session_state['selected_day']:
-                sel_day = st.session_state['selected_day']
-                st.markdown("---")
-                
-                if df.empty or sel_day not in daily_totals:
-                    st.info(f"{month}月{sel_day}日の明細はありません。")
-                else:
-                    day_df = df[df["day"] == sel_day].copy()
-                    
-                    st.markdown(f"#### {month}月{sel_day}日の明細一覧")
-                    
-                    # 1. 日別合計の算出
-                    daily_total_amount = int(day_df["amount"].sum())
-                    
-                    # 店舗名を確実に取得
-                    store_col = next((c for c in ["store", "store_name", "店舗名", "店舗"] if c in day_df.columns), None)
-                    if store_col:
-                        day_df["_display_store"] = day_df[store_col].apply(
-                            lambda x: str(x).strip() if pd.notna(x) and str(x).strip() != "" else "店舗名不明"
-                        )
-                    else:
-                        day_df["_display_store"] = "店舗名不明"
-                        
-                    # 2. 店舗別のグループ化と表示 (dropna=False で店舗名不明も落とさない)
-                    store_groups = day_df.groupby("_display_store", dropna=False, sort=False)
-                    
-                    for store_name, group in store_groups:
-                        disp_store = str(store_name) if pd.notna(store_name) and str(store_name) != "" else "店舗名不明"
-                        store_total = int(group["amount"].sum())
-                        
-                        # st.expander() がブラインド表示（アコーディオン形式）になります
-                        with st.expander(f"🛒 **{disp_store}**　　（合計: ￥{store_total:,}）", expanded=False):
-                            
-                            # 3. カテゴリ小計の表示
-                            cat_groups = group.groupby("category", dropna=False)
-                            cat_totals = cat_groups["amount"].sum().sort_values(ascending=False)
-                            
-                            for cat, cat_amount in cat_totals.items():
-                                disp_cat = str(cat) if pd.notna(cat) and str(cat) != "" else "その他"
-                                
-                                # 各大分類をアコーディオン形式で表示
-                                with st.expander(f"📁 **{disp_cat}**　　（小計: ￥{int(cat_amount):,}）", expanded=False):
-                                    cat_df = group[group["category"] == cat] if pd.notna(cat) else group[pd.isna(group["category"])]
-                                    sub_cols = [c for c in ["subcategory", "sub_category", "小分類"] if c in cat_df.columns]
-                                    sub_col = sub_cols[0] if sub_cols else None
-                                    
-                                    if sub_col:
-                                        sub_groups = cat_df.groupby(sub_col, dropna=False)["amount"].sum().sort_values(ascending=False)
-                                    else:
-                                        sub_groups = pd.Series({ "詳細不明": cat_amount })
-                                        
-                                    for sub_cat, sub_amount in sub_groups.items():
-                                        disp_sub = str(sub_cat) if pd.notna(sub_cat) and str(sub_cat) != "" else "その他"
-                                        st.markdown(f"""
-                                        <div style='display: flex; justify-content: space-between; border-bottom: 1px dotted #ccc; padding: 4px 10px; font-size: 0.85em; color: #555;'>
-                                            <div>└ {disp_sub}</div>
-                                            <div style='text-align: right;'>￥{int(sub_amount):,}</div>
-                                        </div>
-                                        """, unsafe_allow_html=True)
-                                        
-                    # リストの一番下に日別合計を表示 (ループ外)
-                    st.markdown(f"""
-                    <div style='display: flex; justify-content: space-between; padding-top: 20px; font-weight: bold; font-size: 1.1em;'>
-                        <div>合計</div>
-                        <div style='color: #ff4b4b; text-align: right;'>{daily_total_amount:,}円</div>
-                    </div>
-                    """, unsafe_allow_html=True)
+            # 日付選択と明細一覧表示機能は削除されました
                             
         elif menu_selection == "🤖 AI相談":
             st.header("🤖 AI相談（専属ファイナンシャルプランナー）")
