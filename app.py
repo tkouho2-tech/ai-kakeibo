@@ -879,7 +879,7 @@ def main():
                                 total_amount = 0
                                 
                                 # Markdownのテーブルヘッダー構築
-                                table_md = "| SNO | 商品名 | 金額 | 大分類 | 小分類 |\n"
+                                table_md = "| No | 商品名 | 金額 | 大分類 | 小分類 |\n"
                                 table_md += "|---|---|---:|---|---|\n"
                                 
                                 for i, (idx, row) in enumerate(details.iterrows(), 1):
@@ -932,20 +932,22 @@ def main():
                             import streamlit.components.v1 as components
                             components.html("""
                             <script>
-                            const elements = window.parent.document.querySelectorAll('button');
-                            elements.forEach(b => {
-                                const text = b.innerText.trim();
-                                if (text === '修正' || text === '登録') {
-                                    b.style.backgroundColor = '#007bff';
-                                    b.style.color = 'white';
-                                    b.style.borderColor = '#007bff';
-                                }
-                                if (text === '削除' || text === 'キャンセル') {
-                                    b.style.backgroundColor = '#dc3545';
-                                    b.style.color = 'white';
-                                    b.style.borderColor = '#dc3545';
-                                }
-                            });
+                            setInterval(() => {
+                                const elements = window.parent.document.querySelectorAll('button');
+                                elements.forEach(b => {
+                                    const text = b.innerText.trim();
+                                    if (text === '修正' || text === '登録') {
+                                        b.style.backgroundColor = '#007bff';
+                                        b.style.color = 'white';
+                                        b.style.borderColor = '#007bff';
+                                    }
+                                    if (text === '削除' || text === 'キャンセル') {
+                                        b.style.backgroundColor = '#dc3545';
+                                        b.style.color = 'white';
+                                        b.style.borderColor = '#dc3545';
+                                    }
+                                });
+                            }, 500);
                             </script>
                             """, height=0, width=0)
 
