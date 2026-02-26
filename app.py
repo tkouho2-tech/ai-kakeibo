@@ -1143,58 +1143,60 @@ def main():
 
             # 指定日の明細一覧表示（階層構造: 店舗 -> 大分類 -> 小分類）
             if st.session_state.get('selected_day'):
-                _sel_day = int(st.session_state['selected_day'])  # 数値として確実に取得
+                _current_sel_day = int(st.session_state['selected_day'])
                 st.markdown("---")
                 
-                # 該当日のデータのみを確実に抽出（コピーしてインデックスをリセット）
-                _cal_day_df = df[df["day"] == _sel_day].copy().reset_index(drop=True)
+                # 該当日のデータのみを全データ(df)から再度厳密に抽出（コピーを生成）
+                # インデックスの不整合や、他日の混入を避けるため .dt.day で直接フィルタリング
+                _day_records = df[df["date"].dt.day == _current_sel_day].copy()
                 
-                if _cal_day_df.empty:
-                    st.info(f"{month}月{_sel_day}日の明細はありません。")
+                if _day_records.empty:
+                    st.info(f"{month}月{_current_sel_day}日の明細はありません。")
                 else:
-                    _daily_total = int(_cal_day_df["amount"].sum())
-                    st.markdown(f"#### {month}月{_sel_day}日 レシート一覧 (合計: ￥{_daily_total:,})")
+                    _daily_sum = int(_day_records["amount"].sum())
+                    st.markdown(f"#### {month}月{_current_sel_day}日 レシート一覧 (合計: ￥{_daily_sum:,})")
                     
                     # 店舗名カラムの特定と名寄せ
-                    _store_col = next((c for c in ["store", "store_name", "店舗名", "店舗"] if c in _cal_day_df.columns), None)
-                    if _store_col:
-                        _cal_day_df["_display_store"] = _cal_day_df[_store_col].apply(lambda x: str(x).strip() if pd.notna(x) and str(x).strip() != "" else "店舗名不明")
+                    _s_col = next((c for c in ["store", "store_name", "店舗名", "店舗"] if c in _day_records.columns), None)
+                    if _s_col:
+                        _day_records["_tmp_store"] = _day_records[_s_col].apply(lambda x: str(x).strip() if pd.notna(x) and str(x).strip() != "" else "店舗名不明")
                     else:
-                        _cal_day_df["_display_store"] = "店舗名不明"
+                        _day_records["_tmp_store"] = "店舗名不明"
                         
-                    # 1. 店舗(レシート)毎にグループ化
-                    _store_groups = _cal_day_df.groupby("_display_store", dropna=False, sort=False)
-                    for _store_name, _store_group in _store_groups:
-                        _store_amount = int(_store_group["amount"].sum())
+                    # 1. 店舗(レシート)毎にグループ化（この日のデータのみが対象）
+                    _s_groups = _day_records.groupby("_tmp_store", dropna=False, sort=False)
+                    for _s_name, _s_df in _s_groups:
+                        _s_amount = int(_s_df["amount"].sum())
                         
                         # 店舗名アコーディオン
-                        with st.expander(f"🛒 **{_store_name}**　（合計: ￥{_store_amount:,}）", expanded=False):
-                            # 2. その店舗の中での大分類グループ化
-                            # 確実にこの店舗だけのデータ（_store_group）を使用
-                            _major_agg = _store_group.groupby("category", dropna=False)["amount"].sum().sort_values(ascending=False)
-                            for _major_cat, _major_amount in _major_agg.items():
-                                _disp_major = str(_major_cat) if pd.notna(_major_cat) and str(_major_cat) != "" else "その他"
-                                _major_amount_int = int(_major_amount)
+                        with st.expander(f"🛒 **{_s_name}**　（合計: ￥{_s_amount:,}）", expanded=False):
+                            # 2. その店舗・その日の中での大分類グループ化
+                            _m_agg = _s_df.groupby("category", dropna=False)["amount"].sum().sort_values(ascending=False)
+                            for _m_cat, _m_amt in _m_agg.items():
+                                _d_major = str(_m_cat) if pd.notna(_m_cat) and str(_m_cat) != "" else "その他"
+                                _m_amt_int = int(_m_amt)
                                 
                                 # 大分類アコーディオン
-                                with st.expander(f"📁 **{_disp_major}**　（小計: ￥{_major_amount_int:,}）", expanded=False):
+                                with st.expander(f"📁 **{_d_major}**　（小計: ￥{_m_amt_int:,}）", expanded=False):
                                     # 3. その大分類の中での小分類リスト
-                                    _cat_df = _store_group[_store_group["category"] == _major_cat] if pd.notna(_major_cat) else _store_group[pd.isna(_store_group["category"])]
-                                    _sub_cols = [c for c in ["subcategory", "sub_category", "小分類"] if c in _cat_df.columns]
-                                    _sub_col = _sub_cols[0] if _sub_cols else None
+                                    _sub_df = _s_df[_s_df["category"] == _m_cat] if pd.notna(_m_cat) else _s_df[pd.isna(_s_df["category"])]
                                     
-                                    if _sub_col:
-                                        _sub_agg = _cat_df.groupby(_sub_col, dropna=False)["amount"].sum().sort_values(ascending=False)
-                                        for _sub_cat, _sub_amt in _sub_agg.items():
-                                            _disp_sub = str(_sub_cat) if pd.notna(_sub_cat) and str(_sub_cat) != "" else "その他"
+                                    # 小分類カラムの特定
+                                    _sub_found_cols = [c for c in ["subcategory", "sub_category", "小分類"] if c in _sub_df.columns]
+                                    _scol = _sub_found_cols[0] if _sub_found_cols else None
+                                    
+                                    if _scol:
+                                        _sub_agg = _sub_df.groupby(_scol, dropna=False)["amount"].sum().sort_values(ascending=False)
+                                        for _sub_name, _sub_v in _sub_agg.items():
+                                            _d_sub = str(_sub_name) if pd.notna(_sub_name) and str(_sub_name) != "" else "その他"
                                             st.markdown(f"""
                                             <div style='display: flex; justify-content: space-between; border-bottom: 1px dotted #ccc; padding: 4px 10px; font-size: 0.9em; color: #444;'>
-                                                <div>└ {_disp_sub}</div>
-                                                <div style='text-align: right;'>￥{int(_sub_amt):,}</div>
+                                                <div>└ {_d_sub}</div>
+                                                <div style='text-align: right;'>￥{int(_sub_v):,}</div>
                                             </div>
                                             """, unsafe_allow_html=True)
                                     else:
-                                        st.text(f"  詳細: ￥{_major_amount_int:,}")
+                                        st.text(f"  詳細: ￥{_m_amt_int:,}")
             else:
                 st.info("カレンダーの日付を選択すると、ここにレシートの詳細が表示されます。")
                             
