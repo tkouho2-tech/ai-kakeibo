@@ -876,15 +876,12 @@ def main():
                                 # 【閲覧モード】のレイアウト
                                 
                                 st.markdown("""
-                                <style>
-                                /* 閲覧モード用：各コンテナを少しコンパクトにする */
-                                .readonly-row {
-                                    font-size: 0.9em;
-                                }
-                                </style>
-                                """, unsafe_allow_html=True)
-                                
                                 total_amount = 0
+                                
+                                # Markdownのテーブルヘッダー構築
+                                table_md = "| SNO | 商品名 | 金額 | 大分類 | 小分類 |\n"
+                                table_md += "|---|---|---:|---|---|\n"
+                                
                                 for i, (idx, row) in enumerate(details.iterrows(), 1):
                                     item_name = row.get(item_col, "不明な商品") if item_col else "不明な商品"
                                     # 商品名を全角10文字までに切り詰め
@@ -896,20 +893,14 @@ def main():
                                     amount = int(row.get("amount", 0))
                                     total_amount += amount
                                     
-                                    with st.container(border=True):
-                                        st.markdown('<div class="readonly-row">', unsafe_allow_html=True)
-                                        rc1, rc2, rc3, rc4 = st.columns([1, 4.5, 2.5, 4])
-                                        with rc1:
-                                            st.markdown(f"**{i}**")
-                                        with rc2:
-                                            st.markdown(f"{display_item_name}")
-                                        with rc3:
-                                            st.markdown(f"¥{amount:,}")
-                                        with rc4:
-                                            st.markdown(f"{major} / {sub}")
-                                        st.markdown('</div>', unsafe_allow_html=True)
-                                        
-                                st.markdown(f"**合計金額: ¥{total_amount:,}**")
+                                    # 各行のデータを追加 (金額の円表示は不要)
+                                    table_md += f"| {i} | {display_item_name} | {amount:,} | {major} | {sub} |\n"
+                                
+                                # 合計行の追加
+                                table_md += f"| | **合計** | **{total_amount:,}** | | |\n"
+                                
+                                # テーブルの描画
+                                st.markdown(table_md)
                                 st.markdown("---")
                                 
                                 # 閲覧用アクションボタン（修正 / 削除）
