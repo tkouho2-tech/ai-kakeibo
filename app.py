@@ -875,7 +875,7 @@ def main():
                             else:
                                 # 【閲覧モード】のレイアウト
                                 
-                                st.markdown("""
+                                st.markdown("")
                                 total_amount = 0
                                 
                                 # Markdownのテーブルヘッダー構築
@@ -1001,7 +1001,7 @@ def main():
             # カレンダー全体にのみ影響を与えるためのCSS
             st.markdown("""
             <style>
-            /* 枠線の内側要素をターゲットにして、ボタンを浮かせ、透明にする */
+            /* 枠線の内側要素をターゲットにしてボタンを浮かせ透明にする */
             div[data-testid="column"] div[data-testid="stVerticalBlockBorderWrapper"] {
                 position: relative !important;
                 min-height: 70px !important;
