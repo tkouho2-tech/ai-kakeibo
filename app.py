@@ -1080,9 +1080,14 @@ def main():
                         html_cal += '<td><div style="min-height: 80px; background-color: #fafafa;"></div></td>'
                     else:
                         total = daily_totals.get(day, 0)
+                        bg_html = '<div class="sel-bg"></div>' if st.session_state.get('selected_day') == day else ''
                         amount_html = f'<div class="cal-amount">￥{"{:,}".format(int(total))}</div>' if total > 0 else ''
                         
-                        cell_content = f'<div class="cal-cell-link" style="cursor: default;"><div class="cal-date">{day}</div>{amount_html}</div>'
+                        # 金額がある日はJSで隠しボタンをクリックさせる（画面リロードを防ぎログイン維持）
+                        if total > 0:
+                            cell_content = f'<div class="cal-cell-link" data-day="{day}" style="cursor: pointer;">{bg_html}<div class="cal-date">{day}</div>{amount_html}</div>'
+                        else:
+                            cell_content = f'<div class="cal-cell-link" style="cursor: default;">{bg_html}<div class="cal-date">{day}</div>{amount_html}</div>'
                         
                         html_cal += f'<td>{cell_content}</td>'
                 html_cal += '</tr>'
@@ -1090,7 +1095,106 @@ def main():
             html_cal += '</tbody></table>'
             st.markdown(html_cal, unsafe_allow_html=True)
             
-            # 日付選択と明細一覧表示機能は削除されました
+            # 日付選択のコールバック関数
+            def select_day_callback(d):
+                st.session_state['selected_day'] = d
+
+            # JS経由でPythonに状態を渡すための隠しボタン
+            for day in daily_totals.keys():
+                if daily_totals[day] > 0:
+                    st.button(f"hbtn_{day}", key=f"hidden_btn_{day}", on_click=select_day_callback, args=(day,))
+
+            # JS注入（カレンダーのマス目クリックと隠しボタンの連動）
+            import streamlit.components.v1 as components
+            components.html("""
+            <script>
+            setInterval(() => {
+                const cells = window.parent.document.querySelectorAll('.cal-cell-link[data-day]');
+                cells.forEach(cell => {
+                    if (!cell.dataset.hasClickEvent) {
+                        cell.dataset.hasClickEvent = 'true';
+                        cell.addEventListener('click', function() {
+                            const day = this.getAttribute('data-day');
+                            const buttons = window.parent.document.querySelectorAll('button p');
+                            for (let el of Array.from(buttons)) {
+                                if (el.textContent === 'hbtn_' + day) {
+                                    const btn = el.closest('button');
+                                    if(btn) btn.click();
+                                    break;
+                                }
+                            }
+                        });
+                    }
+                });
+                const buttons = window.parent.document.querySelectorAll('button p');
+                buttons.forEach(el => {
+                    if (el.textContent.startsWith('hbtn_')) {
+                        let btnWrapper = el.closest('div[data-testid="element-container"]') || el.closest('div[data-testid="stButton"]');
+                        if(btnWrapper) {
+                            btnWrapper.style.display = 'none';
+                            btnWrapper.style.height = '0px';
+                            btnWrapper.style.margin = '0px';
+                        }
+                    }
+                });
+            }, 300);
+            </script>
+            """, height=0, width=0)
+
+            # 指定日の明細一覧表示（階層構造: 店舗 -> 大分類 -> 小分類）
+            if st.session_state.get('selected_day'):
+                sel_day = st.session_state['selected_day']
+                st.markdown("---")
+                
+                day_df = df[df["day"] == sel_day].copy()
+                if day_df.empty:
+                    st.info(f"{month}月{sel_day}日の明細はありません。")
+                else:
+                    daily_total = int(day_df["amount"].sum())
+                    st.markdown(f"#### {month}月{sel_day}日 レシート一覧 (合計: ￥{daily_total:,})")
+                    
+                    # 店舗名カラムの特定
+                    store_col = next((c for c in ["store", "store_name", "店舗名", "店舗"] if c in day_df.columns), None)
+                    if store_col:
+                        day_df["_display_store"] = day_df[store_col].apply(lambda x: str(x).strip() if pd.notna(x) and str(x).strip() != "" else "店舗名不明")
+                    else:
+                        day_df["_display_store"] = "店舗名不明"
+                        
+                    # 1. 店舗(レシート)毎にグループ化
+                    store_groups = day_df.groupby("_display_store", dropna=False, sort=False)
+                    for store_name, store_group in store_groups:
+                        store_amount = int(store_group["amount"].sum())
+                        
+                        # 店舗名アコーディオン - タイトルに店舗名と金額を表示
+                        with st.expander(f"🛒 **{store_name}**　（合計: ￥{store_amount:,}）", expanded=False):
+                            # 2. その店舗の中での大分類グループ化
+                            major_groups = store_group.groupby("category", dropna=False).agg({"amount": "sum"}).sort_values("amount", ascending=False)
+                            for major_cat, row in major_groups.iterrows():
+                                major_amount = int(row["amount"])
+                                disp_major = str(major_cat) if pd.notna(major_cat) and str(major_cat) != "" else "その他"
+                                
+                                # 大分類アコーディオン (ネスト)
+                                with st.expander(f"📁 **{disp_major}**　（小計: ￥{major_amount:,}）", expanded=False):
+                                    # 3. その大分類の中での小分類リスト
+                                    cat_df = store_group[store_group["category"] == major_cat] if pd.notna(major_cat) else store_group[pd.isna(store_group["category"])]
+                                    sub_cols = [c for c in ["subcategory", "sub_category", "小分類"] if c in cat_df.columns]
+                                    sub_col = sub_cols[0] if sub_cols else None
+                                    
+                                    if sub_col:
+                                        sub_list = cat_df.groupby(sub_col, dropna=False)["amount"].sum().sort_values(ascending=False)
+                                        for sub_cat, sub_amt in sub_list.items():
+                                            disp_sub = str(sub_cat) if pd.notna(sub_cat) and str(sub_cat) != "" else "その他"
+                                            st.markdown(f"""
+                                            <div style='display: flex; justify-content: space-between; border-bottom: 1px dotted #ccc; padding: 4px 10px; font-size: 0.9em; color: #444;'>
+                                                <div>└ {disp_sub}</div>
+                                                <div style='text-align: right;'>￥{int(sub_amt):,}</div>
+                                            </div>
+                                            """, unsafe_allow_html=True)
+                                    else:
+                                        st.text(f"  詳細: ￥{major_amount:,}")
+                
+            else:
+                st.info("カレンダーの日付を選択すると、ここにレシートの詳細が表示されます。")
                             
         elif menu_selection == "🤖 AI相談":
             st.header("🤖 AI相談（専属ファイナンシャルプランナー）")
