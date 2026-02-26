@@ -760,7 +760,7 @@ def main():
                                 div[data-testid="stVerticalBlock"]:has(span#receipt-table-target):not(:has(div[data-testid="stVerticalBlock"] span#receipt-table-target)) {
                                     overflow-x: auto !important;
                                     -webkit-overflow-scrolling: touch;
-                                    padding-bottom: 10px;
+                                    padding-bottom: 4px !important;
                                     width: 100%;
                                 }
                                 
@@ -769,31 +769,52 @@ def main():
                                     display: flex !important;
                                     flex-direction: row !important; /* モバイルでの縦積みを解除 */
                                     flex-wrap: nowrap !important;   /* 絶対に改行・折り返ししない */
-                                    min-width: 480px !important;    /* 狭い画面でも幅を維持して横スクロールを強制 */
-                                    gap: 0.2rem !important;
+                                    justify-content: flex-start !important; /* 左寄せ（間延び防止） */
+                                    gap: 4px !important;            /* 項目間の隙間を最小限に */
                                     white-space: nowrap !important;
+                                    margin-bottom: 0 !important;    /* 行間の余白削除 */
+                                    padding-bottom: 0 !important;
                                 }
                                 
                                 /* その中の各列(column)の設定 */
                                 div[data-testid="stVerticalBlock"]:has(span#receipt-table-target):not(:has(div[data-testid="stVerticalBlock"] span#receipt-table-target)) div[data-testid="column"] {
                                     flex: 0 0 auto !important;      /* 自動調整をオフ */
                                     width: auto !important;         /* モバイルの100%幅を解除 */
-                                    min-width: 0 !important;
-                                    max-width: none !important;
-                                    padding: 0 4px !important;      /* 余白を縮める */
+                                    padding: 0 !important;          /* 列内の左右の余白を極限まで削る */
+                                    margin: 0 !important;
                                 }
                                 
-                                /* 各列の幅を固定（合計で480px程度） */
-                                div[data-testid="stVerticalBlock"]:has(span#receipt-table-target):not(:has(div[data-testid="stVerticalBlock"] span#receipt-table-target)) div[data-testid="stHorizontalBlock"] > div[data-testid="column"]:nth-child(1) { width: 150px !important; }
-                                div[data-testid="stVerticalBlock"]:has(span#receipt-table-target):not(:has(div[data-testid="stVerticalBlock"] span#receipt-table-target)) div[data-testid="stHorizontalBlock"] > div[data-testid="column"]:nth-child(2) { width: 70px !important; }
-                                div[data-testid="stVerticalBlock"]:has(span#receipt-table-target):not(:has(div[data-testid="stVerticalBlock"] span#receipt-table-target)) div[data-testid="stHorizontalBlock"] > div[data-testid="column"]:nth-child(3) { width: 130px !important; }
-                                div[data-testid="stVerticalBlock"]:has(span#receipt-table-target):not(:has(div[data-testid="stVerticalBlock"] span#receipt-table-target)) div[data-testid="stHorizontalBlock"] > div[data-testid="column"]:nth-child(4) { width: 130px !important; }
+                                /* 各列の幅を固定し、勝手に広がらないようにする */
+                                /* 商品名 */
+                                div[data-testid="stVerticalBlock"]:has(span#receipt-table-target):not(:has(div[data-testid="stVerticalBlock"] span#receipt-table-target)) div[data-testid="stHorizontalBlock"] > div[data-testid="column"]:nth-child(1) { 
+                                    min-width: 140px !important; max-width: 140px !important; 
+                                }
+                                /* 金額 */
+                                div[data-testid="stVerticalBlock"]:has(span#receipt-table-target):not(:has(div[data-testid="stVerticalBlock"] span#receipt-table-target)) div[data-testid="stHorizontalBlock"] > div[data-testid="column"]:nth-child(2) { 
+                                    min-width: 80px !important; max-width: 80px !important; 
+                                }
+                                /* 大分類 */
+                                div[data-testid="stVerticalBlock"]:has(span#receipt-table-target):not(:has(div[data-testid="stVerticalBlock"] span#receipt-table-target)) div[data-testid="stHorizontalBlock"] > div[data-testid="column"]:nth-child(3) { 
+                                    min-width: 100px !important; max-width: 100px !important; 
+                                }
+                                /* 小分類 */
+                                div[data-testid="stVerticalBlock"]:has(span#receipt-table-target):not(:has(div[data-testid="stVerticalBlock"] span#receipt-table-target)) div[data-testid="stHorizontalBlock"] > div[data-testid="column"]:nth-child(4) { 
+                                    min-width: 100px !important; max-width: 100px !important; 
+                                }
+                                
+                                /* ウィジェット(radioやpopover等)の下マージンを消去して余白を完全削除 */
+                                div[data-testid="stVerticalBlock"]:has(span#receipt-table-target):not(:has(div[data-testid="stVerticalBlock"] span#receipt-table-target)) div.stMarkdown,
+                                div[data-testid="stVerticalBlock"]:has(span#receipt-table-target):not(:has(div[data-testid="stVerticalBlock"] span#receipt-table-target)) div.stPopover {
+                                    margin-bottom: 2px !important;
+                                }
                                 
                                 /* ポップオーバー（大分類・小分類ボタン）の表示を極力コンパクトに */
                                 div[data-testid="stPopover"] > button {
-                                    padding: 2px 8px !important;
+                                    padding: 2px 4px !important;
                                     font-size: 0.8em !important;
-                                    min-height: 28px !important;
+                                    min-height: 24px !important;
+                                    height: 26px !important;
+                                    width: 100% !important;
                                 }
                             </style>
                             """, unsafe_allow_html=True)
