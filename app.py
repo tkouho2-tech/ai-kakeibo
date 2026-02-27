@@ -319,7 +319,7 @@ def parse_receipt_with_gemini(image_file):
 それ以外の場合は、以下のカテゴリ体系に厳密に従って、明細ごとに適切に分類してください。
 {get_categories_prompt_text()}
 
-JSONの出力形式は以下を厳守してください。マークダウンの ```json などは含めず、純粋なJSON文字列（オブジェクトの配列）のみを返してください。
+JSONの出力形式は以下を厳守してください。マークダウンの ```json などは含めるず、純粋なJSON文字列（オブジェクトの配列）のみを返してください。
 [
   {{
     "store_name": "店舗名",
@@ -331,29 +331,48 @@ JSONの出力形式は以下を厳守してください。マークダウンの 
   }}
 ]
 """
-        response = client.models.generate_content(
-            model='gemini-2.0-flash',
-            contents=[
-                prompt,
-                types.Part.from_bytes(data=img_byte_arr, mime_type='image/jpeg')
-            ]
-        )
+        # --- 再試行（リトライ）ロジックの導入 ---
+        max_retries = 3
+        last_exception = None
+        for attempt in range(max_retries):
+            try:
+                response = client.models.generate_content(
+                    model='gemini-2.0-flash',
+                    contents=[
+                        prompt,
+                        types.Part.from_bytes(data=img_byte_arr, mime_type='image/jpeg')
+                    ]
+                )
+                
+                response_text = response.text.strip()
+                if response_text.startswith("```json"):
+                    response_text = response_text[7:]
+                if response_text.startswith("```"):
+                    response_text = response_text[3:]
+                if response_text.endswith("```"):
+                    response_text = response_text[:-3]
+                    
+                result = json.loads(response_text.strip())
+                
+                # 配列でない場合は配列にする
+                if isinstance(result, dict):
+                    result = [result]
+                    
+                return result
+                
+            except Exception as e:
+                last_exception = e
+                # 429 Resource exhausted (Rate limit) の場合にリトライ
+                if "429" in str(e) or "RESOURCE_EXHAUSTED" in str(e):
+                    # 指数バックオフ（2秒, 5秒, 10秒）
+                    wait_time = [2, 5, 10][attempt]
+                    time.sleep(wait_time)
+                    continue
+                else:
+                    # その他のエラーは即時終了
+                    break
         
-        response_text = response.text.strip()
-        if response_text.startswith("```json"):
-            response_text = response_text[7:]
-        if response_text.startswith("```"):
-            response_text = response_text[3:]
-        if response_text.endswith("```"):
-            response_text = response_text[:-3]
-            
-        result = json.loads(response_text.strip())
-        
-        # 配列でない場合は配列にする
-        if isinstance(result, dict):
-            result = [result]
-            
-        return result
+        return {"error": f"解析に失敗しました: {str(last_exception)}"}
         
     except Exception as e:
         return {"error": str(e)}
