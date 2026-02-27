@@ -6,7 +6,6 @@ import bcrypt
 import os
 import json
 import io
-import calendar
 from datetime import datetime
 from dateutil.relativedelta import relativedelta
 from PIL import Image
@@ -457,7 +456,7 @@ def main():
                 
             menu_selection = st.radio(
                 "機能を選択",
-                ["ダッシュボード", "レシート取込", "レシート手入力", "レシート修正", "カレンダー", "🤖 AI相談", "ヘルプ"],
+                ["ダッシュボード", "レシート取込", "レシート手入力", "レシート修正", "🤖 AI相談", "ヘルプ"],
                 key="menu_selection"
             )
             st.markdown("---")
@@ -951,105 +950,6 @@ def main():
                             </script>
                             """, height=0, width=0)
 
-        elif menu_selection == "カレンダー":
-            st.header("📅 カレンダー")
-            
-            # カレンダー用のセッション状態を初期化（表示月管理のみ）
-            if 'last_cal_month' not in st.session_state or st.session_state['last_cal_month'] != st.session_state['current_month']:
-                st.session_state['last_cal_month'] = st.session_state['current_month']
-                
-            # 月選択UI
-            col1, col2, col3, col4, col5 = st.columns([3, 1, 2, 1, 3])
-            with col2:
-                if st.button("◀ 前月", use_container_width=True, key="cal_prev"):
-                    st.session_state['current_month'] -= relativedelta(months=1)
-                    st.rerun()
-            with col3:
-                st.markdown(f"<h3 style='text-align: center; margin: 0;'>{st.session_state['current_month'].strftime('%Y年%m月')}</h3>", unsafe_allow_html=True)
-            with col4:
-                if st.button("翌月 ▶", use_container_width=True, key="cal_next"):
-                    st.session_state['current_month'] += relativedelta(months=1)
-                    st.rerun()
-                    
-            st.markdown("---")
-            
-            # データ取得と日次集計
-            with st.spinner("データを読み込み中..."):
-                df = load_transactions_data(st.session_state['current_month'])
-                
-            daily_totals = {}
-            if not df.empty and "date" in df.columns and "amount" in df.columns:
-                df['day'] = df['date'].dt.day
-                daily_totals = df.groupby('day')["amount"].sum().to_dict()
-                
-            from streamlit_calendar import calendar as st_calendar
-            year = st.session_state['current_month'].year
-            month = st.session_state['current_month'].month
-            
-            # --- 【2. 強制レイアウト調整（CSS）】 ---
-            st.markdown("""
-<style>
-/* 日付マスの基準位置をリセット（右下配置の必須条件） */
-.fc-daygrid-day-frame {
-    position: relative !important;
-}
-/* 金額テキストをマスの右下ギリギリに絶対配置する */
-.fc-daygrid-day-events {
-position: absolute !important;
-bottom: 0px !important;
-right: 2px !important;
-margin: 0 !important;
-min-height: 0 !important;
-}
-
-/* タイトルの装飾（太字・赤） */
-.fc-event-title {
-color: red !important;
-font-weight: bold !important;
-font-size: 12px !important; /* スマホ向けに少し小さく */
-}
-
-</style>
-""", unsafe_allow_html=True)
-            
-            # --- 【1. カレンダーのイベントデータ作成部分（Python）】 ---
-            events = []
-            for day, amount in daily_totals.items():
-                if amount > 0:
-                    date_str = f"{year}-{month:02d}-{day:02d}"
-                    # 金額に「円」は絶対に入れず、カンマ区切りにする
-                    formatted_title = f"￥{int(amount):,}"
-                    events.append({
-                        "title": formatted_title,
-                        "start": date_str,
-                        "allDay": True,
-                        "backgroundColor": "transparent", # 背景を透明に
-                        "borderColor": "transparent",     # 枠線を透明に
-                        "textColor": "red"                # 文字を赤色に
-                    })
-
-            calendar_options = {
-                "headerToolbar": {
-                    "left": "prev,next today",
-                    "center": "title",
-                    "right": "dayGridMonth,timeGridWeek,timeGridDay",
-                },
-                "headerToolbar": {
-                    "left": "",
-                    "center": "",
-                    "right": "",
-                },
-                "initialDate": f"{year}-{month:02d}-01",
-                "initialView": "dayGridMonth",
-                "firstDay": 0, # 日曜始まり
-                "locale": "ja",
-                "height": "auto",
-                "contentHeight": "auto",
-                "handleWindowResize": True,
-                "stickyHeaderDates": True,
-            }
-            
-            st_calendar(events=events, options=calendar_options, key="full_calendar")
                             
         elif menu_selection == "🤖 AI相談":
             st.header("🤖 AI相談（専属ファイナンシャルプランナー）")

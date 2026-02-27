@@ -6,4 +6,3 @@ google-auth
 bcrypt
 google-genai
 Pillow
-streamlit-calendar
