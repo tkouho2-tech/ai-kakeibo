@@ -509,7 +509,7 @@ def main():
                     
             st.markdown("---")
             
-            # データ取得と日次集計
+            # データ取得
             with st.spinner("データを読み込み中..."):
                 df = load_transactions_data(st.session_state['current_month'])
                 
@@ -518,136 +518,105 @@ def main():
                 df['day'] = df['date'].dt.day
                 daily_totals = df.groupby('day')["amount"].sum().to_dict()
                 
-            from streamlit_calendar import calendar as st_calendar
             year = st.session_state['current_month'].year
             month = st.session_state['current_month'].month
 
-            # --- CSS設定（罫線、土日色分け、その他美化） ---
-            st.markdown("""
-<style>
-/* カレンダー全体の罫線をはっきり表示 */
-.fc-theme-standard td, .fc-theme-standard th {
-    border: 1px solid #ddd !important;
-}
-
-/* 日曜日（赤系）の色分け */
-.fc-day-sun {
-    background-color: #fff5f5 !important;
-}
-.fc-day-sun .fc-col-header-cell-cushion,
-.fc-day-sun .fc-daygrid-day-number {
-    color: #e53e3e !important; /* 赤字 */
-}
-
-/* 土曜日（青系）の色分け */
-.fc-day-sat {
-    background-color: #f0f5ff !important;
-}
-.fc-day-sat .fc-col-header-cell-cushion,
-.fc-day-sat .fc-daygrid-day-number {
-    color: #3182ce !important; /* 青字 */
-}
-
-/* 基本の文字装飾をオフ */
-.fc-col-header-cell-cushion, .fc-daygrid-day-number {
-    text-decoration: none !important;
-}
-
-/* 日付を左上に配置。数字のみに見えるよう「日」という文字をCSSで飛ばす */
-.fc-daygrid-day-top {
-    display: flex !important;
-    justify-content: flex-start !important;
-    flex-direction: row !important;
-}
-.fc-daygrid-day-number {
-    padding: 2px 4px !important;
-    font-size: 0.9em !important;
-    color: #444 !important;
-}
-/* locale: 'ja' による「日」ラベルを強引に非表示（ハック的ですが安全） */
-.fc-daygrid-day-number::after {
-    content: none !important;
-}
-/* FullCalendar 6系向け: 日付の「1日」の「日」を消す */
-.fc-daygrid-day-number {
-    overflow: hidden !important;
-}
-
-/* 支出金額（イベント）をセルの右下に確実に、右詰めで配置 */
-.fc-daygrid-day-frame {
-    position: relative !important;
-    min-height: 85px !important;
-}
-.fc-daygrid-day-events {
-    position: absolute !important;
-    bottom: 2px !important;
-    right: 2px !important;
-    left: 2px !important;
-    margin: 0 !important;
-    padding: 0 !important;
-    min-height: 0 !important;
-    background: transparent !important;
-    display: flex !important;
-    flex-direction: column !important;
-    align-items: flex-end !important; /* コンテナ内で右寄せ */
-    pointer-events: none !important;
-}
-.fc-event-title-container {
-    background: transparent !important;
-    width: 100% !important;
-}
-.fc-event-title {
-    color: red !important;
-    font-weight: bold !important;
-    font-size: 13px !important;
-    text-align: right !important; /* テキスト自体を右詰め */
-    width: 100% !important;
-    background: transparent !important;
-}
-/* イベントの余分な装飾を消して金額テキストのみにする */
-.fc-daygrid-event {
-    background-color: transparent !important;
-    border-color: transparent !important;
-    box-shadow: none !important;
-    margin: 0 !important;
-    padding: 0 !important;
-    width: 100% !important;
-    display: block !important;
-}
-</style>
-""", unsafe_allow_html=True)
-
-            # イベントデータの作成（金額表示用）
-            events = []
-            for day, amount in daily_totals.items():
-                if amount > 0:
-                    date_str = f"{year}-{month:02d}-{day:02d}"
-                    events.append({
-                        "title": f"￥{int(amount):,}",
-                        "start": date_str,
-                        "allDay": True,
-                        "display": "block", # 金額を確実に表示
-                        "textColor": "red",
-                        "backgroundColor": "transparent",
-                        "borderColor": "transparent"
-                    })
-
-            calendar_options = {
-                "initialDate": f"{year}-{month:02d}-01",
-                "initialView": "dayGridMonth",
-                "firstDay": 0, # 日曜始まり
-                "locale": "ja",
-                "height": "auto",
-                "fixedWeekCount": False,
-                "headerToolbar": {
-                    "left": "",
-                    "center": "",
-                    "right": "",
-                }
-            }
+            # --- 独自HTMLカレンダーの生成 ---
+            import calendar
+            cal_obj = calendar.Calendar(firstweekday=6) # 日曜始まり
+            month_days = cal_obj.monthdayscalendar(year, month)
             
-            # keyに年月を含めることで完全同期を保証
-            st_calendar(events=events, options=calendar_options, key=f"full_calendar_{year}_{month}")
+            # CSS定義
+            calendar_style = """
+            <style>
+            .custom-calendar-container {
+                width: 100%;
+                overflow-x: auto;
+            }
+            .custom-calendar {
+                width: 100%;
+                border-collapse: collapse;
+                table-layout: fixed;
+                min-width: 600px;
+                background-color: white;
+                color: #333;
+            }
+            .custom-calendar th, .custom-calendar td {
+                border: 1px solid #ddd !important;
+                height: 100px;
+                vertical-align: top;
+                padding: 0;
+                position: relative;
+            }
+            .custom-calendar th {
+                height: 40px;
+                text-align: center;
+                vertical-align: middle;
+                background-color: #f8f9fa;
+                font-weight: bold;
+            }
+            .day-cell {
+                width: 100%;
+                height: 100%;
+                display: flex;
+                flex-direction: column;
+                justify-content: space-between;
+                padding: 5px;
+            }
+            .day-number {
+                text-align: left;
+                font-size: 0.95em;
+                font-weight: bold;
+                color: #555;
+            }
+            .day-amount {
+                text-align: right;
+                color: red;
+                font-weight: bold;
+                font-size: 0.9em;
+                margin-top: auto;
+            }
+            .sun-header { color: #e53e3e !important; background-color: #fff5f5 !important; }
+            .sat-header { color: #3182ce !important; background-color: #f0f5ff !important; }
+            .sun-cell { background-color: #fffafa; }
+            .sat-cell { background-color: #f8fbff; }
+            .sun-cell .day-number { color: #e53e3e !important; }
+            .sat-cell .day-number { color: #3182ce !important; }
+            .empty-cell { background-color: #fdfdfd; }
+            </style>
+            """
+            
+            html = calendar_style + '<div class="custom-calendar-container"><table class="custom-calendar">'
+            html += '<thead><tr>'
+            for i, day_name in enumerate(["日", "月", "火", "水", "木", "金", "土"]):
+                cls = "sun-header" if i == 0 else ("sat-header" if i == 6 else "")
+                html += f'<th class="{cls}">{day_name}</th>'
+            html += '</tr></thead><tbody>'
+            
+            for week in month_days:
+                html += '<tr>'
+                for i, day in enumerate(week):
+                    cell_cls = "sun-cell" if i == 0 else ("sat-cell" if i == 6 else "")
+                    if day == 0:
+                        html += f'<td class="empty-cell {cell_cls}"></td>'
+                    else:
+                        amount = daily_totals.get(day, 0)
+                        amount_str = f"￥{int(amount):,}" if amount > 0 else ""
+                        html += f'''
+                        <td class="{cell_cls}">
+                            <div class="day-cell">
+                                <div class="day-number">{day}</div>
+                                <div class="day-amount">{amount_str}</div>
+                            </div>
+                        </td>
+                        '''
+                html += '</tr>'
+            
+            html += '</tbody></table></div>'
+            
+            st.markdown(html, unsafe_allow_html=True)
+            st.markdown("---")
+            
         elif menu_selection == "レシート取込":
             st.markdown("#### 📸 レシート取込")
             st.info("画像ファイルをアップロードしてレシートを解析します。")
