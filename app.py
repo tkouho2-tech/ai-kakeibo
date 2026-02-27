@@ -545,31 +545,36 @@ def main():
     color: #333 !important;
 }
 
-/* 支出金額をマスの右下に赤字で配置 */
+/* 支出金額をマスの右下に赤字で確実に配置 */
 .fc-daygrid-day-frame {
     position: relative !important;
+    min-height: 80px !important; /* セルの最小高さを確保 */
 }
 .fc-daygrid-day-events {
     position: absolute !important;
     bottom: 2px !important;
-    right: 4px !important;
+    right: 2px !important;
     margin: 0 !important;
+    padding: 0 !important;
     min-height: 0 !important;
-    display: flex !important;
-    flex-direction: column !important;
-    align-items: flex-end !important;
+    width: auto !important;
+    background: transparent !important;
+}
+.fc-event-title-container {
+    background: transparent !important;
 }
 .fc-event-title {
     color: red !important;
     font-weight: bold !important;
     font-size: 13px !important;
-    background: transparent !important;
+    text-align: right !important;
 }
 /* イベントの背景・枠線を消して金額テキストのみにする */
 .fc-daygrid-event {
     background-color: transparent !important;
     border-color: transparent !important;
     box-shadow: none !important;
+    justify-content: flex-end !important;
 }
 </style>
 """, unsafe_allow_html=True)
