@@ -456,7 +456,7 @@ def main():
                 
             menu_selection = st.radio(
                 "機能を選択",
-                ["ダッシュボード", "レシート取込", "レシート手入力", "レシート修正", "🤖 AI相談", "ヘルプ"],
+                ["ダッシュボード", "カレンダー", "レシート取込", "レシート手入力", "レシート修正", "🤖 AI相談", "ヘルプ"],
                 key="menu_selection"
             )
             st.markdown("---")
@@ -468,6 +468,9 @@ def main():
         # メインコンテンツの切り替え
         if menu_selection == "ダッシュボード":
             show_dashboard()
+        elif menu_selection == "カレンダー":
+            st.header("📅 カレンダー")
+            st.info("カレンダー機能は現在メンテナンス中です。今後のアップデートをお待ちください。")
         elif menu_selection == "レシート取込":
             st.header("📸 レシート取込")
             st.info("画像ファイルをアップロードしてレシートを解析します。")
