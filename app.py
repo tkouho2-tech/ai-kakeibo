@@ -331,12 +331,19 @@ JSONの出力形式は以下を厳守してください。マークダウンの 
   }}
 ]
 """
-        # --- マルチモデル・フォールバック & 再試行ロジックの導入 ---
-        models_to_try = ["gemini-2.0-flash", "gemini-1.5-flash", "gemini-1.5-pro"]
+        # --- 全方位型モデル・フォールバック & 再試行ロジックの導入 ---
+        # 環境により404や429が出る可能性があるため、考えられる全ての指定形式とモデルを巡回します
+        models_to_try = [
+            "gemini-2.0-flash", 
+            "models/gemini-1.5-flash", 
+            "gemini-1.5-flash", 
+            "models/gemini-1.5-pro",
+            "gemini-1.5-pro"
+        ]
         last_exception = None
         
         for model_name in models_to_try:
-            # 各モデルにつき最大2回まで試行（一時的なエラー対策）
+            # 各モデルにつき最大2回まで試行（ネットワークの一時的なエラー回線対策）
             for attempt in range(2):
                 try:
                     response = client.models.generate_content(
@@ -365,21 +372,21 @@ JSONの出力形式は以下を厳守してください。マークダウンの 
                     
                 except Exception as e:
                     last_exception = e
-                    # 429 RESOURCE_EXHAUSTED の場合は、リトライまたはモデル切り替え
-                    if "429" in str(e) or "RESOURCE_EXHAUSTED" in str(e):
-                        if attempt == 0:
-                            # 1回目の失敗時は、少し待って同じモデルでリトライ
+                    # 429 (制限) または 404 (未検出/未対応) の場合は、次の試行または次のモデルへ
+                    if any(code in str(e) for code in ["429", "404", "RESOURCE_EXHAUSTED", "NOT_FOUND"]):
+                        if attempt == 0 and "429" in str(e):
+                            # 429の場合のみ、少し待ってリトライ
                             time.sleep(2)
                             continue
                         else:
-                            # 2回失敗した場合は、次のモデルへ（continueせずにouter loopの次のモデルへ）
+                            # 制限超過か、モデル自体が存在しない(404)場合は、即座に次の候補へ
                             break
                     else:
-                        # その他の深刻なエラー（認証ミス等）は即時終了
-                        return {"error": f"解析中にエラーが発生しました ({model_name}): {str(e)}"}
+                        # 認証ミス等の致命的なエラーはループを抜けて終了
+                        return {"error": f"解析中に致命的なエラーが発生しました: {str(e)}"}
         
         # すべてのモデルで失敗した場合
-        return {"error": f"全てのAIモデルの利用制限に達しました。しばらく時間を置くか、別のレシートをお試しください。\nエラー詳細: {str(last_exception)}"}
+        return {"error": f"全てのAIモデル（2.0/1.5シリーズ）の利用制限に達したか、利用不可能な状態です。しばらく時間を置くか、設定をご確認ください。\n最終エラー: {str(last_exception)}"}
         
     except Exception as e:
         return {"error": str(e)}
