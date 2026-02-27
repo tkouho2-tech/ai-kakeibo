@@ -1064,7 +1064,6 @@ def main():
                 
             html_cal += '</tbody></table>'
             st.markdown(html_cal, unsafe_allow_html=True)
-            st.info("カレンダーの日付を選択すると、ここにレシートの詳細が表示されます。")
                             
         elif menu_selection == "🤖 AI相談":
             st.header("🤖 AI相談（専属ファイナンシャルプランナー）")
