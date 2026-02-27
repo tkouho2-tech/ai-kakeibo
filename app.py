@@ -332,8 +332,11 @@ JSONの出力形式は以下を厳守してください。マークダウンの 
 ]
 """
         response = client.models.generate_content(
-            model='gemini-1.5-flash',
-            contents=[prompt, img]
+            model='gemini-2.0-flash',
+            contents=[
+                prompt,
+                types.Part.from_bytes(data=img_byte_arr, mime_type='image/jpeg')
+            ]
         )
         
         response_text = response.text.strip()
