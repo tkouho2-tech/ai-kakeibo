@@ -988,10 +988,9 @@ def main():
             month = st.session_state['current_month'].month
             cal = calendar.monthcalendar(year, month)
             
-            # カレンダーCSS（クリック関連のスタイルを削除・調整）
+            # カレンダーCSS（イベントの右下固定・赤字・枠なしを強制）
             st.markdown("""
             <style>
-            /* 曜日ヘッダー部分専用のスタイル */
             .calendar-table {
                 width: 100%;
                 border-collapse: collapse;
@@ -1030,14 +1029,23 @@ def main():
                 left: 6px;
                 z-index: 1;
             }
-            .cal-amount {
-                position: absolute;
-                bottom: 4px;
-                right: 6px;
-                color: red; /* 鮮明な赤字 */
-                font-weight: bold;
-                font-size: 0.9em;
+            /* イベントの格納場所をセルの右下に固定 */
+            .fc-daygrid-day-events {
+                position: absolute !important;
+                bottom: 2px !important;
+                right: 4px !important;
+                margin: 0 !important;
                 z-index: 1;
+            }
+            /* 金額テキストを赤字にして枠を消す */
+            .fc-event, .fc-event-main, .fc-daygrid-event {
+                color: red !important;
+                background-color: transparent !important;
+                border: none !important;
+                font-weight: bold !important;
+                box-shadow: none !important;
+                text-align: right !important;
+                font-size: 0.9em;
             }
             </style>
             """, unsafe_allow_html=True)
@@ -1057,7 +1065,13 @@ def main():
                         html_cal += '<td><div style="min-height: 80px; background-color: #fafafa;"></div></td>'
                     else:
                         total = daily_totals.get(day, 0)
-                        amount_html = f'<div class="cal-amount">￥{"{:,}".format(int(total))}</div>' if total > 0 else ''
+                        if total > 0:
+                            # 必須の形式: ￥{amount:,} （円という文字は一切含めない）
+                            amount_str = f"￥{int(total):,}"
+                            amount_html = f'<div class="fc-daygrid-day-events"><div class="fc-event"><div class="fc-event-main">{amount_str}</div></div></div>'
+                        else:
+                            amount_html = ''
+                            
                         cell_content = f'<div class="cal-cell-content"><div class="cal-date">{day}</div>{amount_html}</div>'
                         html_cal += f'<td>{cell_content}</td>'
                 html_cal += '</tr>'
