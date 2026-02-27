@@ -6,6 +6,7 @@ import bcrypt
 import os
 import json
 import io
+import calendar
 from datetime import datetime
 from dateutil.relativedelta import relativedelta
 from PIL import Image
@@ -470,7 +471,95 @@ def main():
             show_dashboard()
         elif menu_selection == "カレンダー":
             st.markdown("#### 📅 カレンダー")
-            st.info("カレンダー機能は現在メンテナンス中です。今後のアップデートをお待ちください。")
+            
+            # 月選択UI
+            col1, col2, col3, col4, col5 = st.columns([3, 1, 2, 1, 3])
+            with col2:
+                if st.button("◀ 前月", use_container_width=True, key="cal_prev"):
+                    st.session_state['current_month'] -= relativedelta(months=1)
+                    st.rerun()
+            with col3:
+                st.markdown(f"<h3 style='text-align: center; margin: 0;'>{st.session_state['current_month'].strftime('%Y年%m月')}</h3>", unsafe_allow_html=True)
+            with col4:
+                if st.button("翌月 ▶", use_container_width=True, key="cal_next"):
+                    st.session_state['current_month'] += relativedelta(months=1)
+                    st.rerun()
+                    
+            st.markdown("---")
+            
+            # データ取得と日次集計
+            with st.spinner("データを読み込み中..."):
+                df = load_transactions_data(st.session_state['current_month'])
+                
+            daily_totals = {}
+            if not df.empty and "date" in df.columns and "amount" in df.columns:
+                df['day'] = df['date'].dt.day
+                daily_totals = df.groupby('day')["amount"].sum().to_dict()
+                
+            from streamlit_calendar import calendar as st_calendar
+            year = st.session_state['current_month'].year
+            month = st.session_state['current_month'].month
+
+            # --- CSS設定（金額を右下に赤字で表示し、カレンダーの罫線を強調） ---
+            st.markdown("""
+<style>
+/* カレンダーの罫線をはっきり表示 */
+.fc-theme-standard td, .fc-theme-standard th {
+    border: 1px solid #ddd !important;
+}
+
+/* 支出金額をマスの右下に赤字で配置 */
+.fc-daygrid-day-frame {
+    position: relative !important;
+}
+.fc-daygrid-day-events {
+    position: absolute !important;
+    bottom: 2px !important;
+    right: 4px !important;
+    margin: 0 !important;
+    min-height: 0 !important;
+}
+.fc-event-title {
+    color: red !important;
+    font-weight: bold !important;
+    font-size: 13px !important;
+}
+/* イベントの背景・枠線を消して金額テキストのみにする */
+.fc-daygrid-event {
+    background-color: transparent !important;
+    border-color: transparent !important;
+}
+</style>
+""", unsafe_allow_html=True)
+
+            # イベントデータの作成
+            events = []
+            for day, amount in daily_totals.items():
+                if amount > 0:
+                    date_str = f"{year}-{month:02d}-{day:02d}"
+                    events.append({
+                        "title": f"￥{int(amount):,}",
+                        "start": date_str,
+                        "allDay": True,
+                        "textColor": "red",
+                        "backgroundColor": "transparent",
+                        "borderColor": "transparent"
+                    })
+
+            calendar_options = {
+                "initialDate": f"{year}-{month:02d}-01",
+                "initialView": "dayGridMonth",
+                "firstDay": 0, # 日曜始まり
+                "locale": "ja",
+                "height": "auto",
+                "headerToolbar": {
+                    "left": "",
+                    "center": "",
+                    "right": "",
+                }
+            }
+            
+            st_calendar(events=events, options=calendar_options, key="full_calendar")
         elif menu_selection == "レシート取込":
             st.markdown("#### 📸 レシート取込")
             st.info("画像ファイルをアップロードしてレシートを解析します。")
