@@ -535,9 +535,10 @@ def main():
             }
             .custom-calendar {
                 width: 100%;
+                max-width: 500px; /* 横幅を最大500pxに制限 */
+                margin: 0 auto;   /* 中央配置 */
                 border-collapse: collapse;
                 table-layout: fixed;
-                min-width: 600px;
                 background-color: white;
                 color: #333;
             }
