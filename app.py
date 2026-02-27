@@ -1057,7 +1057,7 @@ def main():
                         html_cal += '<td><div style="min-height: 80px; background-color: #fafafa;"></div></td>'
                     else:
                         total = daily_totals.get(day, 0)
-                        amount_html = f'<div class="cal-amount">￥{"{:,}".format(int(total))}</div>' if total > 0 else ''
+                        amount_html = f'<div class="cal-amount">\\{"{:,}".format(int(total))}</div>' if total > 0 else ''
                         cell_content = f'<div class="cal-cell-content"><div class="cal-date">{day}</div>{amount_html}</div>'
                         html_cal += f'<td>{cell_content}</td>'
                 html_cal += '</tr>'
