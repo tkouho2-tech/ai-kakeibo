@@ -954,18 +954,11 @@ def main():
         elif menu_selection == "カレンダー":
             st.header("📅 カレンダー")
             
-            # カレンダー用のセッション状態を初期化
-            if 'selected_day' not in st.session_state:
-                st.session_state['selected_day'] = None
-                
-            # URLパラメータからの取得をやめて、隠しボタンによる状態更新を使用する
-            
-            # 表示月が変更された場合は選択日をリセット
+            # カレンダー用のセッション状態を初期化（表示月管理のみ）
             if 'last_cal_month' not in st.session_state or st.session_state['last_cal_month'] != st.session_state['current_month']:
-                st.session_state['selected_day'] = None
                 st.session_state['last_cal_month'] = st.session_state['current_month']
                 
-            # ダッシュボードと共通の月選択UI
+            # 月選択UI
             col1, col2, col3, col4, col5 = st.columns([3, 1, 2, 1, 3])
             with col2:
                 if st.button("◀ 前月", use_container_width=True, key="cal_prev"):
@@ -995,7 +988,7 @@ def main():
             month = st.session_state['current_month'].month
             cal = calendar.monthcalendar(year, month)
             
-            # カレンダー全体にのみ影響を与えるためのCSS
+            # カレンダーCSS（クリック関連のスタイルを削除・調整）
             st.markdown("""
             <style>
             /* 曜日ヘッダー部分専用のスタイル */
@@ -1020,20 +1013,13 @@ def main():
                 padding: 0;
                 position: relative;
             }
-            /* リンク全体をセルサイズに広げる */
-            .cal-cell-link {
+            .cal-cell-content {
                 display: block;
                 width: 100%;
                 height: 100%;
-                text-decoration: none;
-                color: inherit;
                 position: relative;
                 padding: 4px;
                 box-sizing: border-box;
-            }
-            .cal-cell-link:hover {
-                background-color: #f0f8ff;
-                text-decoration: none;
             }
             .cal-date {
                 font-weight: bold;
@@ -1053,15 +1039,6 @@ def main():
                 font-size: 0.9em;
                 z-index: 1;
             }
-            .sel-bg {
-                position: absolute;
-                top: 0;
-                left: 0;
-                width: 100%;
-                height: 100%;
-                background-color: #e6f7ff;
-                z-index: 0;
-            }
             </style>
             """, unsafe_allow_html=True)
             
@@ -1080,125 +1057,14 @@ def main():
                         html_cal += '<td><div style="min-height: 80px; background-color: #fafafa;"></div></td>'
                     else:
                         total = daily_totals.get(day, 0)
-                        bg_html = '<div class="sel-bg"></div>' if st.session_state.get('selected_day') == day else ''
                         amount_html = f'<div class="cal-amount">￥{"{:,}".format(int(total))}</div>' if total > 0 else ''
-                        
-                        # 金額がある日はJSで隠しボタンをクリックさせる（画面リロードを防ぎログイン維持）
-                        if total > 0:
-                            cell_content = f'<div class="cal-cell-link" data-day="{day}" style="cursor: pointer;">{bg_html}<div class="cal-date">{day}</div>{amount_html}</div>'
-                        else:
-                            cell_content = f'<div class="cal-cell-link" style="cursor: default;">{bg_html}<div class="cal-date">{day}</div>{amount_html}</div>'
-                        
+                        cell_content = f'<div class="cal-cell-content"><div class="cal-date">{day}</div>{amount_html}</div>'
                         html_cal += f'<td>{cell_content}</td>'
                 html_cal += '</tr>'
                 
             html_cal += '</tbody></table>'
             st.markdown(html_cal, unsafe_allow_html=True)
-            
-            # 日付選択のコールバック関数
-            def select_day_callback(d):
-                st.session_state['selected_day'] = d
-
-            # JS経由でPythonに状態を渡すための隠しボタン
-            for day in daily_totals.keys():
-                if daily_totals[day] > 0:
-                    st.button(f"hbtn_{day}", key=f"hidden_btn_{day}", on_click=select_day_callback, args=(day,))
-
-            # JS注入（カレンダーのマス目クリックと隠しボタンの連動）
-            import streamlit.components.v1 as components
-            components.html("""
-            <script>
-            setInterval(() => {
-                const cells = window.parent.document.querySelectorAll('.cal-cell-link[data-day]');
-                cells.forEach(cell => {
-                    if (!cell.dataset.hasClickEvent) {
-                        cell.dataset.hasClickEvent = 'true';
-                        cell.addEventListener('click', function() {
-                            const day = this.getAttribute('data-day');
-                            const buttons = window.parent.document.querySelectorAll('button p');
-                            for (let el of Array.from(buttons)) {
-                                if (el.textContent === 'hbtn_' + day) {
-                                    const btn = el.closest('button');
-                                    if(btn) btn.click();
-                                    break;
-                                }
-                            }
-                        });
-                    }
-                });
-                const buttons = window.parent.document.querySelectorAll('button p');
-                buttons.forEach(el => {
-                    if (el.textContent.startsWith('hbtn_')) {
-                        let btnWrapper = el.closest('div[data-testid="element-container"]') || el.closest('div[data-testid="stButton"]');
-                        if(btnWrapper) {
-                            btnWrapper.style.display = 'none';
-                            btnWrapper.style.height = '0px';
-                            btnWrapper.style.margin = '0px';
-                        }
-                    }
-                });
-            }, 300);
-            </script>
-            """, height=0, width=0)
-
-            # 指定日の明細一覧表示（階層構造: 店舗 -> 大分類 -> 小分類）
-            if st.session_state.get('selected_day'):
-                _current_sel_day = int(st.session_state['selected_day'])
-                st.markdown("---")
-                
-                # 該当日のデータのみを全データ(df)から再度厳密に抽出（コピーを生成）
-                # インデックスの不整合や、他日の混入を避けるため .dt.day で直接フィルタリング
-                _day_records = df[df["date"].dt.day == _current_sel_day].copy()
-                
-                if _day_records.empty:
-                    st.info(f"{month}月{_current_sel_day}日の明細はありません。")
-                else:
-                    _daily_sum = int(_day_records["amount"].sum())
-                    st.markdown(f"#### {month}月{_current_sel_day}日 レシート一覧 (合計: ￥{_daily_sum:,})")
-                    
-                    # 店舗名カラムの特定と名寄せ
-                    _s_col = next((c for c in ["store", "store_name", "店舗名", "店舗"] if c in _day_records.columns), None)
-                    if _s_col:
-                        _day_records["_tmp_store"] = _day_records[_s_col].apply(lambda x: str(x).strip() if pd.notna(x) and str(x).strip() != "" else "店舗名不明")
-                    else:
-                        _day_records["_tmp_store"] = "店舗名不明"
-                        
-                    # 1. 店舗(レシート)毎にグループ化（この日のデータのみが対象）
-                    _s_groups = _day_records.groupby("_tmp_store", dropna=False, sort=False)
-                    for _s_name, _s_df in _s_groups:
-                        _s_amount = int(_s_df["amount"].sum())
-                        
-                        # 店舗名アコーディオン
-                        with st.expander(f"🛒 **{_s_name}**　（合計: ￥{_s_amount:,}）", expanded=False):
-                            # 2. その店舗・その日の中での大分類グループ化
-                            _m_agg = _s_df.groupby("category", dropna=False)["amount"].sum().sort_values(ascending=False)
-                            for _m_cat, _m_amt in _m_agg.items():
-                                _d_major = str(_m_cat) if pd.notna(_m_cat) and str(_m_cat) != "" else "その他"
-                                _m_amt_int = int(_m_amt)
-                                
-                                # 大分類アコーディオン
-                                with st.expander(f"📁 **{_d_major}**　（小計: ￥{_m_amt_int:,}）", expanded=False):
-                                    # 3. その大分類の中での小分類リスト
-                                    _sub_df = _s_df[_s_df["category"] == _m_cat] if pd.notna(_m_cat) else _s_df[pd.isna(_s_df["category"])]
-                                    
-                                    # 小分類カラムの特定
-                                    _sub_found_cols = [c for c in ["subcategory", "sub_category", "小分類"] if c in _sub_df.columns]
-                                    _scol = _sub_found_cols[0] if _sub_found_cols else None
-                                    
-                                    if _scol:
-                                        _sub_agg = _sub_df.groupby(_scol, dropna=False)["amount"].sum().sort_values(ascending=False)
-                                        for _sub_name, _sub_v in _sub_agg.items():
-                                            _d_sub = str(_sub_name) if pd.notna(_sub_name) and str(_sub_name) != "" else "その他"
-                                            st.markdown(f"""
-                                            <div style='display: flex; justify-content: space-between; border-bottom: 1px dotted #ccc; padding: 4px 10px; font-size: 0.9em; color: #444;'>
-                                                <div>└ {_d_sub}</div>
-                                                <div style='text-align: right;'>￥{int(_sub_v):,}</div>
-                                            </div>
-                                            """, unsafe_allow_html=True)
-                                    else:
-                                        st.text(f"  詳細: ￥{_m_amt_int:,}")
-            else:
-                st.info("カレンダーの日付を選択すると、ここにレシートの詳細が表示されます。")
+            st.info("カレンダーの日付を選択すると、ここにレシートの詳細が表示されます。")
                             
         elif menu_selection == "🤖 AI相談":
             st.header("🤖 AI相談（専属ファイナンシャルプランナー）")

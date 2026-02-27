@@ -1,2 +1,7 @@
 credentials.json
 .streamlit/secrets.toml
+__pycache__/
+*.py[cod]
+*$py.class
+test_bug.py
+test_expander.py
