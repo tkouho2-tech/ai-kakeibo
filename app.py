@@ -331,48 +331,55 @@ JSONの出力形式は以下を厳守してください。マークダウンの 
   }}
 ]
 """
-        # --- 再試行（リトライ）ロジックの導入 ---
-        max_retries = 3
+        # --- マルチモデル・フォールバック & 再試行ロジックの導入 ---
+        models_to_try = ["gemini-2.0-flash", "gemini-1.5-flash", "gemini-1.5-pro"]
         last_exception = None
-        for attempt in range(max_retries):
-            try:
-                response = client.models.generate_content(
-                    model='gemini-2.0-flash',
-                    contents=[
-                        prompt,
-                        types.Part.from_bytes(data=img_byte_arr, mime_type='image/jpeg')
-                    ]
-                )
-                
-                response_text = response.text.strip()
-                if response_text.startswith("```json"):
-                    response_text = response_text[7:]
-                if response_text.startswith("```"):
-                    response_text = response_text[3:]
-                if response_text.endswith("```"):
-                    response_text = response_text[:-3]
-                    
-                result = json.loads(response_text.strip())
-                
-                # 配列でない場合は配列にする
-                if isinstance(result, dict):
-                    result = [result]
-                    
-                return result
-                
-            except Exception as e:
-                last_exception = e
-                # 429 Resource exhausted (Rate limit) の場合にリトライ
-                if "429" in str(e) or "RESOURCE_EXHAUSTED" in str(e):
-                    # 指数バックオフ（2秒, 5秒, 10秒）
-                    wait_time = [2, 5, 10][attempt]
-                    time.sleep(wait_time)
-                    continue
-                else:
-                    # その他のエラーは即時終了
-                    break
         
-        return {"error": f"解析に失敗しました: {str(last_exception)}"}
+        for model_name in models_to_try:
+            # 各モデルにつき最大2回まで試行（一時的なエラー対策）
+            for attempt in range(2):
+                try:
+                    response = client.models.generate_content(
+                        model=model_name,
+                        contents=[
+                            prompt,
+                            types.Part.from_bytes(data=img_byte_arr, mime_type='image/jpeg')
+                        ]
+                    )
+                    
+                    response_text = response.text.strip()
+                    if response_text.startswith("```json"):
+                        response_text = response_text[7:]
+                    if response_text.startswith("```"):
+                        response_text = response_text[3:]
+                    if response_text.endswith("```"):
+                        response_text = response_text[:-3]
+                        
+                    result = json.loads(response_text.strip())
+                    
+                    # 配列でない場合は配列にする
+                    if isinstance(result, dict):
+                        result = [result]
+                        
+                    return result
+                    
+                except Exception as e:
+                    last_exception = e
+                    # 429 RESOURCE_EXHAUSTED の場合は、リトライまたはモデル切り替え
+                    if "429" in str(e) or "RESOURCE_EXHAUSTED" in str(e):
+                        if attempt == 0:
+                            # 1回目の失敗時は、少し待って同じモデルでリトライ
+                            time.sleep(2)
+                            continue
+                        else:
+                            # 2回失敗した場合は、次のモデルへ（continueせずにouter loopの次のモデルへ）
+                            break
+                    else:
+                        # その他の深刻なエラー（認証ミス等）は即時終了
+                        return {"error": f"解析中にエラーが発生しました ({model_name}): {str(e)}"}
+        
+        # すべてのモデルで失敗した場合
+        return {"error": f"全てのAIモデルの利用制限に達しました。しばらく時間を置くか、別のレシートをお試しください。\nエラー詳細: {str(last_exception)}"}
         
     except Exception as e:
         return {"error": str(e)}
