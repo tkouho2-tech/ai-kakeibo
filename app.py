@@ -556,7 +556,12 @@ def main():
                     "left": "",
                     "center": "",
                     "right": "",
-                }
+                },
+                "dayHeaderFormat": { "weekday": "short" }, # 曜日を1文字（日、月...）形式に
+                "dayCellContent": { "formatter": "number" }, # 日付から「日」を除外して数字のみに
+                "fixedWeekCount": False, # 週数を月の日数に合わせて自動調整
+                "showNonCurrentDates": True, # 前後の月の日付を表示（同期確認のため）
+                "dayMaxEvents": True, # イベントが多い場合に折りたたむ
             }
             
             st_calendar(events=events, options=calendar_options, key="full_calendar")
