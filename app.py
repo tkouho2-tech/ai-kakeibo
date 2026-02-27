@@ -334,7 +334,7 @@ JSONの出力形式は以下を厳守してください。マークダウンの 
         # シンプルな解析ロジック: モデルを gemini-1.5-flash に固定して単発実行
         try:
             response = client.models.generate_content(
-                model='gemini-1.5-flash',
+                model='gemini-2.0-flash',
                 contents=[
                     prompt,
                     types.Part.from_bytes(data=img_byte_arr, mime_type='image/jpeg')
