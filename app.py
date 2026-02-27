@@ -553,6 +553,16 @@ def main():
     text-decoration: none !important;
 }
 
+/* 日付を左上に配置 */
+.fc-daygrid-day-top {
+    display: flex !important;
+    justify-content: flex-start !important;
+    flex-direction: row !important;
+}
+.fc-daygrid-day-number {
+    padding: 2px 4px !important;
+}
+
 /* セルの高さを確保 */
 .fc-daygrid-day-frame {
     min-height: 80px !important;
@@ -567,6 +577,7 @@ def main():
                 "locale": "ja",
                 "height": "auto",
                 "fixedWeekCount": False,
+                "dayCellContent": { "formatter": "number" }, # 「日」を表示せず数字のみにする
                 "headerToolbar": {
                     "left": "",
                     "center": "",
