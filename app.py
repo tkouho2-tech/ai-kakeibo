@@ -122,6 +122,25 @@ def safe_gspread_call(func, *args, max_retries=3, delay=2, **kwargs):
                 raise e
     raise last_error
 
+def safe_gemini_call(func, *args, max_retries=5, initial_delay=2, **kwargs):
+    """Gemini API呼び出しをリトライする関数（429/500/503エラー対応）"""
+    last_error = None
+    for i in range(max_retries):
+        try:
+            return func(*args, **kwargs)
+        except Exception as e:
+            last_error = e
+            err_msg = str(e)
+            # 429 RESOURCE_EXHAUSTED または 500/503 系エラーの場合にリトライ
+            if "429" in err_msg or "RESOURCE_EXHAUSTED" in err_msg or "500" in err_msg or "503" in err_msg:
+                wait_time = initial_delay * (2 ** i) # 指数バックオフ
+                st.warning(f"現在混み合っています（{i+1}/{max_retries}回目）。{wait_time}秒後に再試行します...")
+                time.sleep(wait_time)
+                continue
+            else:
+                raise e
+    raise last_error
+
 def get_sheet(worksheet_name):
     client = get_gspread_client()
     if client is None:
@@ -331,10 +350,11 @@ JSONの出力形式は以下を厳守してください。マークダウンの 
   }}
 ]
 """
-        # シンプルな解析ロジック: モデルを gemini-1.5-flash に固定して単発実行
+        # シンプルな解析ロジック: モデルを gemini-2.5-flash に固定して単発実行
         try:
-            response = client.models.generate_content(
-                model='gemini-2.0-flash',
+            response = safe_gemini_call(
+                client.models.generate_content,
+                model='gemini-2.5-flash',
                 contents=[
                     prompt,
                     types.Part.from_bytes(data=img_byte_arr, mime_type='image/jpeg')
@@ -1193,7 +1213,8 @@ def main():
                             prompt_parts.append({"text": "以上のデータと会話を踏まえて、最後の質問にファイナンシャルプランナーとして親身に返答してください。"})
 
                             # API呼び出し
-                            response = client.models.generate_content(
+                            response = safe_gemini_call(
+                                client.models.generate_content,
                                 model='gemini-1.5-flash',
                                 contents=prompt_parts
                             )
@@ -1288,7 +1309,8 @@ def main():
                                 
                             prompt_parts.append({"text": "以上の会話を踏まえて、最後のユーザーの質問に返答してください。"})
 
-                            response = client.models.generate_content(
+                            response = safe_gemini_call(
+                                client.models.generate_content,
                                 model='gemini-1.5-flash',
                                 contents=prompt_parts
                             )
