@@ -500,12 +500,27 @@ def main():
             year = st.session_state['current_month'].year
             month = st.session_state['current_month'].month
 
-            # --- CSS設定（金額を右下に赤字で表示し、カレンダーの罫線を強調） ---
+            # --- CSS設定（金額表示、重複排除、罫線強調） ---
             st.markdown("""
 <style>
 /* カレンダーの罫線をはっきり表示 */
 .fc-theme-standard td, .fc-theme-standard th {
     border: 1px solid #ddd !important;
+}
+
+/* 日付の「1日」などの重複ラベルを消し、数字のみにする */
+.fc-daygrid-day-number {
+    font-size: 0.9em !important;
+    text-decoration: none !important;
+    color: #333 !important;
+}
+/* JS側で「日」が付与される場合を考慮し、強引に数字以外を消すことはできないため、
+   標準の表示を尊重しつつ、以前の不自然な重複（1日1日）を避ける設定にします */
+
+/* 曜日ヘッダーの「日日」重複を避けるための調整 */
+.fc-col-header-cell-cushion {
+    text-decoration: none !important;
+    color: #333 !important;
 }
 
 /* 支出金額をマスの右下に赤字で配置 */
@@ -518,16 +533,21 @@ def main():
     right: 4px !important;
     margin: 0 !important;
     min-height: 0 !important;
+    display: flex !important;
+    flex-direction: column !important;
+    align-items: flex-end !important;
 }
 .fc-event-title {
     color: red !important;
     font-weight: bold !important;
     font-size: 13px !important;
+    background: transparent !important;
 }
 /* イベントの背景・枠線を消して金額テキストのみにする */
 .fc-daygrid-event {
     background-color: transparent !important;
     border-color: transparent !important;
+    box-shadow: none !important;
 }
 </style>
 """, unsafe_allow_html=True)
@@ -541,9 +561,10 @@ def main():
                         "title": f"￥{int(amount):,}",
                         "start": date_str,
                         "allDay": True,
-                        "textColor": "red",
+                        "display": "block", # 金額を確実に表示
                         "backgroundColor": "transparent",
-                        "borderColor": "transparent"
+                        "borderColor": "transparent",
+                        "textColor": "red"
                     })
 
             calendar_options = {
@@ -552,19 +573,16 @@ def main():
                 "firstDay": 0, # 日曜始まり
                 "locale": "ja",
                 "height": "auto",
+                "fixedWeekCount": False,
                 "headerToolbar": {
                     "left": "",
                     "center": "",
                     "right": "",
-                },
-                "dayHeaderFormat": { "weekday": "short" }, # 曜日を1文字（日、月...）形式に
-                "dayCellContent": { "formatter": "number" }, # 日付から「日」を除外して数字のみに
-                "fixedWeekCount": False, # 週数を月の日数に合わせて自動調整
-                "showNonCurrentDates": True, # 前後の月の日付を表示（同期確認のため）
-                "dayMaxEvents": True, # イベントが多い場合に折りたたむ
+                }
             }
             
-            st_calendar(events=events, options=calendar_options, key="full_calendar")
+            # keyに年月を含めることで、月移動時にコンポーネントを強制リマウントし、同期ズレを防ぐ
+            st_calendar(events=events, options=calendar_options, key=f"full_calendar_{year}_{month}")
         elif menu_selection == "レシート取込":
             st.markdown("#### 📸 レシート取込")
             st.info("画像ファイルをアップロードしてレシートを解析します。")
