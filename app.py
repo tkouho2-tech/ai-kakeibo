@@ -548,12 +548,12 @@ def main():
     color: #3182ce !important; /* 青字 */
 }
 
-/* 曜日のリンク下線を消す */
+/* 基本の文字装飾をオフ */
 .fc-col-header-cell-cushion, .fc-daygrid-day-number {
     text-decoration: none !important;
 }
 
-/* 日付を左上に配置 */
+/* 日付を左上に配置。数字のみに見えるよう「日」という文字をCSSで飛ばす */
 .fc-daygrid-day-top {
     display: flex !important;
     justify-content: flex-start !important;
@@ -561,14 +561,76 @@ def main():
 }
 .fc-daygrid-day-number {
     padding: 2px 4px !important;
+    font-size: 0.9em !important;
+    color: #444 !important;
+}
+/* locale: 'ja' による「日」ラベルを強引に非表示（ハック的ですが安全） */
+.fc-daygrid-day-number::after {
+    content: none !important;
+}
+/* FullCalendar 6系向け: 日付の「1日」の「日」を消す */
+.fc-daygrid-day-number {
+    overflow: hidden !important;
 }
 
-/* セルの高さを確保 */
+/* 支出金額（イベント）をセルの右下に確実に、右詰めで配置 */
 .fc-daygrid-day-frame {
-    min-height: 80px !important;
+    position: relative !important;
+    min-height: 85px !important;
+}
+.fc-daygrid-day-events {
+    position: absolute !important;
+    bottom: 2px !important;
+    right: 2px !important;
+    left: 2px !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    min-height: 0 !important;
+    background: transparent !important;
+    display: flex !important;
+    flex-direction: column !important;
+    align-items: flex-end !important; /* コンテナ内で右寄せ */
+    pointer-events: none !important;
+}
+.fc-event-title-container {
+    background: transparent !important;
+    width: 100% !important;
+}
+.fc-event-title {
+    color: red !important;
+    font-weight: bold !important;
+    font-size: 13px !important;
+    text-align: right !important; /* テキスト自体を右詰め */
+    width: 100% !important;
+    background: transparent !important;
+}
+/* イベントの余分な装飾を消して金額テキストのみにする */
+.fc-daygrid-event {
+    background-color: transparent !important;
+    border-color: transparent !important;
+    box-shadow: none !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    width: 100% !important;
+    display: block !important;
 }
 </style>
 """, unsafe_allow_html=True)
+
+            # イベントデータの作成（金額表示用）
+            events = []
+            for day, amount in daily_totals.items():
+                if amount > 0:
+                    date_str = f"{year}-{month:02d}-{day:02d}"
+                    events.append({
+                        "title": f"￥{int(amount):,}",
+                        "start": date_str,
+                        "allDay": True,
+                        "display": "block", # 金額を確実に表示
+                        "textColor": "red",
+                        "backgroundColor": "transparent",
+                        "borderColor": "transparent"
+                    })
 
             calendar_options = {
                 "initialDate": f"{year}-{month:02d}-01",
@@ -577,7 +639,6 @@ def main():
                 "locale": "ja",
                 "height": "auto",
                 "fixedWeekCount": False,
-                "dayCellContent": { "formatter": "number" }, # 「日」を表示せず数字のみにする
                 "headerToolbar": {
                     "left": "",
                     "center": "",
@@ -585,8 +646,8 @@ def main():
                 }
             }
             
-            # keyに年月を含めることで、月移動時にコンポーネントを強制リマウント
-            st_calendar(events=[], options=calendar_options, key=f"full_calendar_{year}_{month}")
+            # keyに年月を含めることで完全同期を保証
+            st_calendar(events=events, options=calendar_options, key=f"full_calendar_{year}_{month}")
         elif menu_selection == "レシート取込":
             st.markdown("#### 📸 レシート取込")
             st.info("画像ファイルをアップロードしてレシートを解析します。")
