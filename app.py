@@ -602,14 +602,7 @@ def main():
                     else:
                         amount = daily_totals.get(day, 0)
                         amount_str = f"￥{int(amount):,}" if amount > 0 else ""
-                        html += f'''
-                        <td class="{cell_cls}">
-                            <div class="day-cell">
-                                <div class="day-number">{day}</div>
-                                <div class="day-amount">{amount_str}</div>
-                            </div>
-                        </td>
-                        '''
+                        html += f'<td class="{cell_cls}"><div class="day-cell"><div class="day-number">{day}</div><div class="day-amount">{amount_str}</div></div></td>'
                 html += '</tr>'
             
             html += '</tbody></table></div>'
