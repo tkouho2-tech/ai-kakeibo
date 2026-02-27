@@ -493,7 +493,89 @@ def main():
             show_dashboard()
         elif menu_selection == "カレンダー":
             st.markdown("#### 📅 カレンダー")
-            st.info("カレンダー機能は現在メンテナンス中です。今後のアップデートをお待ちください。")
+            
+            # 月選択UI
+            col1, col2, col3, col4, col5 = st.columns([3, 1, 2, 1, 3])
+            with col2:
+                if st.button("◀ 前月", use_container_width=True, key="cal_prev"):
+                    st.session_state['current_month'] -= relativedelta(months=1)
+                    st.rerun()
+            with col3:
+                st.markdown(f"<h3 style='text-align: center; margin: 0;'>{st.session_state['current_month'].strftime('%Y年%m月')}</h3>", unsafe_allow_html=True)
+            with col4:
+                if st.button("翌月 ▶", use_container_width=True, key="cal_next"):
+                    st.session_state['current_month'] += relativedelta(months=1)
+                    st.rerun()
+                    
+            st.markdown("---")
+            
+            # データ取得と日次集計
+            with st.spinner("データを読み込み中..."):
+                df = load_transactions_data(st.session_state['current_month'])
+                
+            daily_totals = {}
+            if not df.empty and "date" in df.columns and "amount" in df.columns:
+                df['day'] = df['date'].dt.day
+                daily_totals = df.groupby('day')["amount"].sum().to_dict()
+                
+            from streamlit_calendar import calendar as st_calendar
+            year = st.session_state['current_month'].year
+            month = st.session_state['current_month'].month
+
+            # --- CSS設定（罫線、土日色分け、その他美化） ---
+            st.markdown("""
+<style>
+/* カレンダー全体の罫線をはっきり表示 */
+.fc-theme-standard td, .fc-theme-standard th {
+    border: 1px solid #ddd !important;
+}
+
+/* 日曜日（赤系）の色分け */
+.fc-day-sun {
+    background-color: #fff5f5 !important;
+}
+.fc-day-sun .fc-col-header-cell-cushion,
+.fc-day-sun .fc-daygrid-day-number {
+    color: #e53e3e !important; /* 赤字 */
+}
+
+/* 土曜日（青系）の色分け */
+.fc-day-sat {
+    background-color: #f0f5ff !important;
+}
+.fc-day-sat .fc-col-header-cell-cushion,
+.fc-day-sat .fc-daygrid-day-number {
+    color: #3182ce !important; /* 青字 */
+}
+
+/* 曜日のリンク下線を消す */
+.fc-col-header-cell-cushion, .fc-daygrid-day-number {
+    text-decoration: none !important;
+}
+
+/* セルの高さを確保 */
+.fc-daygrid-day-frame {
+    min-height: 80px !important;
+}
+</style>
+""", unsafe_allow_html=True)
+
+            calendar_options = {
+                "initialDate": f"{year}-{month:02d}-01",
+                "initialView": "dayGridMonth",
+                "firstDay": 0, # 日曜始まり
+                "locale": "ja",
+                "height": "auto",
+                "fixedWeekCount": False,
+                "headerToolbar": {
+                    "left": "",
+                    "center": "",
+                    "right": "",
+                }
+            }
+            
+            # keyに年月を含めることで、月移動時にコンポーネントを強制リマウント
+            st_calendar(events=[], options=calendar_options, key=f"full_calendar_{year}_{month}")
         elif menu_selection == "レシート取込":
             st.markdown("#### 📸 レシート取込")
             st.info("画像ファイルをアップロードしてレシートを解析します。")
