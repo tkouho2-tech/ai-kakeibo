@@ -982,102 +982,63 @@ def main():
                 df['day'] = df['date'].dt.day
                 daily_totals = df.groupby('day')["amount"].sum().to_dict()
                 
-            # カレンダーの描画（日曜始まりに設定）
-            calendar.setfirstweekday(calendar.SUNDAY)
-            year = st.session_state['current_month'].year
-            month = st.session_state['current_month'].month
-            cal = calendar.monthcalendar(year, month)
+            from streamlit_calendar import calendar as st_calendar
             
-            # カレンダーCSS（イベントの右下固定・赤字・枠なしを強制）
+            # --- 【2. 強制レイアウト調整（CSS）】 ---
             st.markdown("""
-            <style>
-            .calendar-table {
-                width: 100%;
-                border-collapse: collapse;
-                table-layout: fixed;
-                margin-bottom: 20px;
-            }
-            .calendar-table th {
-                border: 1px solid #ddd;
-                padding: 8px 0;
-                text-align: center;
-                background-color: #f8f9fa;
-                font-weight: bold;
-                font-size: 0.9em;
-            }
-            .calendar-table td {
-                border: 1px solid #ddd;
-                height: 80px;
-                vertical-align: top;
-                padding: 0;
-                position: relative;
-            }
-            .cal-cell-content {
-                display: block;
-                width: 100%;
-                height: 100%;
-                position: relative;
-                padding: 4px;
-                box-sizing: border-box;
-            }
-            .cal-date {
-                font-weight: bold;
-                font-size: 1.1em;
-                color: #333;
-                position: absolute;
-                top: 4px;
-                left: 6px;
-                z-index: 1;
-            }
-            /* イベントの格納場所をセルの右下に固定 */
-            .fc-daygrid-day-events {
-                position: absolute !important;
-                bottom: 2px !important;
-                right: 4px !important;
-                margin: 0 !important;
-                z-index: 1;
-            }
-            /* 金額テキストを赤字にして枠を消す */
-            .fc-event, .fc-event-main, .fc-daygrid-event {
-                color: red !important;
-                background-color: transparent !important;
-                border: none !important;
-                font-weight: bold !important;
-                box-shadow: none !important;
-                text-align: right !important;
-                font-size: 0.9em;
-            }
-            </style>
-            """, unsafe_allow_html=True)
+<style>
+/* 日付マスの基準位置をリセット（右下配置の必須条件） */
+.fc-daygrid-day-frame {
+    position: relative !important;
+}
+/* 金額テキストをマスの右下ギリギリに絶対配置する */
+.fc-daygrid-day-events {
+position: absolute !important;
+bottom: 0px !important;
+right: 2px !important;
+margin: 0 !important;
+min-height: 0 !important;
+}
+
+/* タイトルの装飾（太字・赤） */
+.fc-event-title {
+color: red !important;
+font-weight: bold !important;
+font-size: 12px !important; /* スマホ向けに少し小さく */
+}
+
+</style>
+""", unsafe_allow_html=True)
             
-            # HTMLのカレンダー構築
-            html_cal = '<table class="calendar-table"><thead><tr>'
-            weekdays = ["日", "月", "火", "水", "木", "金", "土"]
-            for wd in weekdays:
-                color = "#ff4b4b" if wd == "日" else "#1f77b4" if wd == "土" else "black"
-                html_cal += f'<th style="color: {color};">{wd}</th>'
-            html_cal += '</tr></thead><tbody>'
+            # --- 【1. カレンダーのイベントデータ作成部分（Python）】 ---
+            events = []
+            for day, amount in daily_totals.items():
+                if amount > 0:
+                    date_str = f"{year}-{month:02d}-{day:02d}"
+                    # 金額に「円」は絶対に入れず、カンマ区切りにする
+                    formatted_title = f"￥{int(amount):,}"
+                    events.append({
+                        "title": formatted_title,
+                        "start": date_str,
+                        "allDay": True,
+                        "backgroundColor": "transparent", # 背景を透明に
+                        "borderColor": "transparent",     # 枠線を透明に
+                        "textColor": "red"                # 文字を赤色に
+                    })
+
+            calendar_options = {
+                "headerToolbar": {
+                    "left": "",
+                    "center": "",
+                    "right": "",
+                },
+                "initialDate": f"{year}-{month:02d}-01",
+                "initialView": "dayGridMonth",
+                "firstDay": 0, # 日曜始まり
+                "locale": "ja",
+            }
             
-            for week in cal:
-                html_cal += '<tr>'
-                for day in week:
-                    if day == 0:
-                        html_cal += '<td><div style="min-height: 80px; background-color: #fafafa;"></div></td>'
-                    else:
-                        total = daily_totals.get(day, 0)
-                        if total > 0:
-                            # 必須の形式: ￥{amount:,} （円という文字は一切含めない）
-                            amount_str = f"￥{int(total):,}"
-                            amount_html = f'<div class="fc-daygrid-day-events"><div class="fc-event"><div class="fc-event-main">{amount_str}</div></div></div>'
-                        else:
-                            amount_html = ''
-                            
-                        cell_content = f'<div class="cal-cell-content"><div class="cal-date">{day}</div>{amount_html}</div>'
-                        html_cal += f'<td>{cell_content}</td>'
-                html_cal += '</tr>'
-                
-            html_cal += '</tbody></table>'
-            st.markdown(html_cal, unsafe_allow_html=True)
+            st_calendar(events=events, options=calendar_options, key="full_calendar")
                             
         elif menu_selection == "🤖 AI相談":
             st.header("🤖 AI相談（専属ファイナンシャルプランナー）")
