@@ -1034,7 +1034,7 @@ def main():
                 position: absolute;
                 bottom: 4px;
                 right: 6px;
-                color: #ff4b4b; /* 赤字 */
+                color: red; /* 鮮明な赤字 */
                 font-weight: bold;
                 font-size: 0.9em;
                 z-index: 1;
