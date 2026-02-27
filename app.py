@@ -386,7 +386,7 @@ def show_dashboard():
         st.plotly_chart(fig, use_container_width=True)
         
         total_amount = grouped_df["amount"].sum()
-        st.metric("総支出額", f"￥{int(total_amount):,}")
+        st.metric("総支出額", f"\\{int(total_amount):,}")
         st.markdown("---")
         
         st.markdown("##### カテゴリ別内訳")
@@ -394,7 +394,7 @@ def show_dashboard():
         # 大分類ごとの一覧をアコーディオン形式（st.expander）で表示
         for _, row in grouped_df.iterrows():
             cat = row['category']
-            total_amt_str = f"￥{int(row['amount']):,}"
+            total_amt_str = f"\\{int(row['amount']):,}"
             
             with st.expander(f"{cat}：{total_amt_str}"):
                 # 該当カテゴリのデータを抽出
@@ -410,7 +410,7 @@ def show_dashboard():
                 if sub_col:
                     sub_grouped = cat_df.groupby(sub_col, as_index=False)["amount"].sum()
                     sub_grouped = sub_grouped.sort_values(by="amount", ascending=False)
-                    sub_grouped["amount"] = sub_grouped["amount"].apply(lambda x: f"￥{int(x):,}")
+                    sub_grouped["amount"] = sub_grouped["amount"].apply(lambda x: f"\\{int(x):,}")
                     sub_grouped.columns = ["小分類", "金額"]
                     st.dataframe(sub_grouped, use_container_width=True, hide_index=True)
                 else:
@@ -426,14 +426,14 @@ def show_dashboard():
                         display_df = cat_df[["date", "memo", "amount"]].copy()
                         if "date" in display_df.columns:
                             display_df["date"] = display_df["date"].dt.strftime('%m/%d').fillna("")
-                        display_df["amount"] = display_df["amount"].apply(lambda x: f"￥{int(x):,}")
+                        display_df["amount"] = display_df["amount"].apply(lambda x: f"\\{int(x):,}")
                         display_df.columns = ["日付", "内容", "金額"]
                         st.dataframe(display_df, use_container_width=True, hide_index=True)
                     else:
                         display_df = cat_df[["amount"]].copy()
                         if "date" in cat_df.columns:
                             display_df.insert(0, "date", cat_df["date"].dt.strftime('%m/%d').fillna(""))
-                        display_df["amount"] = display_df["amount"].apply(lambda x: f"￥{int(x):,}")
+                        display_df["amount"] = display_df["amount"].apply(lambda x: f"\\{int(x):,}")
                         st.dataframe(display_df, use_container_width=True, hide_index=True)
     else:
         st.warning("シートに 'category' または 'amount' 列がありません。")
@@ -574,11 +574,11 @@ def main():
                     st.markdown("### 📋 解析結果の確認")
                     st.write(f"**日付**: {preview_date}")
                     st.write(f"**店舗**: {preview_store}")
-                    st.write(f"**合計金額**: ￥{total_amount:,}")
+                    st.write(f"**合計金額**: \\{total_amount:,}")
                     
                     # DataFrameで一覧表示
                     cat_df = pd.DataFrame([
-                        {"大分類": k, "金額": f"￥{v:,}"} for k, v in category_totals.items()
+                        {"大分類": k, "金額": f"\\{v:,}"} for k, v in category_totals.items()
                     ])
                     st.dataframe(cat_df, hide_index=True, use_container_width=True)
                     
@@ -807,7 +807,7 @@ def main():
                                         with row_col1:
                                             st.markdown(f"<div style='font-size: 0.85em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;' title='{item_name}'>{display_item_name}</div>", unsafe_allow_html=True)
                                         with row_col2:
-                                            st.markdown(f"<div style='font-size: 0.85em;'>¥{disp_amount:,}</div>", unsafe_allow_html=True)
+                                            st.markdown(f"<div style='font-size: 0.85em;'>\\{disp_amount:,}</div>", unsafe_allow_html=True)
                                             new_amount = disp_amount 
                                         with row_col3:
                                             majors = list(EXPENSE_CATEGORIES.keys())
@@ -894,10 +894,10 @@ def main():
                                     total_amount += amount
                                     
                                     # 各行のデータを追加 (金額の円表示は不要)
-                                    table_md += f"| {i} | {display_item_name} | {amount:,} | {major} | {sub} |\n"
+                                    table_md += f"| {i} | {display_item_name} | \\{amount:,} | {major} | {sub} |\n"
                                 
                                 # 合計行の追加
-                                table_md += f"| | **合計** | **{total_amount:,}** | | |\n"
+                                table_md += f"| | **合計** | **\\{total_amount:,}** | | |\n"
                                 
                                 # テーブルの描画
                                 st.markdown(table_md)
