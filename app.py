@@ -102,20 +102,41 @@ def get_gspread_client():
         st.error(f"認証エラーが発生しました: {e}")
         return None
 
+# --- リトライ可能なAPI呼び出しヘルパー ---
+import time
+
+def safe_gspread_call(func, *args, max_retries=3, delay=2, **kwargs):
+    """API呼び出しをリトライする関数"""
+    last_error = None
+    for i in range(max_retries):
+        try:
+            return func(*args, **kwargs)
+        except Exception as e:
+            last_error = e
+            # 一時的な接続エラーの場合にリトライ
+            if "RemoteDisconnected" in str(e) or "Connection aborted" in str(e) or "TimeoutError" in str(e):
+                time.sleep(delay * (i + 1)) # 指数バックオフ的に待機
+                continue
+            else:
+                # 致命的なエラー（認証等）はすぐに上げる
+                raise e
+    raise last_error
+
 def get_sheet(worksheet_name):
     client = get_gspread_client()
     if client is None:
         st.stop()
         
     try:
-        # スプレッドシートと指定ワークシートに接続
-        sheet = client.open(SPREADSHEET_NAME).worksheet(worksheet_name)
-        return sheet
+        # スプレッドシートと指定ワークシートに接続（リトライ付き）
+        def _open_sheet():
+            return client.open(SPREADSHEET_NAME).worksheet(worksheet_name)
+        
+        return safe_gspread_call(_open_sheet)
     except gspread.exceptions.SpreadsheetNotFound:
         st.error(f"エラー: スプレッドシート '{SPREADSHEET_NAME}' が見つかりません。クレデンシャルのメールアドレス ({client.auth.signer_email}) とスプレッドシートを共有してください。")
         st.stop()
     except gspread.exceptions.WorksheetNotFound:
-        # 特定のシートがない場合
         st.error(f"エラー: スプレッドシート内に '{worksheet_name}' シートが見つかりません。シートを新規作成してください。")
         st.stop()
     except Exception as e:
@@ -188,7 +209,8 @@ def load_transactions_data(target_month):
     """指定した月・ログインユーザーのデータを取得する"""
     sheet = get_sheet(TRANSACTIONS_WORKSHEET_NAME)
     init_transactions_sheet(sheet)
-    records = sheet.get_all_records()
+    # レコード取得にリトライを適用
+    records = safe_gspread_call(sheet.get_all_records)
     
     if not records:
          return pd.DataFrame()
