@@ -353,7 +353,7 @@ def show_dashboard():
             st.rerun()
             
     # 月の切り替え操作が行われた「後」の最新の状態でヘッダーを更新する
-    header_placeholder.header("ダッシュボード (月別集計)")
+    header_placeholder.markdown("#### ダッシュボード (月別集計)")
 
 
     st.markdown("---")
@@ -448,7 +448,7 @@ def main():
             
         # サイドバーメニューの実装
         with st.sidebar:
-            st.title("メインメニュー [Ver 1.0.4]")
+            st.subheader("メインメニュー [Ver 1.0.4]")
             st.write(f"🔑 ユーザー: **{st.session_state['username']}**")
             st.markdown("---")
             if 'menu_selection' not in st.session_state:
@@ -469,10 +469,10 @@ def main():
         if menu_selection == "ダッシュボード":
             show_dashboard()
         elif menu_selection == "カレンダー":
-            st.header("📅 カレンダー")
+            st.markdown("#### 📅 カレンダー")
             st.info("カレンダー機能は現在メンテナンス中です。今後のアップデートをお待ちください。")
         elif menu_selection == "レシート取込":
-            st.header("📸 レシート取込")
+            st.markdown("#### 📸 レシート取込")
             st.info("画像ファイルをアップロードしてレシートを解析します。")
             
             if "uploader_key" not in st.session_state:
@@ -573,7 +573,7 @@ def main():
                         amt = int(item.get("amount", 0))
                         category_totals[final_major] = category_totals.get(final_major, 0) + amt
                     
-                    st.markdown("### 📋 解析結果の確認")
+                    st.markdown("#### 📋 解析結果の確認")
                     st.write(f"**日付**: {preview_date}")
                     st.write(f"**店舗**: {preview_store}")
                     st.write(f"**合計金額**: ￥{total_amount:,}")
@@ -652,10 +652,10 @@ def main():
                             st.error(f"保存エラー: {e}")
 
         elif menu_selection == "レシート手入力":
-            st.header("レシート手入力")
+            st.markdown("#### レシート手入力")
             st.info("準備中: 手動でのレシート入力機能は今後のフェーズで実装されます。")
         elif menu_selection == "レシート修正":
-            st.header("⚙️ レシート修正")
+            st.markdown("#### ⚙️ レシート修正")
             
             # 月の切替UI
             col1, col2, col3, col4, col5 = st.columns([3, 1, 2, 1, 3])
@@ -955,7 +955,7 @@ def main():
 
                             
         elif menu_selection == "🤖 AI相談":
-            st.header("🤖 AI相談（専属ファイナンシャルプランナー）")
+            st.markdown("#### 🤖 AI相談（専属ファイナンシャルプランナー）")
             st.info("あなたの過去の家計簿データに基づいて、AIが分析やアドバイスを行います。\n※プライバシーに配慮し、あなた自身のデータのみを暗号化通信で処理します。")
             
             # --- データの準備（直近3ヶ月分） ---
@@ -1061,7 +1061,7 @@ def main():
                             st.session_state.ai_consult_messages.append({"role": "assistant", "content": error_msg})
 
         elif menu_selection == "ヘルプ":
-            st.header("💡 ヘルプ・サポート")
+            st.markdown("#### 💡 ヘルプ・サポート")
             st.info("アプリの機能や使い方、データの保存先などについて何でも聞いてください！")
             
             # セッション状態の初期化
