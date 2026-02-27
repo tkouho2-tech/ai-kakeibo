@@ -983,6 +983,8 @@ def main():
                 daily_totals = df.groupby('day')["amount"].sum().to_dict()
                 
             from streamlit_calendar import calendar as st_calendar
+            year = st.session_state['current_month'].year
+            month = st.session_state['current_month'].month
             
             # --- 【2. 強制レイアウト調整（CSS）】 ---
             st.markdown("""
