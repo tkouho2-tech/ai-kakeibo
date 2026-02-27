@@ -543,17 +543,18 @@ def main():
             }
             .custom-calendar th, .custom-calendar td {
                 border: 1px solid #ddd !important;
-                height: 100px;
+                height: 60px; /* 100px -> 60px に短縮 */
                 vertical-align: top;
                 padding: 0;
                 position: relative;
             }
             .custom-calendar th {
-                height: 40px;
+                height: 30px; /* 40px -> 30px に短縮 */
                 text-align: center;
                 vertical-align: middle;
                 background-color: #f8f9fa;
                 font-weight: bold;
+                font-size: 0.85em;
             }
             .day-cell {
                 width: 100%;
@@ -561,11 +562,11 @@ def main():
                 display: flex;
                 flex-direction: column;
                 justify-content: space-between;
-                padding: 5px;
+                padding: 2px 4px; /* 5px -> 2px 4px に縮小 */
             }
             .day-number {
                 text-align: left;
-                font-size: 0.95em;
+                font-size: 0.85em; /* 0.95em -> 0.85em に縮小 */
                 font-weight: bold;
                 color: #555;
             }
@@ -573,7 +574,7 @@ def main():
                 text-align: right;
                 color: red;
                 font-weight: bold;
-                font-size: 0.9em;
+                font-size: 0.8em; /* 0.9em -> 0.8em に縮小 */
                 margin-top: auto;
             }
             .sun-header { color: #e53e3e !important; background-color: #fff5f5 !important; }
