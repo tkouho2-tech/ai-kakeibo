@@ -1030,6 +1030,11 @@ font-size: 12px !important; /* スマホ向けに少し小さく */
 
             calendar_options = {
                 "headerToolbar": {
+                    "left": "prev,next today",
+                    "center": "title",
+                    "right": "dayGridMonth,timeGridWeek,timeGridDay",
+                },
+                "headerToolbar": {
                     "left": "",
                     "center": "",
                     "right": "",
@@ -1038,6 +1043,10 @@ font-size: 12px !important; /* スマホ向けに少し小さく */
                 "initialView": "dayGridMonth",
                 "firstDay": 0, # 日曜始まり
                 "locale": "ja",
+                "height": "auto",
+                "contentHeight": "auto",
+                "handleWindowResize": True,
+                "stickyHeaderDates": True,
             }
             
             st_calendar(events=events, options=calendar_options, key="full_calendar")
