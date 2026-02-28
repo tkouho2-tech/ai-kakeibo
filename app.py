@@ -535,7 +535,7 @@ def main():
             
         # サイドバーメニューの実装
         with st.sidebar:
-            st.subheader("メインメニュー [Ver 1.6.1]")
+            st.subheader("メインメニュー [Ver 1.7.0 [Mobile Fix]]")
             st.write(f"🔑 ユーザー: **{st.session_state['username']}**")
             st.markdown("---")
             if 'menu_selection' not in st.session_state:
@@ -596,8 +596,10 @@ def main():
             # CSS定義（リンク方式でのマス目レイアウト）
             st.markdown("""
 <style>
-/* カレンダー全体のグリッド幅制限 */
 .calendar-grid {
+    display: grid;
+    grid-template-columns: repeat(7, 1fr);
+    gap: 4px;
     width: 100%;
     max-width: 250px;
     margin: 0 auto;
@@ -607,6 +609,7 @@ def main():
     display: block;
     position: relative;
     height: 60px;
+    width: 100%;
     border: 1px solid #ccc;
     border-radius: 4px;
     background-color: #ffffff;
@@ -649,43 +652,37 @@ def main():
 """, unsafe_allow_html=True)
 
             # カレンダーの表示
-            st.write('<div class="calendar-grid">', unsafe_allow_html=True)
+            # カレンダーのHTML構築
+            cal_html = '<div class="calendar-grid">'
             
             # ヘッダー（曜日）
-            week_cols = st.columns(7)
             for i, wd in enumerate(["日", "月", "火", "水", "木", "金", "土"]):
                 cls = "sun-text" if i == 0 else "sat-text" if i == 6 else ""
-                week_cols[i].markdown(f'<div class="weekday-header {cls}">{wd}</div>', unsafe_allow_html=True)
+                cal_html += f'<div class="weekday-header {cls}">{wd}</div>'
 
-            # 日付行
+            # 日付の描画
             for week in month_days:
-                week_cols = st.columns(7)
                 for i, day in enumerate(week):
-                    if day != 0:
+                    if day == 0:
+                        # 空白のマス目
+                        cal_html += '<div></div>'
+                    else:
                         amount = daily_totals.get(day, 0)
-                        
-                        # 金額のフォーマット
                         amount_text = f"￥{int(amount):,}" if amount > 0 else ""
-                        
-                        # カレントの日付文字列
                         date_str = f"{year}-{month:02d}-{day:02d}"
-                        
-                        # 選択状態の判定
                         is_selected = st.session_state.get('selected_date') == date_str
                         select_cls = "selected-link" if is_selected else ""
-                        
-                        # ログイン中のユーザー名を取得
                         current_user = st.session_state.get("username", "")
                         
-                        # リンク方式で描画（ユーザー情報と日付を引き継ぐ、翻訳拒否クラス・属性を付加）
-                        week_cols[i].markdown(f"""
+                        cal_html += f"""
                         <a href="/?date={date_str}&user={current_user}" target="_self" class="cal-link {select_cls} notranslate" translate="no">
                             <div class="cal-date notranslate" translate="no">{day}</div>
                             <div class="cal-amount notranslate" translate="no">{amount_text}</div>
                         </a>
-                        """, unsafe_allow_html=True)
-
-            st.write('</div>', unsafe_allow_html=True)
+                        """
+            
+            cal_html += '</div>'
+            st.markdown(cal_html, unsafe_allow_html=True)
 
             # --- 対象日の詳細表示 ---
             selected_date = st.session_state.get('selected_date')
