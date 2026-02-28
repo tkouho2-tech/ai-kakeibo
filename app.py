@@ -448,7 +448,7 @@ def show_dashboard():
     header_placeholder.markdown("#### 📊 ダッシュボード (月別集計)")
 
     if df.empty:
-        st.info("※この月のデータはまだありません。Google SpreadSheet の `transactions` シートにサンプルデータ（自分のusernameを含める）を追加して確認してください。")
+        st.info("※今月のデータはまだありません。")
         return
 
     # グラフと表の表示エリア
@@ -543,8 +543,8 @@ def main():
     if 'menu_selection' in st.session_state:
         # 古いメニュー名（▶付き）が残っている場合の自動変換
         mapping = {
-            "▶シート手入力": "レシート手入力",
-            "▶シート修正": "レシート修正"
+            "レシート手入力": "レシート手入力",
+            "レシート修正": "レシート修正"
         }
         if st.session_state['menu_selection'] in mapping:
             st.session_state['menu_selection'] = mapping[st.session_state['menu_selection']]
@@ -582,7 +582,7 @@ def main():
             
         # サイドバーメニューの実装
         with st.sidebar:
-            st.subheader("メインメニュー [Ver 2.4.0]")
+            st.subheader("メインメニュー [Ver 2.5.1]")
             st.write(f"🔑 ユーザー: **{st.session_state['username']}**")
             st.markdown("---")
             if 'menu_selection' not in st.session_state:
@@ -590,7 +590,7 @@ def main():
                 
             menu_selection = st.radio(
                 "機能を選択",
-                ["ダッシュボード", "カレンダー", "レシート取込", "レシート手入力", "レシート修正", "🤖 AI相談", "ヘルプ"],
+                ["ダッシュボード", "カレンダー", "レシート取込", "レシート手入力", "レシート修正", "👁AI相談", "ヘルプ"],
                 key="menu_selection",
                 on_change=handle_menu_change
             )
@@ -1053,7 +1053,7 @@ def main():
                     }])
                     receipts_df = pd.concat([receipts_df, total_row], ignore_index=True)
                     
-                    st.markdown("<p style='font-size: 0.85rem; font-weight: bold; margin-bottom: 5px;'>▶レシート一覧表（対象レシートを選択してください）</p>", unsafe_allow_html=True)
+                    st.markdown("<p style='font-size: 0.85rem; font-weight: bold; margin-bottom: 5px;'>レシート一覧表（対象レシートを選択してください）</p>", unsafe_allow_html=True)
                     
                     # dataframe 選択
                     event = st.dataframe(
@@ -1301,8 +1301,8 @@ def main():
                             """, height=0, width=0)
 
                             
-        elif menu_selection == "🤖 AI相談":
-            st.markdown("#### 🤖 AI相談（専属ファイナンシャルプランナー）")
+        elif menu_selection == "👁AI相談":
+            st.markdown("#### 👁AI相談（専属ファイナンシャルプランナー）")
             st.info("あなたの家計簿データに基づいて、AIが分析やアドバイスを行います。")
             
             # --- データの準備（全期間からログインユーザー分のみ抽出） ---
@@ -1357,24 +1357,9 @@ def main():
             if "ai_consult_messages" not in st.session_state:
                 st.session_state.ai_consult_messages = []
             
-            if "gemini_chat_session" not in st.session_state:
-                client = st.session_state.get('genai_client')
-                if client:
-                    # システムプロンプトの構築
-                    system_prompt = f"""あなたはユーザー専属の優秀なファイナンシャルプランナーです。
-以下のCSVデータは、このユーザー（{st.session_state['username']}）個人の家計簿データです。このデータに基づいて、ユーザーの質問に正確かつ親身に答えてください。
-データに存在しない推測は避け、無駄遣いの指摘や節約のアドバイスなども積極的に行ってください。
-
-【ユーザーの家計簿データ】
-{csv_data_string}"""
-                    
-                    # セッション開始（SDKの仕様に基づき、モデルからチャットを作成）
-                    st.session_state.gemini_chat_session = client.chats.create(
-                        model='gemini-2.0-flash',
-                        config=types.GenerateContentConfig(system_instruction=system_prompt)
-                    )
-                else:
-                    st.session_state.gemini_chat_session = None
+            # --- チャット履歴の初期化 (SDKが期待するリスト形式) ---
+            if "ai_consult_chat_history" not in st.session_state:
+                st.session_state.ai_consult_chat_history = []
 
             # 最初のメッセージを追加（履歴が空の場合）
             if not st.session_state.ai_consult_messages:
@@ -1394,8 +1379,8 @@ def main():
                 with st.chat_message("user"):
                     st.markdown(user_input)
                     
-                chat = st.session_state.get('gemini_chat_session')
-                if not chat:
+                client = st.session_state.get('genai_client')
+                if not client:
                     with st.chat_message("assistant"):
                         st.error("APIキーが設定されていないため、相談を開始できません。")
                 else:
@@ -1404,7 +1389,21 @@ def main():
                         message_placeholder.markdown("分析中...")
                         
                         try:
-                            # チャットセッションでのメッセージ送信
+                            # システムプロンプトを都度構築（最新データを反映させるため）
+                            system_prompt = f"""あなたはユーザー専属の優秀なファイナンシャルプランナーです。
+以下のCSVデータは、このユーザー（{st.session_state['username']}）個人の家計簿データです。このデータに基づいて、ユーザーの質問に正確かつ親身に答えてください。
+データに存在しない推測は避け、無駄遣いの指摘や節約のアドバイスなども積極的に行ってください。
+
+【ユーザーの家計簿データ】
+{csv_data_string}"""
+                            
+                            # 送信直前でチャットオブジェクトを「履歴付き」で作成
+                            chat = client.chats.create(
+                                model='gemini-2.5-flash',
+                                config=types.GenerateContentConfig(system_instruction=system_prompt),
+                                history=st.session_state.ai_consult_chat_history
+                            )
+                            
                             # 429等のエラーハンドリングを日本語化
                             def _send():
                                 return chat.send_message(user_input)
@@ -1413,13 +1412,17 @@ def main():
                                 response = safe_gemini_call(_send)
                                 response_text = response.text
                                 message_placeholder.markdown(response_text)
+                                
+                                # 履歴を更新（画面表示用）
                                 st.session_state.ai_consult_messages.append({"role": "assistant", "content": response_text})
+                                # SDKの履歴をセッションに同期
+                                st.session_state.ai_consult_chat_history = chat.get_history()
+                                
                             except Exception as e:
                                 err_msg = str(e)
                                 if "429" in err_msg or "RESOURCE_EXHAUSTED" in err_msg:
                                     friendly_err = "現在AIの通信が混み合っています。数十秒待ってから再度送信してください。"
                                     st.warning(friendly_err)
-                                    # 履歴には残さないか、エラーとして残す
                                 else:
                                     st.error(f"エラーが発生しました: {e}")
 
@@ -1431,7 +1434,10 @@ def main():
             
             st.info("アプリの機能や使い方、データの保存先などについて何でも聞いてください！")
             
-            # セッション状態の初期化
+            # --- チャット履歴の初期化 ---
+            if "help_chat_history" not in st.session_state:
+                st.session_state.help_chat_history = []
+            
             if "help_messages" not in st.session_state:
                 st.session_state.help_messages = [
                     {"role": "assistant", "content": "こんにちは！AI家計簿アプリのサポートAIです。\n機能の使い方や、データがどこに保存されているかなど、質問があればどうぞ！"}
@@ -1460,8 +1466,7 @@ def main():
                         message_placeholder.markdown("回答を生成中...")
                         
                         try:
-                            # システムプロンプトの構築（アプリの仕様とデータの管理場所）
-                            # サポートAI用のシステムプロンプト（取扱説明書）
+                            # 1. サポートAI用のシステムプロンプト（取扱説明書）
                             app_manual = """
 あなたはこの高機能家計簿アプリの公式サポートAIです。ユーザーから使い方や機能を質問されたら、以下の最新機能の情報を元に、親切かつ分かりやすく案内してください。
 【現在搭載されている主な機能】
@@ -1482,29 +1487,35 @@ AI相談（専属FP）機能：
 回答は長すぎず、ユーザーが実際に試したくなるような明るいトーンで答えてください。
 """
                             
-                            prompt_parts = []
-                            for m in st.session_state.help_messages:
-                                prefix = "ユーザー: " if m["role"] == "user" else "AI: "
-                                prompt_parts.append({"text": f"{prefix}{m['content']}"})
-                                
-                            prompt_parts.append({"text": "以上の会話を踏まえて、最後のユーザーの質問に返答してください。"})
-
-                            response = safe_gemini_call(
-                                client.models.generate_content,
+                            # 2. 送信直前でチャットオブジェクトを「履歴付き」で作成
+                            # 初回メッセージを擬似的に履歴に含める
+                            full_history = st.session_state.help_chat_history
+                            
+                            chat = client.chats.create(
                                 model='gemini-2.5-flash',
                                 config=types.GenerateContentConfig(system_instruction=app_manual),
-                                contents=prompt_parts
+                                history=full_history
                             )
-                            
-                            full_response = response.text
-                            message_placeholder.markdown(full_response)
-                            
-                            st.session_state.help_messages.append({"role": "assistant", "content": full_response})
-                            
+
+                            def _send():
+                                return chat.send_message(user_input)
+
+                            try:
+                                response = safe_gemini_call(_send)
+                                full_response = response.text
+                                message_placeholder.markdown(full_response)
+                                
+                                # 履歴を更新（画面表示用）
+                                st.session_state.help_messages.append({"role": "assistant", "content": full_response})
+                                # SDKの履歴をセッションに同期
+                                st.session_state.help_chat_history = chat.get_history()
+                                
+                            except Exception as e:
+                                error_msg = f"エラーが発生しました: {e}"
+                                message_placeholder.error(error_msg)
+                                st.session_state.help_messages.append({"role": "assistant", "content": error_msg})
                         except Exception as e:
-                            error_msg = f"エラーが発生しました: {e}"
-                            message_placeholder.error(error_msg)
-                            st.session_state.help_messages.append({"role": "assistant", "content": error_msg})
+                            st.error(f"予期せぬエラーが発生しました: {e}")
             
     # 未ログインの状態 (ログイン・登録画面)
     else:
