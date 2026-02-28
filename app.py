@@ -535,7 +535,7 @@ def main():
             
         # サイドバーメニューの実装
         with st.sidebar:
-            st.subheader("メインメニュー [Ver 1.7.3]")
+            st.subheader("メインメニュー [Ver 1.8.0 [Summary Feature]]")
             st.write(f"🔑 ユーザー: **{st.session_state['username']}**")
             st.markdown("---")
             if 'menu_selection' not in st.session_state:
@@ -570,17 +570,22 @@ def main():
                 if st.button("翌月 ▶", use_container_width=True, key="cal_next"):
                     st.session_state['current_month'] += relativedelta(months=1)
                     st.rerun()
-                    
-            st.markdown("---")
             
             # データ取得
             with st.spinner("データを読み込み中..."):
                 df = load_transactions_data(st.session_state['current_month'])
-                
+            
+            # 合計金額の算出
+            monthly_total = 0
             daily_totals = {}
             if not df.empty and "date" in df.columns and "amount" in df.columns:
+                monthly_total = df['amount'].sum()
                 df['day'] = df['date'].dt.day
                 daily_totals = df.groupby('day')["amount"].sum().to_dict()
+
+            # 月間合計の表示
+            st.markdown(f"<p style='text-align: center; color: #666; font-weight: bold; margin-top: -10px;'>月間合計支出: ￥{int(monthly_total):,}</p>", unsafe_allow_html=True)
+            st.markdown("---")
                 
             year = st.session_state['current_month'].year
             month = st.session_state['current_month'].month
