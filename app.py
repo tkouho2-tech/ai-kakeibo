@@ -322,12 +322,13 @@ def render_month_navigation():
     prev_date_str = prev_month.strftime('%Y-%m-01')
     next_date_str = next_month.strftime('%Y-%m-01')
     current_user = st.session_state.get("username", "")
+    current_menu = st.session_state.get("menu_selection", "ダッシュボード")
     
     header_html = f"""
     <div style='display: flex; justify-content: center; align-items: center; gap: 20px; margin-bottom: 5px;'>
-        <a href="/?date={prev_date_str}&user={current_user}" target="_self" style='text-decoration: none; font-size: 1.1rem; color: #007bff;'>◀ 前月</a>
+        <a href="/?date={prev_date_str}&user={current_user}&menu={current_menu}" target="_self" style='text-decoration: none; font-size: 1.1rem; color: #007bff;'>◀ 前月</a>
         <h3 style='margin: 0; font-size: 1.4rem;'>{curr.strftime('%Y年%m月')}</h3>
-        <a href="/?date={next_date_str}&user={current_user}" target="_self" style='text-decoration: none; font-size: 1.1rem; color: #007bff;'>翌月 ▶</a>
+        <a href="/?date={next_date_str}&user={current_user}&menu={current_menu}" target="_self" style='text-decoration: none; font-size: 1.1rem; color: #007bff;'>翌月 ▶</a>
     </div>
     """
     st.markdown(header_html, unsafe_allow_html=True)
@@ -531,23 +532,26 @@ def main():
         
     # 日付選択の同期
     if "date" in params:
-        # サイドバーで既に「カレンダー」以外が選択されている場合は、URLのパラメータをクリアしてリロードする
-        # これにより、日付選択状態を維持したまま他のメニューへ移動できない問題を解消
-        current_menu = st.session_state.get('menu_selection')
-        if current_menu not in [None, "カレンダー"]:
-            del st.query_params["date"]
-            st.rerun()
+        # 指定された日付を取得
+        selected_date_str = params["date"]
+        st.session_state['selected_date'] = selected_date_str
+        
+        # 明示的にメニューが指定されている場合はそれに従う
+        if "menu" in params:
+            st.session_state['menu_selection'] = params["menu"]
         else:
-            selected_date_str = params["date"]
-            st.session_state['selected_date'] = selected_date_str
+            # メニュー指定がない場合（カレンダーの日付クリック等）はカレンダー画面へ
             st.session_state['menu_selection'] = "カレンダー"
+
+        # URLのdateから表示月(current_month)を自動同期
+        try:
+            dt = datetime.strptime(selected_date_str, '%Y-%m-%d')
+            st.session_state['current_month'] = dt.replace(day=1)
+        except:
+            pass
             
-            # URLのdateから表示月(current_month)を自動同期
-            try:
-                dt = datetime.strptime(selected_date_str, '%Y-%m-%d')
-                st.session_state['current_month'] = dt.replace(day=1)
-            except:
-                pass
+        # URLのパラメータを整理（一度適用したら不必要なリロードを防ぐための配慮が必要な場合もあるが、
+        # 現状はリンク方式のため、このままセッションに保持する）
 
     # ログイン済みの状態
     if st.session_state.get('logged_in', False):
@@ -559,7 +563,7 @@ def main():
             
         # サイドバーメニューの実装
         with st.sidebar:
-            st.subheader("メインメニュー [Ver 1.9.1]")
+            st.subheader("メインメニュー [Ver 1.9.2 [Navigation Fix]]")
             st.write(f"🔑 ユーザー: **{st.session_state['username']}**")
             st.markdown("---")
             if 'menu_selection' not in st.session_state:
