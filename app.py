@@ -582,7 +582,7 @@ def main():
             
         # サイドバーメニューの実装
         with st.sidebar:
-            st.subheader("メインメニュー [Ver 2.5.3]")
+            st.subheader("メインメニュー [Ver 2.5.4]")
             st.write(f"🔑 ユーザー: **{st.session_state['username']}**")
             st.markdown("---")
             if 'menu_selection' not in st.session_state:
@@ -1143,6 +1143,10 @@ def main():
                                         row_index_gs = row["_row_index"]
                                         item_name = row.get(item_col, "不明な商品") if item_col else "不明な商品"
                                         display_item_name = item_name[:10] + "…" if len(item_name) > 10 else item_name
+                                        
+                                        edit_vals = st.session_state['edit_data'].get(row_index_gs)
+                                        if not edit_vals:
+                                            continue
                                         
                                         disp_name = edit_vals['name']
                                         disp_amount = edit_vals['amount']
