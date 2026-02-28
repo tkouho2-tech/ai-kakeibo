@@ -539,7 +539,17 @@ def main():
         st.session_state["username"] = params["user"]
         st.session_state["logged_in"] = True
         
-    # 日付選択の同期
+    # --- 初期化およびエラー防止 ---
+    if 'menu_selection' in st.session_state:
+        # 古いメニュー名（▶付き）が残っている場合の自動変換
+        mapping = {
+            "▶シート手入力": "レシート手入力",
+            "▶シート修正": "レシート修正"
+        }
+        if st.session_state['menu_selection'] in mapping:
+            st.session_state['menu_selection'] = mapping[st.session_state['menu_selection']]
+            
+    selected_date_str = None # UnboundLocalError防止
     if "date" in params:
         # 指定された日付を取得
         selected_date_str = params["date"]
@@ -572,7 +582,7 @@ def main():
             
         # サイドバーメニューの実装
         with st.sidebar:
-            st.subheader("メインメニュー [Ver 2.3.1]")
+            st.subheader("メインメニュー [Ver 2.4.0]")
             st.write(f"🔑 ユーザー: **{st.session_state['username']}**")
             st.markdown("---")
             if 'menu_selection' not in st.session_state:
