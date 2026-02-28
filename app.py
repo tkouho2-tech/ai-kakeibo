@@ -535,7 +535,7 @@ def main():
             
         # サイドバーメニューの実装
         with st.sidebar:
-            st.subheader("メインメニュー [Ver 1.5.3]")
+            st.subheader("メインメニュー [Ver 1.5.4]")
             st.write(f"🔑 ユーザー: **{st.session_state['username']}**")
             st.markdown("---")
             if 'menu_selection' not in st.session_state:
@@ -599,7 +599,7 @@ def main():
 /* カレンダー全体のグリッド幅制限 */
 .calendar-grid {
     width: 100%;
-    max-width: 300px;
+    max-width: 250px;
     margin: 0 auto;
 }
 /* リンクをマス目（枠線付き）として機能させる */
@@ -635,9 +635,9 @@ def main():
 /* 金額：右下に赤字で配置 */
 .cal-amount {
     position: absolute;
-    bottom: 4px; right: 4px;
+    bottom: 2px; right: 2px;
     color: red !important;
-    font-size: 10px;
+    font-size: 9px;
     font-weight: bold;
 }
 
