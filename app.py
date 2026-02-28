@@ -535,7 +535,7 @@ def main():
             
         # サイドバーメニューの実装
         with st.sidebar:
-            st.subheader("メインメニュー [Ver 1.7.2]")
+            st.subheader("メインメニュー [Ver 1.7.3]")
             st.write(f"🔑 ユーザー: **{st.session_state['username']}**")
             st.markdown("---")
             if 'menu_selection' not in st.session_state:
@@ -608,7 +608,7 @@ def main():
 .cal-link {
     display: block;
     position: relative;
-    height: 80px;
+    height: 65px;
     width: 100%;
     border: 1px solid #ccc;
     border-radius: 4px;
