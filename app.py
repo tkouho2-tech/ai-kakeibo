@@ -572,7 +572,7 @@ def main():
             
         # サイドバーメニューの実装
         with st.sidebar:
-            st.subheader("メインメニュー [Ver 2.2.1]")
+            st.subheader("メインメニュー [Ver 2.2.2]")
             st.write(f"🔑 ユーザー: **{st.session_state['username']}**")
             st.markdown("---")
             if 'menu_selection' not in st.session_state:
@@ -1360,7 +1360,7 @@ def main():
                     
                     # セッション開始（SDKの仕様に基づき、モデルからチャットを作成）
                     st.session_state.gemini_chat_session = client.chats.create(
-                        model='gemini-2.5-flash',
+                        model='gemini-2.0-flash',
                         config=types.GenerateContentConfig(system_instruction=system_prompt)
                     )
                 else:
@@ -1498,7 +1498,7 @@ def main():
 
                             response = safe_gemini_call(
                                 client.models.generate_content,
-                                model='gemini-1.5-flash',
+                                model='gemini-2.0-flash',
                                 contents=prompt_parts
                             )
                             
