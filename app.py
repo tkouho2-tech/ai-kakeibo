@@ -572,7 +572,7 @@ def main():
             
         # サイドバーメニューの実装
         with st.sidebar:
-            st.subheader("メインメニュー [Ver 2.2.0]")
+            st.subheader("メインメニュー [Ver 2.2.1]")
             st.write(f"🔑 ユーザー: **{st.session_state['username']}**")
             st.markdown("---")
             if 'menu_selection' not in st.session_state:
@@ -715,9 +715,8 @@ def main():
                         current_user = st.session_state.get("username", "")
                         
                         # 曜日および祝日による背景色の判定 (i: 0=日, 6=土)
-                        is_holiday = jpholiday.is_holiday(date_obj)
-                        holiday_name = jpholiday.holiday_name(date_obj) if is_holiday else ""
-                        bg_cls = "sun-bg" if (i == 0 or is_holiday) else "sat-bg" if i == 6 else ""
+                        holiday_name = jpholiday.is_holiday_name(date_obj)
+                        bg_cls = "sun-bg" if (i == 0 or holiday_name) else "sat-bg" if i == 6 else ""
                         
                         cal_html += f'<a href="/?date={date_str}&user={current_user}" target="_self" class="cal-link {select_cls} {bg_cls} notranslate" translate="no">'
                         cal_html += f'<div class="cal-date notranslate" translate="no">{day}</div>'
