@@ -572,7 +572,7 @@ def main():
             
         # サイドバーメニューの実装
         with st.sidebar:
-            st.subheader("メインメニュー [Ver 2.2.2]")
+            st.subheader("メインメニュー [Ver 2.2.3]")
             st.write(f"🔑 ユーザー: **{st.session_state['username']}**")
             st.markdown("---")
             if 'menu_selection' not in st.session_state:
@@ -1498,7 +1498,7 @@ def main():
 
                             response = safe_gemini_call(
                                 client.models.generate_content,
-                                model='gemini-2.0-flash',
+                                model='gemini-2.5-flash',
                                 contents=prompt_parts
                             )
                             
