@@ -521,6 +521,13 @@ def show_dashboard():
     else:
         st.warning("シートに 'category' または 'amount' 列がありません。")
 
+def handle_menu_change():
+    """サイドバーでのメニュー変更時にURLパラメータをクリアする"""
+    if "date" in st.query_params:
+        del st.query_params["date"]
+    if "menu" in st.query_params:
+        del st.query_params["menu"]
+
 def main():
     # URLパラメータの同期（セッション維持のため冒頭で行う）
     params = st.query_params
@@ -563,7 +570,7 @@ def main():
             
         # サイドバーメニューの実装
         with st.sidebar:
-            st.subheader("メインメニュー [Ver 1.9.2 [Navigation Fix]]")
+            st.subheader("メインメニュー [Ver 1.9.3 [Navigation Logic Fix]]")
             st.write(f"🔑 ユーザー: **{st.session_state['username']}**")
             st.markdown("---")
             if 'menu_selection' not in st.session_state:
@@ -572,7 +579,8 @@ def main():
             menu_selection = st.radio(
                 "機能を選択",
                 ["ダッシュボード", "カレンダー", "レシート取込", "レシート手入力", "レシート修正", "🤖 AI相談", "ヘルプ"],
-                key="menu_selection"
+                key="menu_selection",
+                on_change=handle_menu_change
             )
             st.markdown("---")
             if st.button("ログアウト", use_container_width=True):
