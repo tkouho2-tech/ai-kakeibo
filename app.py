@@ -582,7 +582,7 @@ def main():
             
         # サイドバーメニューの実装
         with st.sidebar:
-            st.subheader("メインメニュー [Ver 2.5.5]")
+            st.subheader("メインメニュー [Ver 2.5.6]")
             st.write(f"🔑 ユーザー: **{st.session_state['username']}**")
             st.markdown("---")
             if 'menu_selection' not in st.session_state:
@@ -1144,7 +1144,7 @@ def main():
                                     
                                     modified = False
                                     
-                                    for idx, row in details.iterrows():
+                                    for i, (idx, row) in enumerate(details.iterrows(), 1):
                                         row_index_gs = row["_row_index"]
                                         item_name = row.get(item_col, "不明な商品") if item_col else "不明な商品"
                                         # 詳細画面では文字制限をかけない
@@ -1158,8 +1158,10 @@ def main():
                                         disp_major = edit_vals['major']
                                         disp_minor = edit_vals['minor']
                                         
-                                        row_col1, row_col2, row_col3, row_col4 = st.columns([2, 1, 1, 1])
+                                        row_col0, row_col1, row_col2, row_col3, row_col4 = st.columns([0.4, 2, 1, 1, 1])
                                         
+                                        with row_col0:
+                                            st.markdown(f"<div style='font-size: 0.85em; padding-top: 5px;'>{i}.</div>", unsafe_allow_html=True)
                                         with row_col1:
                                             with st.popover(disp_name):
                                                 new_name = st.text_input("商品名", value=disp_name, key=f"nm_{row_index_gs}", label_visibility="collapsed")
@@ -1170,12 +1172,12 @@ def main():
                                             majors = list(EXPENSE_CATEGORIES.keys())
                                             default_major_idx = majors.index(disp_major) if disp_major in majors else majors.index("その他")
                                             with st.popover(disp_major):
-                                                new_major = st.radio("大分類", majors, index=default_major_idx, key=f"maj_{row_index_gs}", label_visibility="collapsed")
+                                                new_major = st.radio("大分類", majors, index=default_major_idx, key=f"maj_{r_idx_gs}" if 'r_idx_gs' in locals() else f"maj_{row_index_gs}", label_visibility="collapsed")
                                         with row_col4:
                                             minors = EXPENSE_CATEGORIES.get(new_major, EXPENSE_CATEGORIES["その他"])
                                             default_minor_idx = minors.index(disp_minor) if disp_minor in minors else len(minors)-1
                                             with st.popover(disp_minor):
-                                                new_minor = st.radio("小分類", minors, index=default_minor_idx, key=f"min_{row_index_gs}", label_visibility="collapsed")
+                                                new_minor = st.radio("小分類", minors, index=default_minor_idx, key=f"min_{r_idx_gs}" if 'r_idx_gs' in locals() else f"min_{row_index_gs}", label_visibility="collapsed")
                                         
                                         if new_name != disp_name or new_amount != disp_amount or new_major != disp_major or new_minor != disp_minor:
                                             st.session_state['edit_data'][row_index_gs]["name"] = new_name
