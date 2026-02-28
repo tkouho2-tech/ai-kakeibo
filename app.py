@@ -499,7 +499,7 @@ def main():
             
         # サイドバーメニューの実装
         with st.sidebar:
-            st.subheader("メインメニュー [Ver 1.0.4]")
+            st.subheader("メインメニュー [Ver 1.0.5]")
             st.write(f"🔑 ユーザー: **{st.session_state['username']}**")
             st.markdown("---")
             if 'menu_selection' not in st.session_state:
@@ -1125,110 +1125,128 @@ def main():
                             
         elif menu_selection == "🤖 AI相談":
             st.markdown("#### 🤖 AI相談（専属ファイナンシャルプランナー）")
-            st.info("あなたの過去の家計簿データに基づいて、AIが分析やアドバイスを行います。\n※プライバシーに配慮し、あなた自身のデータのみを暗号化通信で処理します。")
+            st.info("あなたの家計簿データに基づいて、AIが分析やアドバイスを行います。")
             
-            # --- データの準備（直近3ヶ月分） ---
+            # --- データの準備（全期間からログインユーザー分のみ抽出） ---
             @st.cache_data(ttl=300)
-            def get_recent_user_data_for_ai(username, current_date):
-                all_dfs = []
-                for i in range(3):
-                    # 過去3ヶ月分のデータを取得
-                    target_m = current_date - relativedelta(months=i)
-                    df_m = load_transactions_data(target_m)
-                    if not df_m.empty:
-                        all_dfs.append(df_m)
+            def get_user_data_csv_for_ai(username):
+                # 全データを取得（load_transactions_dataを流用せず、全期間を対象にするため直接取得）
+                sheet = get_sheet(TRANSACTIONS_WORKSHEET_NAME)
+                init_transactions_sheet(sheet)
+                records = safe_gspread_call(sheet.get_all_records)
                 
-                if all_dfs:
-                    combined_df = pd.concat(all_dfs, ignore_index=True)
-                    # セキュリティの最重要要件：現在ログインしているユーザーのデータのみに再フィルタリング（念押しの二重チェック）
-                    combined_df = combined_df[combined_df["username"].astype(str).str.lower() == username.lower()]
-                    return combined_df
-                return pd.DataFrame()
+                if not records:
+                    return ""
                 
-            recent_df = get_recent_user_data_for_ai(st.session_state['username'], st.session_state['current_month'])
-            
-            # データを軽量なテキスト形式（CSV風）に変換してトークン容量を節約
-            if not recent_df.empty:
-                # 送信するカラムを絞る
-                cols_to_keep = ["date", "store_name", "category", "amount"]
-                actual_cols = [c for c in cols_to_keep if c in recent_df.columns]
+                df_all = pd.DataFrame(records)
+                # セキュリティの最重要要件：現在ログインしているユーザーのデータのみにフィルタリング
+                if "username" in df_all.columns:
+                    df_user = df_all[df_all["username"].astype(str).str.lower() == username.lower()].copy()
+                else:
+                    return ""
+
+                if df_user.empty:
+                    return ""
+
+                # 必要なカラムのみ抽出・整形
+                # 「対象年月、日付、店舗名、大分類、小分類、金額」
+                df_user["date"] = pd.to_datetime(df_user["date"], errors="coerce")
+                df_user = df_user.dropna(subset=["date"])
+                df_user["対象年月"] = df_user["date"].dt.strftime('%Y-%m')
+                df_user["日付"] = df_user["date"].dt.strftime('%Y-%m-%d')
                 
-                # 日付フォーマットや金額を文字列化してコンパクトに
-                ai_df = recent_df[actual_cols].copy()
-                if "date" in ai_df.columns:
-                    ai_df["date"] = ai_df["date"].dt.strftime('%Y/%m/%d')
+                # 表示用カラムのリネーム
+                rename_map = {
+                    "store_name": "店舗名",
+                    "category": "大分類",
+                    "subcategory": "小分類",
+                    "amount": "金額"
+                }
+                # 存在するカラムのみマッピング
+                actual_rename = {k: v for k, v in rename_map.items() if k in df_user.columns}
+                df_user = df_user.rename(columns=actual_rename)
                 
-                # CSV形式の文字列に変換
-                csv_data_string = ai_df.to_csv(index=False)
-            else:
+                target_cols = ["対象年月", "日付", "店舗名", "大分類", "小分類", "金額"]
+                available_cols = [c for c in target_cols if c in df_user.columns]
+                
+                return df_user[available_cols].to_csv(index=False)
+                
+            csv_data_string = get_user_data_csv_for_ai(st.session_state['username'])
+            if not csv_data_string:
                 csv_data_string = "現在、参照できる家計簿データはありません。"
 
-            # --- チャットUIの構築 ---
+            # --- チャットセッションとメッセージ履歴の初期化 ---
             if "ai_consult_messages" not in st.session_state:
-                st.session_state.ai_consult_messages = [
-                    {"role": "assistant", "content": f"こんにちは、{st.session_state['username']}さん！あなたの専属ファイナンシャルプランナーです。\n直近3ヶ月のデータを確認しました。今月の支出傾向や、節約のアドバイスなど、何でも聞いてください！"}
-                ]
-                
-            # メッセージ履歴の表示
+                st.session_state.ai_consult_messages = []
+            
+            if "gemini_chat_session" not in st.session_state:
+                client = st.session_state.get('genai_client')
+                if client:
+                    # システムプロンプトの構築
+                    system_prompt = f"""あなたはユーザー専属の優秀なファイナンシャルプランナーです。
+以下のCSVデータは、このユーザー（{st.session_state['username']}）個人の家計簿データです。このデータに基づいて、ユーザーの質問に正確かつ親身に答えてください。
+データに存在しない推測は避け、無駄遣いの指摘や節約のアドバイスなども積極的に行ってください。
+
+【ユーザーの家計簿データ】
+{csv_data_string}"""
+                    
+                    # セッション開始（SDKの仕様に基づき、モデルからチャットを作成）
+                    st.session_state.gemini_chat_session = client.chats.create(
+                        model='gemini-2.5-flash',
+                        config=types.GenerateContentConfig(system_instruction=system_prompt)
+                    )
+                else:
+                    st.session_state.gemini_chat_session = None
+
+            # 最初のメッセージを追加（履歴が空の場合）
+            if not st.session_state.ai_consult_messages:
+                st.session_state.ai_consult_messages.append({
+                    "role": "assistant", 
+                    "content": f"こんにちは、{st.session_state['username']}さん！あなたの専属FPです。全期間のデータを読み込みました。何でも相談してくださいね。"
+                })
+
+            # 履歴の表示
             for msg in st.session_state.ai_consult_messages:
                 with st.chat_message(msg["role"]):
                     st.markdown(msg["content"])
                     
-            # ユーザー入力ループ
-            if user_input := st.chat_input("質問を入力してください...（例: 今月の食費は上がりすぎてる？）"):
-                # ユーザーのメッセージを表示して履歴に追加
+            # ユーザー入力
+            if user_input := st.chat_input("質問を入力してください..."):
                 st.session_state.ai_consult_messages.append({"role": "user", "content": user_input})
                 with st.chat_message("user"):
                     st.markdown(user_input)
                     
-                # APIクライアントの取得
-                client = st.session_state.get('genai_client')
-                if not client:
+                chat = st.session_state.get('gemini_chat_session')
+                if not chat:
                     with st.chat_message("assistant"):
-                        st.error("APIキーが設定されていないため、回答できません。secrets.toml を確認してください。")
+                        st.error("APIキーが設定されていないため、相談を開始できません。")
                 else:
                     with st.chat_message("assistant"):
                         message_placeholder = st.empty()
-                        message_placeholder.markdown("データを分析中...")
+                        message_placeholder.markdown("分析中...")
                         
                         try:
-                            # システムプロンプトの構築（厳格な指示とユーザーデータの埋め込み）
-                            # 指示通り 'gemini-1.5-flash' を想定しつつプロンプトを構築
-                            system_prompt = f"""あなたは優秀な専属ファイナンシャルプランナーです。
-提供されたデータは、このユーザー（{st.session_state['username']}）個人の直近の支出記録です。
-このデータのみに基づいて、ユーザーの質問に正確かつ親身に答えてください。データにない推測は避けてください。
+                            # チャットセッションでのメッセージ送信
+                            # 429等のエラーハンドリングを日本語化
+                            def _send():
+                                return chat.send_message(user_input)
+                            
+                            try:
+                                response = safe_gemini_call(_send)
+                                response_text = response.text
+                                message_placeholder.markdown(response_text)
+                                st.session_state.ai_consult_messages.append({"role": "assistant", "content": response_text})
+                            except Exception as e:
+                                err_msg = str(e)
+                                if "429" in err_msg or "RESOURCE_EXHAUSTED" in err_msg:
+                                    friendly_err = "現在AIの通信が混み合っています。数十秒待ってから再度送信してください。"
+                                    st.warning(friendly_err)
+                                    # 履歴には残さないか、エラーとして残す
+                                else:
+                                    st.error(f"エラーが発生しました: {e}")
 
-【ユーザーの支出データ（CSV形式）】
-{csv_data_string}
-"""
-                            prompt_parts = []
-                            # Gemini APIのsystem instructionに対応させるか、単純にプロンプトの先頭に添える
-                            # 今回は確実性を重視して最初のメッセージにコンテキストとして埋め込む
-                            prompt_parts.append({"text": system_prompt})
-                            
-                            for m in st.session_state.ai_consult_messages:
-                                prefix = f"{st.session_state['username']}: " if m["role"] == "user" else "FP: "
-                                prompt_parts.append({"text": f"{prefix}{m['content']}"})
-                                
-                            prompt_parts.append({"text": "以上のデータと会話を踏まえて、最後の質問にファイナンシャルプランナーとして親身に返答してください。"})
-
-                            # API呼び出し
-                            response = safe_gemini_call(
-                                client.models.generate_content,
-                                model='gemini-1.5-flash',
-                                contents=prompt_parts
-                            )
-                            
-                            full_response = response.text
-                            message_placeholder.markdown(full_response)
-                            
-                            # 履歴に保存
-                            st.session_state.ai_consult_messages.append({"role": "assistant", "content": full_response})
-                            
                         except Exception as e:
-                            error_msg = f"エラーが発生しました: {e}"
-                            message_placeholder.error(error_msg)
-                            st.session_state.ai_consult_messages.append({"role": "assistant", "content": error_msg})
+                            st.error(f"予期せぬエラーが発生しました: {e}")
 
         elif menu_selection == "ヘルプ":
             st.markdown("#### 💡 ヘルプ・サポート")
