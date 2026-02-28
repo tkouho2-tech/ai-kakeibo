@@ -582,7 +582,7 @@ def main():
             
         # サイドバーメニューの実装
         with st.sidebar:
-            st.subheader("メインメニュー [Ver 2.5.1]")
+            st.subheader("メインメニュー [Ver 2.5.2]")
             st.write(f"🔑 ユーザー: **{st.session_state['username']}**")
             st.markdown("---")
             if 'menu_selection' not in st.session_state:
@@ -1156,8 +1156,8 @@ def main():
                                         with row_col1:
                                             st.markdown(f"<div style='font-size: 0.85em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;' title='{item_name}'>{display_item_name}</div>", unsafe_allow_html=True)
                                         with row_col2:
-                                            st.markdown(f"<div style='font-size: 0.85em;'>¥{disp_amount:,}</div>", unsafe_allow_html=True)
-                                            new_amount = disp_amount 
+                                            with st.popover(f"¥{disp_amount:,}"):
+                                                new_amount = st.number_input("金額", value=int(disp_amount), step=1, key=f"amt_{row_index_gs}", label_visibility="collapsed")
                                         with row_col3:
                                             majors = list(EXPENSE_CATEGORIES.keys())
                                             default_major_idx = majors.index(disp_major) if disp_major in majors else majors.index("その他")
