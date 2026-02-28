@@ -457,15 +457,16 @@ def show_dashboard():
         grouped_df = df.groupby("category", as_index=False)["amount"].sum()
         grouped_df = grouped_df.sort_values(by="amount", ascending=False)
         
-        # 円グラフ（ドーナツ型）
+        # 円グラフ（ドーナツ型） - 金額順に並べる
         fig = px.pie(
             grouped_df, 
             values='amount', 
             names='category', 
             hole=0.4, 
-            title='大分類別金額シェア'
+            title='大分類別金額シェア',
+            category_orders={"category": grouped_df["category"].tolist()} 
         )
-        fig.update_traces(textposition='inside', textinfo='percent+label')
+        fig.update_traces(textposition='inside', textinfo='percent+label', sort=False)
         st.plotly_chart(fig, use_container_width=True)
         
         total_amount = grouped_df["amount"].sum()
@@ -570,7 +571,7 @@ def main():
             
         # サイドバーメニューの実装
         with st.sidebar:
-            st.subheader("メインメニュー [Ver 1.9.5]")
+            st.subheader("メインメニュー [Ver 1.9.6]")
             st.write(f"🔑 ユーザー: **{st.session_state['username']}**")
             st.markdown("---")
             if 'menu_selection' not in st.session_state:
