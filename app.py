@@ -1,4 +1,5 @@
 import streamlit as st
+import jpholiday
 import pandas as pd
 import plotly.express as px
 import gspread
@@ -571,7 +572,7 @@ def main():
             
         # サイドバーメニューの実装
         with st.sidebar:
-            st.subheader("メインメニュー [Ver 2.0.0]")
+            st.subheader("メインメニュー [Ver 2.1.0]")
             st.write(f"🔑 ユーザー: **{st.session_state['username']}**")
             st.markdown("---")
             if 'menu_selection' not in st.session_state:
@@ -689,15 +690,16 @@ def main():
                         # 空白のマス目
                         cal_html += '<div></div>'
                     else:
-                        amount = daily_totals.get(day, 0)
                         amount_text = f"￥{int(amount):,}" if amount > 0 else ""
-                        date_str = f"{year}-{month:02d}-{day:02d}"
+                        date_obj = datetime(year, month, day).date()
+                        date_str = date_obj.strftime('%Y-%m-%d')
                         is_selected = st.session_state.get('selected_date') == date_str
                         select_cls = "selected-link" if is_selected else ""
                         current_user = st.session_state.get("username", "")
                         
-                        # 曜日による背景色の判定 (i: 0=日, 6=土)
-                        bg_cls = "sun-bg" if i == 0 else "sat-bg" if i == 6 else ""
+                        # 曜日および祝日による背景色の判定 (i: 0=日, 6=土)
+                        is_holiday = jpholiday.is_holiday(date_obj)
+                        bg_cls = "sun-bg" if (i == 0 or is_holiday) else "sat-bg" if i == 6 else ""
                         
                         cal_html += f'<a href="/?date={date_str}&user={current_user}" target="_self" class="cal-link {select_cls} {bg_cls} notranslate" translate="no">'
                         cal_html += f'<div class="cal-date notranslate" translate="no">{day}</div>'

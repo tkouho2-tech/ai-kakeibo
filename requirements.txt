@@ -7,3 +7,4 @@ bcrypt
 google-genai
 Pillow
 python-dateutil
+jpholiday
