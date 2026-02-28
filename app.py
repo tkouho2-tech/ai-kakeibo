@@ -572,7 +572,7 @@ def main():
             
         # サイドバーメニューの実装
         with st.sidebar:
-            st.subheader("メインメニュー [Ver 2.1.1]")
+            st.subheader("メインメニュー [Ver 2.2.0]")
             st.write(f"🔑 ユーザー: **{st.session_state['username']}**")
             st.markdown("---")
             if 'menu_selection' not in st.session_state:
@@ -671,6 +671,22 @@ def main():
 .sat-text { color: #3182ce; }
 .sun-bg { background-color: #fff5f5; }
 .sat-bg { background-color: #ebf8ff; }
+
+/* 祝日名：中央付近に配置 */
+.cal-holiday {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    font-size: 8px;
+    color: #e53e3e;
+    width: 90%;
+    text-align: center;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    pointer-events: none;
+}
 </style>
 """, unsafe_allow_html=True)
 
@@ -700,10 +716,13 @@ def main():
                         
                         # 曜日および祝日による背景色の判定 (i: 0=日, 6=土)
                         is_holiday = jpholiday.is_holiday(date_obj)
+                        holiday_name = jpholiday.holiday_name(date_obj) if is_holiday else ""
                         bg_cls = "sun-bg" if (i == 0 or is_holiday) else "sat-bg" if i == 6 else ""
                         
                         cal_html += f'<a href="/?date={date_str}&user={current_user}" target="_self" class="cal-link {select_cls} {bg_cls} notranslate" translate="no">'
                         cal_html += f'<div class="cal-date notranslate" translate="no">{day}</div>'
+                        if holiday_name:
+                            cal_html += f'<div class="cal-holiday notranslate" translate="no">{holiday_name}</div>'
                         cal_html += f'<div class="cal-amount notranslate" translate="no">{amount_text}</div>'
                         cal_html += '</a>'
             
