@@ -582,7 +582,7 @@ def main():
             
         # サイドバーメニューの実装
         with st.sidebar:
-            st.subheader("メインメニュー [Ver 2.5.4]")
+            st.subheader("メインメニュー [Ver 2.5.5]")
             st.write(f"🔑 ユーザー: **{st.session_state['username']}**")
             st.markdown("---")
             if 'menu_selection' not in st.session_state:
@@ -1128,8 +1128,13 @@ def main():
                                         padding: 0px 4px !important;
                                         font-size: 0.8em !important;
                                         min-height: 24px !important;
-                                        height: 26px !important;
-                                        width: auto !important;
+                                        width: 100% !important;
+                                    }
+                                    /* 商品名などの長いテキストがボタン内で省略されないように調整 */
+                                    div[data-testid="stPopover"] > button div[data-testid="stMarkdownContainer"] p {
+                                        white-space: normal !important;
+                                        word-break: break-all !important;
+                                        line-height: 1.2 !important;
                                     }
                                 </style>
                                 """, unsafe_allow_html=True)
@@ -1142,7 +1147,7 @@ def main():
                                     for idx, row in details.iterrows():
                                         row_index_gs = row["_row_index"]
                                         item_name = row.get(item_col, "不明な商品") if item_col else "不明な商品"
-                                        display_item_name = item_name[:10] + "…" if len(item_name) > 10 else item_name
+                                        # 詳細画面では文字制限をかけない
                                         
                                         edit_vals = st.session_state['edit_data'].get(row_index_gs)
                                         if not edit_vals:
@@ -1153,7 +1158,7 @@ def main():
                                         disp_major = edit_vals['major']
                                         disp_minor = edit_vals['minor']
                                         
-                                        row_col1, row_col2, row_col3, row_col4 = st.columns(4)
+                                        row_col1, row_col2, row_col3, row_col4 = st.columns([2, 1, 1, 1])
                                         
                                         with row_col1:
                                             with st.popover(disp_name):
