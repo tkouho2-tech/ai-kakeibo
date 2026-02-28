@@ -312,6 +312,41 @@ def load_transactions_data(target_month):
         
     return df
 
+def render_month_navigation():
+    """全機能共通の月選択ナビゲーションと月間合計を表示する"""
+    # 月選択UI (リンク方式)
+    curr = st.session_state.get('current_month', datetime.today().replace(day=1))
+    prev_month = curr - relativedelta(months=1)
+    next_month = curr + relativedelta(months=1)
+    
+    prev_date_str = prev_month.strftime('%Y-%m-01')
+    next_date_str = next_month.strftime('%Y-%m-01')
+    current_user = st.session_state.get("username", "")
+    
+    header_html = f"""
+    <div style='display: flex; justify-content: center; align-items: center; gap: 20px; margin-bottom: 5px;'>
+        <a href="/?date={prev_date_str}&user={current_user}" target="_self" style='text-decoration: none; font-size: 1.1rem; color: #007bff;'>◀ 前月</a>
+        <h3 style='margin: 0; font-size: 1.4rem;'>{curr.strftime('%Y年%m月')}</h3>
+        <a href="/?date={next_date_str}&user={current_user}" target="_self" style='text-decoration: none; font-size: 1.1rem; color: #007bff;'>翌月 ▶</a>
+    </div>
+    """
+    st.markdown(header_html, unsafe_allow_html=True)
+
+    # データの読み込み
+    with st.spinner("データを読み込み中..."):
+        df = load_transactions_data(curr)
+    
+    # 合計金額の算出
+    monthly_total = 0
+    if not df.empty and "amount" in df.columns:
+        monthly_total = df['amount'].sum()
+
+    # 月間合計の表示
+    st.markdown(f"<p style='text-align: center; color: #666; font-weight: bold; margin-bottom: 10px;'>月間合計支出: ￥{int(monthly_total):,}</p>", unsafe_allow_html=True)
+    st.markdown("---")
+    
+    return df
+
 # ---------- レシート解析機能 ----------
 def parse_receipt_with_gemini(image_file):
     try:
@@ -404,30 +439,11 @@ def show_dashboard():
     # ヘッダーを表示するためのプレースホルダー（コンテナ）を先に準備
     header_placeholder = st.empty()
 
-    # 月の切替UI
-    col1, col2, col3, col4, col5 = st.columns([3, 1, 2, 1, 3])
-    with col2:
-        # vertical alignment adjustment if needed, but standard is fine
-        if st.button("◀ 前月", use_container_width=True):
-            st.session_state['current_month'] -= relativedelta(months=1)
-            st.rerun()
-    with col3:
-        # 中央に現在選択中の年月を大きく表示
-        st.markdown(f"<h3 style='text-align: center; margin: 0;'>{st.session_state['current_month'].strftime('%Y年%m月')}</h3>", unsafe_allow_html=True)
-    with col4:
-        if st.button("翌月 ▶", use_container_width=True):
-            st.session_state['current_month'] += relativedelta(months=1)
-            st.rerun()
-            
+    # 共通ナビゲーションの適用
+    df = render_month_navigation()
+
     # 月の切り替え操作が行われた「後」の最新の状態でヘッダーを更新する
-    header_placeholder.markdown("#### ダッシュボード (月別集計)")
-
-
-    st.markdown("---")
-
-    # データの読み込み
-    with st.spinner("データを読み込み中..."):
-        df = load_transactions_data(st.session_state['current_month'])
+    header_placeholder.markdown("#### 📊 ダッシュボード (月別集計)")
 
     if df.empty:
         st.info("※この月のデータはまだありません。Google SpreadSheet の `transactions` シートにサンプルデータ（自分のusernameを含める）を追加して確認してください。")
@@ -543,7 +559,7 @@ def main():
             
         # サイドバーメニューの実装
         with st.sidebar:
-            st.subheader("メインメニュー [Ver 1.8.1 [Navigation Improvement]]")
+            st.subheader("メインメニュー [Ver 1.9.0 [UI Unification]]")
             st.write(f"🔑 ユーザー: **{st.session_state['username']}**")
             st.markdown("---")
             if 'menu_selection' not in st.session_state:
@@ -566,38 +582,13 @@ def main():
         elif menu_selection == "カレンダー":
             st.markdown("#### 📅 カレンダー")
             
-            # 月選択UI (リンク方式)
-            prev_month = st.session_state['current_month'] - relativedelta(months=1)
-            next_month = st.session_state['current_month'] + relativedelta(months=1)
+            # 共通ナビゲーションの適用
+            df = render_month_navigation()
             
-            prev_date_str = prev_month.strftime('%Y-%m-01')
-            next_date_str = next_month.strftime('%Y-%m-01')
-            current_user = st.session_state.get("username", "")
-            
-            header_html = f"""
-            <div style='display: flex; justify-content: center; align-items: center; gap: 20px; margin-bottom: 10px;'>
-                <a href="/?date={prev_date_str}&user={current_user}" target="_self" style='text-decoration: none; font-size: 1.2rem; color: #007bff;'>◀ 前月</a>
-                <h3 style='margin: 0;'>{st.session_state['current_month'].strftime('%Y年%m月')}</h3>
-                <a href="/?date={next_date_str}&user={current_user}" target="_self" style='text-decoration: none; font-size: 1.2rem; color: #007bff;'>翌月 ▶</a>
-            </div>
-            """
-            st.markdown(header_html, unsafe_allow_html=True)
-            
-            # データ取得
-            with st.spinner("データを読み込み中..."):
-                df = load_transactions_data(st.session_state['current_month'])
-            
-            # 合計金額の算出
-            monthly_total = 0
             daily_totals = {}
             if not df.empty and "date" in df.columns and "amount" in df.columns:
-                monthly_total = df['amount'].sum()
                 df['day'] = df['date'].dt.day
                 daily_totals = df.groupby('day')["amount"].sum().to_dict()
-
-            # 月間合計の表示
-            st.markdown(f"<p style='text-align: center; color: #666; font-weight: bold; margin-top: -10px;'>月間合計支出: ￥{int(monthly_total):,}</p>", unsafe_allow_html=True)
-            st.markdown("---")
                 
             year = st.session_state['current_month'].year
             month = st.session_state['current_month'].month
@@ -788,6 +779,10 @@ def main():
             
         elif menu_selection == "レシート取込":
             st.markdown("#### 📸 レシート取込")
+            
+            # 共通ナビゲーションの適用
+            _ = render_month_navigation()
+            
             st.info("画像ファイルをアップロードしてレシートを解析します。")
             
             if "uploader_key" not in st.session_state:
@@ -967,28 +962,17 @@ def main():
                             st.error(f"保存エラー: {e}")
 
         elif menu_selection == "レシート手入力":
-            st.markdown("#### レシート手入力")
+            st.markdown("#### 📝 レシート手入力")
+            
+            # 共通ナビゲーションの適用
+            _ = render_month_navigation()
+            
             st.info("準備中: 手動でのレシート入力機能は今後のフェーズで実装されます。")
         elif menu_selection == "レシート修正":
             st.markdown("#### ⚙️ レシート修正")
             
-            # 月の切替UI
-            col1, col2, col3, col4, col5 = st.columns([3, 1, 2, 1, 3])
-            with col2:
-                if st.button("◀ 前月", key="prev_mod_btn", use_container_width=True):
-                    st.session_state['current_month'] -= relativedelta(months=1)
-                    st.rerun()
-            with col3:
-                st.markdown(f"<h3 style='text-align: center; margin: 0;'>{st.session_state['current_month'].strftime('%Y年%m月')}</h3>", unsafe_allow_html=True)
-            with col4:
-                if st.button("翌月 ▶", key="next_mod_btn", use_container_width=True):
-                    st.session_state['current_month'] += relativedelta(months=1)
-                    st.rerun()
-                    
-            st.markdown("---")
-            
-            with st.spinner("データを読み込み中..."):
-                df = load_transactions_data(st.session_state['current_month'])
+            # 共通ナビゲーションの適用
+            df = render_month_navigation()
                 
             if df.empty:
                 st.info("※この月のデータはありません。")
@@ -1396,6 +1380,10 @@ def main():
 
         elif menu_selection == "ヘルプ":
             st.markdown("#### 💡 ヘルプ・サポート")
+            
+            # 共通ナビゲーションの適用
+            _ = render_month_navigation()
+            
             st.info("アプリの機能や使い方、データの保存先などについて何でも聞いてください！")
             
             # セッション状態の初期化
