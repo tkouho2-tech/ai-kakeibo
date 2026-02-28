@@ -570,7 +570,7 @@ def main():
             
         # サイドバーメニューの実装
         with st.sidebar:
-            st.subheader("メインメニュー [Ver 1.9.3 [Navigation Logic Fix]]")
+            st.subheader("メインメニュー [Ver 1.9.4]")
             st.write(f"🔑 ユーザー: **{st.session_state['username']}**")
             st.markdown("---")
             if 'menu_selection' not in st.session_state:
@@ -1017,7 +1017,7 @@ def main():
                     }])
                     receipts_df = pd.concat([receipts_df, total_row], ignore_index=True)
                     
-                    st.write("##### ▶レシート一覧表（対象レシートを選択してください）")
+                    st.markdown("<p style='font-size: 0.85rem; font-weight: bold; margin-bottom: 5px;'>▶レシート一覧表（対象レシートを選択してください）</p>", unsafe_allow_html=True)
                     
                     # dataframe 選択
                     event = st.dataframe(
