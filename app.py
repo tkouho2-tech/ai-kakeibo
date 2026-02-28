@@ -342,7 +342,7 @@ def render_month_navigation():
         monthly_total = df['amount'].sum()
 
     # 月間合計の表示
-    st.markdown(f"<p style='text-align: center; color: #666; font-weight: bold; margin-bottom: 10px;'>月間合計支出: ￥{int(monthly_total):,}</p>", unsafe_allow_html=True)
+    st.markdown(f"<p style='text-align: center; color: #007bff; font-size: 1.4rem; font-weight: bold; margin-bottom: 10px;'>月間合計支出: ￥{int(monthly_total):,}</p>", unsafe_allow_html=True)
     st.markdown("---")
     
     return df
@@ -559,7 +559,7 @@ def main():
             
         # サイドバーメニューの実装
         with st.sidebar:
-            st.subheader("メインメニュー [Ver 1.9.0 [UI Unification]]")
+            st.subheader("メインメニュー [Ver 1.9.1]")
             st.write(f"🔑 ユーザー: **{st.session_state['username']}**")
             st.markdown("---")
             if 'menu_selection' not in st.session_state:
