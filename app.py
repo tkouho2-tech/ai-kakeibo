@@ -522,8 +522,16 @@ def main():
             del st.query_params["date"]
             st.rerun()
         else:
-            st.session_state['selected_date'] = params["date"]
+            selected_date_str = params["date"]
+            st.session_state['selected_date'] = selected_date_str
             st.session_state['menu_selection'] = "カレンダー"
+            
+            # URLのdateから表示月(current_month)を自動同期
+            try:
+                dt = datetime.strptime(selected_date_str, '%Y-%m-%d')
+                st.session_state['current_month'] = dt.replace(day=1)
+            except:
+                pass
 
     # ログイン済みの状態
     if st.session_state.get('logged_in', False):
@@ -535,7 +543,7 @@ def main():
             
         # サイドバーメニューの実装
         with st.sidebar:
-            st.subheader("メインメニュー [Ver 1.8.0 [Summary Feature]]")
+            st.subheader("メインメニュー [Ver 1.8.1 [Navigation Improvement]]")
             st.write(f"🔑 ユーザー: **{st.session_state['username']}**")
             st.markdown("---")
             if 'menu_selection' not in st.session_state:
@@ -558,18 +566,22 @@ def main():
         elif menu_selection == "カレンダー":
             st.markdown("#### 📅 カレンダー")
             
-            # 月選択UI
-            col1, col2, col3, col4, col5 = st.columns([3, 1, 2, 1, 3])
-            with col2:
-                if st.button("◀ 前月", use_container_width=True, key="cal_prev"):
-                    st.session_state['current_month'] -= relativedelta(months=1)
-                    st.rerun()
-            with col3:
-                st.markdown(f"<h3 style='text-align: center; margin: 0;'>{st.session_state['current_month'].strftime('%Y年%m月')}</h3>", unsafe_allow_html=True)
-            with col4:
-                if st.button("翌月 ▶", use_container_width=True, key="cal_next"):
-                    st.session_state['current_month'] += relativedelta(months=1)
-                    st.rerun()
+            # 月選択UI (リンク方式)
+            prev_month = st.session_state['current_month'] - relativedelta(months=1)
+            next_month = st.session_state['current_month'] + relativedelta(months=1)
+            
+            prev_date_str = prev_month.strftime('%Y-%m-01')
+            next_date_str = next_month.strftime('%Y-%m-01')
+            current_user = st.session_state.get("username", "")
+            
+            header_html = f"""
+            <div style='display: flex; justify-content: center; align-items: center; gap: 20px; margin-bottom: 10px;'>
+                <a href="/?date={prev_date_str}&user={current_user}" target="_self" style='text-decoration: none; font-size: 1.2rem; color: #007bff;'>◀ 前月</a>
+                <h3 style='margin: 0;'>{st.session_state['current_month'].strftime('%Y年%m月')}</h3>
+                <a href="/?date={next_date_str}&user={current_user}" target="_self" style='text-decoration: none; font-size: 1.2rem; color: #007bff;'>翌月 ▶</a>
+            </div>
+            """
+            st.markdown(header_html, unsafe_allow_html=True)
             
             # データ取得
             with st.spinner("データを読み込み中..."):
