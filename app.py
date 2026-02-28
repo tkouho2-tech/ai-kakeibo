@@ -12,6 +12,7 @@ from dateutil.relativedelta import relativedelta
 from PIL import Image
 from google import genai
 from google.genai import types
+import streamlit.components.v1 as components
 
 # ---------- 構成設定 ----------
 SPREADSHEET_NAME = "Kakeibo_Data" # 実際のGoogleスプレッドシート名に合わせて変更してください
@@ -61,6 +62,21 @@ if api_key:
     st.session_state['genai_client'] = genai.Client(api_key=api_key)
 
 st.set_page_config(page_title="AI家計簿アプリ - ダッシュボード", page_icon="📊", layout="wide")
+
+# ブラウザの自動翻訳の誤作動を防ぐため、大元の言語設定を日本語(ja)に強制上書き
+components.html(
+    """
+    <script>
+        const html = window.parent.document.getElementsByTagName('html')[0];
+        html.setAttribute('lang', 'ja');
+    </script>
+    """,
+    width=0,
+    height=0,
+)
+
+# ---------- 翻訳拒否設定（ブラウザの自動翻訳による誤変換防止） ----------
+st.markdown('<meta name="google" content="notranslate">', unsafe_allow_html=True)
 
 # ---------- セッション状態の初期化 ----------
 if 'logged_in' not in st.session_state:
@@ -489,6 +505,26 @@ def show_dashboard():
         st.warning("シートに 'category' または 'amount' 列がありません。")
 
 def main():
+    # URLパラメータの同期（セッション維持のため冒頭で行う）
+    params = st.query_params
+    
+    # ログイン状態の復元
+    if "user" in params:
+        st.session_state["username"] = params["user"]
+        st.session_state["logged_in"] = True
+        
+    # 日付選択の同期
+    if "date" in params:
+        # サイドバーで既に「カレンダー」以外が選択されている場合は、URLのパラメータをクリアしてリロードする
+        # これにより、日付選択状態を維持したまま他のメニューへ移動できない問題を解消
+        current_menu = st.session_state.get('menu_selection')
+        if current_menu not in [None, "カレンダー"]:
+            del st.query_params["date"]
+            st.rerun()
+        else:
+            st.session_state['selected_date'] = params["date"]
+            st.session_state['menu_selection'] = "カレンダー"
+
     # ログイン済みの状態
     if st.session_state.get('logged_in', False):
         
@@ -499,7 +535,7 @@ def main():
             
         # サイドバーメニューの実装
         with st.sidebar:
-            st.subheader("メインメニュー [Ver 1.0.5]")
+            st.subheader("メインメニュー [Ver 1.5.0 [Release]]")
             st.write(f"🔑 ユーザー: **{st.session_state['username']}**")
             st.markdown("---")
             if 'menu_selection' not in st.session_state:
@@ -549,95 +585,193 @@ def main():
             year = st.session_state['current_month'].year
             month = st.session_state['current_month'].month
 
-            # --- 独自HTMLカレンダーの生成 ---
-            import calendar
-            cal_obj = calendar.Calendar(firstweekday=6) # 日曜始まり
-            month_days = cal_obj.monthdayscalendar(year, month)
+            # カレンダーの週の開始曜日を日曜日に設定し、その月のカレンダーマトリックスを取得
+            calendar.setfirstweekday(calendar.SUNDAY)
+            month_days = calendar.monthcalendar(year, month)
+
+            # セッション状態の初期化（選択日の保持）
+            if 'selected_date' not in st.session_state:
+                st.session_state['selected_date'] = None
+
+            # CSS定義（リンク方式でのマス目レイアウト）
+            st.markdown("""
+<style>
+/* カレンダー全体のグリッド幅制限 */
+.calendar-grid {
+    width: 100%;
+    max-width: 600px;
+    margin: 0 auto;
+}
+/* リンクをマス目（枠線付き）として機能させる */
+.cal-link {
+    display: block;
+    position: relative;
+    height: 80px;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+    background-color: #ffffff;
+    text-decoration: none !important;
+    color: inherit !important;
+    margin-bottom: 5px;
+    transition: all 0.2s ease;
+}
+.cal-link:hover {
+    border-color: #007bff;
+    background-color: #f0f7ff;
+}
+.selected-link {
+    background-color: #e6f3ff !important;
+    border: 2px solid #007bff !important;
+}
+
+/* 日付：左上に配置 */
+.cal-date {
+    position: absolute;
+    top: 4px; left: 8px;
+    font-weight: bold;
+    color: #333;
+}
+
+/* 金額：右下に赤字で配置 */
+.cal-amount {
+    position: absolute;
+    bottom: 4px; right: 8px;
+    color: red !important;
+    font-size: 13px;
+    font-weight: bold;
+}
+
+/* 曜日ヘッダー */
+.weekday-header { text-align: center; font-weight: bold; padding: 5px 0; font-size: 0.85em; }
+.sun-text { color: #e53e3e; }
+.sat-text { color: #3182ce; }
+</style>
+""", unsafe_allow_html=True)
+
+            # カレンダーの表示
+            st.write('<div class="calendar-grid">', unsafe_allow_html=True)
             
-            # CSS定義
-            calendar_style = """
-            <style>
-            .custom-calendar-container {
-                width: 100%;
-                overflow-x: auto;
-            }
-            .custom-calendar {
-                width: 100%;
-                max-width: 500px; /* 横幅を最大500pxに制限 */
-                margin: 0 auto;   /* 中央配置 */
-                border-collapse: collapse;
-                table-layout: fixed;
-                background-color: white;
-                color: #333;
-            }
-            .custom-calendar th, .custom-calendar td {
-                border: 1px solid #ddd !important;
-                height: 60px; /* 100px -> 60px に短縮 */
-                vertical-align: top;
-                padding: 0;
-                position: relative;
-            }
-            .custom-calendar th {
-                height: 30px; /* 40px -> 30px に短縮 */
-                text-align: center;
-                vertical-align: middle;
-                background-color: #f8f9fa;
-                font-weight: bold;
-                font-size: 0.85em;
-            }
-            .day-cell {
-                width: 100%;
-                height: 100%;
-                display: flex;
-                flex-direction: column;
-                justify-content: space-between;
-                padding: 2px 4px; /* 5px -> 2px 4px に縮小 */
-            }
-            .day-number {
-                text-align: left;
-                font-size: 0.85em; /* 0.95em -> 0.85em に縮小 */
-                font-weight: bold;
-                color: #555;
-            }
-            .day-amount {
-                text-align: right;
-                color: red;
-                font-weight: bold;
-                font-size: 0.8em; /* 0.9em -> 0.8em に縮小 */
-                margin-top: auto;
-            }
-            .sun-header { color: #e53e3e !important; background-color: #fff5f5 !important; }
-            .sat-header { color: #3182ce !important; background-color: #f0f5ff !important; }
-            .sun-cell { background-color: #fffafa; }
-            .sat-cell { background-color: #f8fbff; }
-            .sun-cell .day-number { color: #e53e3e !important; }
-            .sat-cell .day-number { color: #3182ce !important; }
-            .empty-cell { background-color: #fdfdfd; }
-            </style>
-            """
-            
-            html = calendar_style + '<div class="custom-calendar-container"><table class="custom-calendar">'
-            html += '<thead><tr>'
-            for i, day_name in enumerate(["日", "月", "火", "水", "木", "金", "土"]):
-                cls = "sun-header" if i == 0 else ("sat-header" if i == 6 else "")
-                html += f'<th class="{cls}">{day_name}</th>'
-            html += '</tr></thead><tbody>'
-            
+            # ヘッダー（曜日）
+            week_cols = st.columns(7)
+            for i, wd in enumerate(["日", "月", "火", "水", "木", "金", "土"]):
+                cls = "sun-text" if i == 0 else "sat-text" if i == 6 else ""
+                week_cols[i].markdown(f'<div class="weekday-header {cls}">{wd}</div>', unsafe_allow_html=True)
+
+            # 日付行
             for week in month_days:
-                html += '<tr>'
+                week_cols = st.columns(7)
                 for i, day in enumerate(week):
-                    cell_cls = "sun-cell" if i == 0 else ("sat-cell" if i == 6 else "")
-                    if day == 0:
-                        html += f'<td class="empty-cell {cell_cls}"></td>'
-                    else:
+                    if day != 0:
                         amount = daily_totals.get(day, 0)
-                        amount_str = f"￥{int(amount):,}" if amount > 0 else ""
-                        html += f'<td class="{cell_cls}"><div class="day-cell"><div class="day-number">{day}</div><div class="day-amount">{amount_str}</div></div></td>'
-                html += '</tr>'
+                        
+                        # 金額のフォーマット
+                        amount_text = f"￥{int(amount):,}" if amount > 0 else ""
+                        
+                        # カレントの日付文字列
+                        date_str = f"{year}-{month:02d}-{day:02d}"
+                        
+                        # 選択状態の判定
+                        is_selected = st.session_state.get('selected_date') == date_str
+                        select_cls = "selected-link" if is_selected else ""
+                        
+                        # ログイン中のユーザー名を取得
+                        current_user = st.session_state.get("username", "")
+                        
+                        # リンク方式で描画（ユーザー情報と日付を引き継ぐ、翻訳拒否クラス・属性を付加）
+                        week_cols[i].markdown(f"""
+                        <a href="/?date={date_str}&user={current_user}" target="_self" class="cal-link {select_cls} notranslate" translate="no">
+                            <div class="cal-date notranslate" translate="no">{day}</div>
+                            <div class="cal-amount notranslate" translate="no">{amount_text}</div>
+                        </a>
+                        """, unsafe_allow_html=True)
+
+            st.write('</div>', unsafe_allow_html=True)
+
+            # --- 対象日の詳細表示 ---
+            selected_date = st.session_state.get('selected_date')
+            if selected_date:
+                # '2026-02-28' のような形式から日(day)を抽出して表示
+                try:
+                    display_day = int(selected_date.split("-")[-1])
+                except:
+                    display_day = selected_date
+
+                # 該当日のデータをフィルタリング
+                # selected_date (YYYY-MM-DD) と一致するか、current_month内でdayが一致するか
+                day_val = int(selected_date.split("-")[-1])
+                day_df = df[df['date'].dt.day == day_val].copy()
+                
+                # 合計額の計算
+                day_total = int(day_df['amount'].sum()) if not day_df.empty else 0
+                # 合計額の計算
+                day_total = int(day_df['amount'].sum()) if not day_df.empty else 0
+                # デザインより翻訳回避を優先し、ネイティブなマークダウンで表示
+                st.markdown(f"##### 📋 {display_day}日の支出詳細 (合計: ￥{day_total:,})")
+                
+                if not day_df.empty:
+                    # 翻訳回避のため Canvas 描画である st.dataframe を使用
+                    # 表示用に列名を整理
+                    display_df = day_df.copy()
+                    
+                    # 列名のマッピング（存在するものを優先）
+                    col_map = {
+                        "store_name": "店舗名",
+                        "store": "店舗名",
+                        "category": "大分類",
+                        "major_category": "大分類",
+                        "subcategory": "小分類",
+                        "minor_category": "小分類",
+                        "item_name": "商品名",
+                        "amount": "金額"
+                    }
+                    
+                    rename_dict = {}
+                    for old_col, new_col in col_map.items():
+                        if old_col in display_df.columns:
+                            rename_dict[old_col] = new_col
+                    
+                    display_df = display_df.rename(columns=rename_dict)
+                    
+                    # フィルタリング機能の追加
+                    if "大分類" in display_df.columns:
+                        major_cats = sorted(display_df["大分類"].unique().tolist())
+                        selected_cats = st.multiselect("大分類で絞り込み (未選択で全表示)", options=major_cats)
+                        if selected_cats:
+                            display_df = display_df[display_df["大分類"].isin(selected_cats)]
+
+                    # 集計処理（大分類、小分類、店舗名でグループ化して金額を合計）
+                    group_cols = [c for c in ["大分類", "小分類", "店舗名"] if c in display_df.columns]
+                    if group_cols and "金額" in display_df.columns:
+                        display_df = display_df.groupby(group_cols, as_index=False)["金額"].sum()
+                    
+                    # 表示する列の選択と順序
+                    target_cols = ["大分類", "小分類", "店舗名", "金額"]
+                    final_cols = [c for c in target_cols if c in display_df.columns]
+                    
+                    # 大分類、小分類、店舗名の順でソート（昇順）
+                    sort_cols = [c for c in ["大分類", "小分類", "店舗名"] if c in display_df.columns]
+                    if sort_cols:
+                        display_df = display_df.sort_values(by=sort_cols, ascending=True)
+                    
+                    # 合計行の追加 (フィルタ後の合計を表示)
+                    if not display_df.empty and "金額" in display_df.columns:
+                        total_amount = int(display_df["金額"].sum())
+                        total_row = pd.DataFrame([{
+                            "大分類": "---",
+                            "小分類": "---",
+                            "店舗名": "合計",
+                            "金額": total_amount
+                        }])
+                        display_df = pd.concat([display_df, total_row], ignore_index=True)
+                    
+                    st.dataframe(
+                        display_df[final_cols],
+                        use_container_width=True,
+                        hide_index=True
+                    )
+                else:
+                    st.info("この日の支出データはありません。")
             
-            html += '</tbody></table></div>'
-            
-            st.markdown(html, unsafe_allow_html=True)
             st.markdown("---")
             
         elif menu_selection == "レシート取込":
