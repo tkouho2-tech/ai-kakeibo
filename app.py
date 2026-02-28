@@ -582,7 +582,7 @@ def main():
             
         # サイドバーメニューの実装
         with st.sidebar:
-            st.subheader("メインメニュー [Ver 2.5.2]")
+            st.subheader("メインメニュー [Ver 2.5.3]")
             st.write(f"🔑 ユーザー: **{st.session_state['username']}**")
             st.markdown("---")
             if 'menu_selection' not in st.session_state:
@@ -1095,6 +1095,7 @@ def main():
                                     sub = row.get(sub_cols[0], "❓その他") if sub_cols else "❓その他"
                                     
                                     st.session_state['edit_data'][row_index_gs] = {
+                                        "name": row.get(item_col, "不明な商品") if item_col else "不明な商品",
                                         "amount": int(row.get("amount", 0)),
                                         "major": major,
                                         "minor": sub
@@ -1143,10 +1144,7 @@ def main():
                                         item_name = row.get(item_col, "不明な商品") if item_col else "不明な商品"
                                         display_item_name = item_name[:10] + "…" if len(item_name) > 10 else item_name
                                         
-                                        edit_vals = st.session_state['edit_data'].get(row_index_gs)
-                                        if not edit_vals:
-                                            continue
-                                        
+                                        disp_name = edit_vals['name']
                                         disp_amount = edit_vals['amount']
                                         disp_major = edit_vals['major']
                                         disp_minor = edit_vals['minor']
@@ -1154,7 +1152,8 @@ def main():
                                         row_col1, row_col2, row_col3, row_col4 = st.columns(4)
                                         
                                         with row_col1:
-                                            st.markdown(f"<div style='font-size: 0.85em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;' title='{item_name}'>{display_item_name}</div>", unsafe_allow_html=True)
+                                            with st.popover(disp_name):
+                                                new_name = st.text_input("商品名", value=disp_name, key=f"nm_{row_index_gs}", label_visibility="collapsed")
                                         with row_col2:
                                             with st.popover(f"¥{disp_amount:,}"):
                                                 new_amount = st.number_input("金額", value=int(disp_amount), step=1, key=f"amt_{row_index_gs}", label_visibility="collapsed")
@@ -1169,7 +1168,8 @@ def main():
                                             with st.popover(disp_minor):
                                                 new_minor = st.radio("小分類", minors, index=default_minor_idx, key=f"min_{row_index_gs}", label_visibility="collapsed")
                                         
-                                        if new_amount != disp_amount or new_major != disp_major or new_minor != disp_minor:
+                                        if new_name != disp_name or new_amount != disp_amount or new_major != disp_major or new_minor != disp_minor:
+                                            st.session_state['edit_data'][row_index_gs]["name"] = new_name
                                             st.session_state['edit_data'][row_index_gs]["amount"] = new_amount
                                             st.session_state['edit_data'][row_index_gs]["major"] = new_major
                                             st.session_state['edit_data'][row_index_gs]["minor"] = new_minor
@@ -1198,7 +1198,10 @@ def main():
                                                         break
                                                 
                                                 updates = []
+                                                item_col_idx = headers.index(item_col) + 1 if item_col in headers else None
+                                                
                                                 for r_idx_gs, vals in st.session_state['edit_data'].items():
+                                                    if item_col_idx: updates.append(gspread.Cell(row=r_idx_gs, col=item_col_idx, value=vals["name"]))
                                                     if amount_col_idx: updates.append(gspread.Cell(row=r_idx_gs, col=amount_col_idx, value=vals["amount"]))
                                                     if category_col_idx: updates.append(gspread.Cell(row=r_idx_gs, col=category_col_idx, value=vals["major"]))
                                                     if sub_col_idx: updates.append(gspread.Cell(row=r_idx_gs, col=sub_col_idx, value=vals["minor"]))
