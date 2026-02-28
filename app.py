@@ -571,7 +571,7 @@ def main():
             
         # サイドバーメニューの実装
         with st.sidebar:
-            st.subheader("メインメニュー [Ver 1.9.7]")
+            st.subheader("メインメニュー [Ver 2.0.0]")
             st.write(f"🔑 ユーザー: **{st.session_state['username']}**")
             st.markdown("---")
             if 'menu_selection' not in st.session_state:
@@ -667,8 +667,9 @@ def main():
 
 /* 曜日ヘッダー */
 .weekday-header { text-align: center; font-weight: bold; padding: 5px 0; font-size: 0.85em; }
-.sun-text { color: #e53e3e; }
 .sat-text { color: #3182ce; }
+.sun-bg { background-color: #fff5f5; }
+.sat-bg { background-color: #ebf8ff; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -695,7 +696,10 @@ def main():
                         select_cls = "selected-link" if is_selected else ""
                         current_user = st.session_state.get("username", "")
                         
-                        cal_html += f'<a href="/?date={date_str}&user={current_user}" target="_self" class="cal-link {select_cls} notranslate" translate="no">'
+                        # 曜日による背景色の判定 (i: 0=日, 6=土)
+                        bg_cls = "sun-bg" if i == 0 else "sat-bg" if i == 6 else ""
+                        
+                        cal_html += f'<a href="/?date={date_str}&user={current_user}" target="_self" class="cal-link {select_cls} {bg_cls} notranslate" translate="no">'
                         cal_html += f'<div class="cal-date notranslate" translate="no">{day}</div>'
                         cal_html += f'<div class="cal-amount notranslate" translate="no">{amount_text}</div>'
                         cal_html += '</a>'
