@@ -572,7 +572,7 @@ def main():
             
         # サイドバーメニューの実装
         with st.sidebar:
-            st.subheader("メインメニュー [Ver 2.1.0]")
+            st.subheader("メインメニュー [Ver 2.1.1]")
             st.write(f"🔑 ユーザー: **{st.session_state['username']}**")
             st.markdown("---")
             if 'menu_selection' not in st.session_state:
@@ -690,6 +690,7 @@ def main():
                         # 空白のマス目
                         cal_html += '<div></div>'
                     else:
+                        amount = daily_totals.get(day, 0)
                         amount_text = f"￥{int(amount):,}" if amount > 0 else ""
                         date_obj = datetime(year, month, day).date()
                         date_str = date_obj.strftime('%Y-%m-%d')
