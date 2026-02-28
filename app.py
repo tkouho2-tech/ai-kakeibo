@@ -535,7 +535,7 @@ def main():
             
         # サイドバーメニューの実装
         with st.sidebar:
-            st.subheader("メインメニュー [Ver 1.7.1 [Rendering Fix]]")
+            st.subheader("メインメニュー [Ver 1.7.2]")
             st.write(f"🔑 ユーザー: **{st.session_state['username']}**")
             st.markdown("---")
             if 'menu_selection' not in st.session_state:
@@ -601,14 +601,14 @@ def main():
     grid-template-columns: repeat(7, 1fr);
     gap: 4px;
     width: 100%;
-    max-width: 250px;
+    max-width: 400px;
     margin: 0 auto;
 }
 /* リンクをマス目（枠線付き）として機能させる */
 .cal-link {
     display: block;
     position: relative;
-    height: 60px;
+    height: 80px;
     width: 100%;
     border: 1px solid #ccc;
     border-radius: 4px;
