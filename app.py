@@ -571,7 +571,7 @@ def main():
             
         # サイドバーメニューの実装
         with st.sidebar:
-            st.subheader("メインメニュー [Ver 1.9.6]")
+            st.subheader("メインメニュー [Ver 1.9.7]")
             st.write(f"🔑 ユーザー: **{st.session_state['username']}**")
             st.markdown("---")
             if 'menu_selection' not in st.session_state:
@@ -1393,9 +1393,6 @@ def main():
 
         elif menu_selection == "ヘルプ":
             st.markdown("#### 💡 ヘルプ・サポート")
-            
-            # 共通ナビゲーションの適用
-            _ = render_month_navigation()
             
             st.info("アプリの機能や使い方、データの保存先などについて何でも聞いてください！")
             
