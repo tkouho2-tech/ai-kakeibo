@@ -535,7 +535,7 @@ def main():
             
         # サイドバーメニューの実装
         with st.sidebar:
-            st.subheader("メインメニュー [Ver 1.7.0 [Mobile Fix]]")
+            st.subheader("メインメニュー [Ver 1.7.1 [Rendering Fix]]")
             st.write(f"🔑 ユーザー: **{st.session_state['username']}**")
             st.markdown("---")
             if 'menu_selection' not in st.session_state:
@@ -674,12 +674,10 @@ def main():
                         select_cls = "selected-link" if is_selected else ""
                         current_user = st.session_state.get("username", "")
                         
-                        cal_html += f"""
-                        <a href="/?date={date_str}&user={current_user}" target="_self" class="cal-link {select_cls} notranslate" translate="no">
-                            <div class="cal-date notranslate" translate="no">{day}</div>
-                            <div class="cal-amount notranslate" translate="no">{amount_text}</div>
-                        </a>
-                        """
+                        cal_html += f'<a href="/?date={date_str}&user={current_user}" target="_self" class="cal-link {select_cls} notranslate" translate="no">'
+                        cal_html += f'<div class="cal-date notranslate" translate="no">{day}</div>'
+                        cal_html += f'<div class="cal-amount notranslate" translate="no">{amount_text}</div>'
+                        cal_html += '</a>'
             
             cal_html += '</div>'
             st.markdown(cal_html, unsafe_allow_html=True)
