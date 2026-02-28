@@ -535,7 +535,7 @@ def main():
             
         # サイドバーメニューの実装
         with st.sidebar:
-            st.subheader("メインメニュー [Ver 1.6.0 [Final Release]]")
+            st.subheader("メインメニュー [Ver 1.6.1]")
             st.write(f"🔑 ユーザー: **{st.session_state['username']}**")
             st.markdown("---")
             if 'menu_selection' not in st.session_state:
@@ -637,7 +637,7 @@ def main():
     position: absolute;
     bottom: 2px; right: 2px;
     color: red !important;
-    font-size: 9px;
+    font-size: 11px;
     font-weight: bold;
 }
 
