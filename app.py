@@ -643,7 +643,7 @@ def main():
             
         # サイドバーメニューの実装
         with st.sidebar:
-            st.subheader("メインメニュー [Ver 2.6.11]")
+            st.subheader("メインメニュー [Ver 2.6.12]")
             st.write(f"🔑 ユーザー: **{st.session_state['username']}**")
             st.markdown("---")
             if 'menu_selection' not in st.session_state:
@@ -1128,52 +1128,45 @@ def main():
                         min-height: 0 !important;
                     }
 
-                    /* スマートフォン（画面幅768px以下）用のフォーム内完全圧縮・はみ出し防止設定 */
+                    /* スマートフォン（画面幅768px以下）用のフォーム内・全要素強制圧縮設定 */
                     @media (max-width: 768px) {
-                        /* 1. 横並びコンテナの大枠。はみ出しを絶対に許さない */
+                        /* 1. 横並びの親コンテナ */
                         div[data-testid="stForm"] div[data-testid="stHorizontalBlock"] {
                             flex-direction: row !important;
                             flex-wrap: nowrap !important;
+                            gap: 2px !important; /* 隙間を2pxまで限界まで詰める */
                             width: 100% !important;
-                            max-width: 100% !important;
-                            margin: 0 !important;
-                            padding: 0 !important;
-                            gap: 4px !important; /* 隙間を極限まで小さく */
-                            box-sizing: border-box !important;
+                            overflow: hidden !important; /* 万が一のはみ出しも画面外 for カット */
                         }
                         
-                        /* 2. 各カラムの幅を「ゼロ基準」にして強制的に枠内に収めて均等縮小 */
-                        div[data-testid="stForm"] div[data-testid="stHorizontalBlock"] > div[data-testid="column"] {
-                            flex: 1 1 0px !important; /* 比率だけで計算させる */
+                        /* 2. カラムと、その中にある【すべての要素（マトリョーシカ状態のdiv）】の制限を解除 */
+                        div[data-testid="stForm"] div[data-testid="stHorizontalBlock"] div[data-testid="column"],
+                        div[data-testid="stForm"] div[data-testid="stHorizontalBlock"] div[data-testid="column"] * {
                             min-width: 0 !important;
-                            width: 0 !important; /* ★ここがはみ出し防止の最大の鍵 */
-                            margin: 0 !important;
-                            padding: 0 !important;
+                            max-width: 100% !important;
                             box-sizing: border-box !important;
                         }
                         
-                        /* 3. 入力欄（テキスト・数値）を親カラムの中に100%で押し込む */
+                        /* 3. 入力ウィジェット（テキスト・数値）自体の限界圧縮 */
                         div[data-testid="stForm"] div[data-testid="stHorizontalBlock"] input {
-                            min-width: 0 !important;
-                            max-width: 100% !important;
                             width: 100% !important;
-                            padding: 6px 4px !important;
-                            font-size: 12px !important; /* スマホ用に文字をさらに小さく */
-                            box-sizing: border-box !important;
+                            padding: 4px 2px !important; /* 内側の余白も極限まで削る */
+                            font-size: 13px !important;
                         }
                         
-                        /* 4. 数値入力欄（金額）の無駄な「＋/－」ボタンを消去（継続） */
+                        /* 4. 数値入力のスピンボタン（＋/－）消去 */
                         div[data-testid="stForm"] input[type="number"]::-webkit-inner-spin-button,
                         div[data-testid="stForm"] input[type="number"]::-webkit-outer-spin-button {
                             -webkit-appearance: none !important;
                             margin: 0 !important;
                         }
-                        /* 5. ラベル文字（日付や店舗名など）が長すぎた場合は「...」で省略させる */
-                        div[data-testid="stForm"] div[data-testid="stHorizontalBlock"] label {
-                            font-size: 11px !important;
+                        
+                        /* 5. ラベル（項目名）の折り返し防止 */
+                        div[data-testid="stForm"] div[data-testid="stHorizontalBlock"] label,
+                        div[data-testid="stForm"] div[data-testid="stHorizontalBlock"] label * {
+                            font-size: 10px !important;
                             white-space: nowrap !important;
                             overflow: hidden !important;
-                            text-overflow: ellipsis !important;
                         }
                     }
                 </style>
