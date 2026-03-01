@@ -643,7 +643,7 @@ def main():
             
         # サイドバーメニューの実装
         with st.sidebar:
-            st.subheader("メインメニュー [Ver 2.6.16]")
+            st.subheader("メインメニュー [Ver 2.6.17]")
             st.write(f"🔑 ユーザー: **{st.session_state['username']}**")
             st.markdown("---")
             if 'menu_selection' not in st.session_state:
@@ -1121,90 +1121,42 @@ def main():
                         font-size: 13px !important;
                         margin-bottom: 2px !important;
                     }
-                    /* アプリ全体の背景を白に強制 */
-                    .stApp {
+                    /* 1. 背景色と文字色の強制固定（ライトモード） */
+                    .stApp, div[data-testid="stForm"] {
                         background-color: #ffffff !important;
                         color: #000000 !important;
                     }
-                    /* フォームの枠線を少し細くし、背景を白に */
-                    div[data-testid="stForm"] {
-                        background-color: #ffffff !important;
-                        border: 1px solid #e6e9ef !important;
-                        padding: 1rem !important;
+                    /* 2. フォーム内の【すべての横並びブロック】を強制1行化 */
+                    div[data-testid="stForm"] div[data-testid="stHorizontalBlock"] {
+                        display: flex !important;
+                        flex-direction: row !important;
+                        flex-wrap: nowrap !important;
+                        align-items: flex-end !important;
+                        gap: 4px !important;
+                        width: 100% !important;
                     }
 
-                    /* スマートフォン（画面幅768px以下）用のCSS Grid強制レイアウト */
-                    @media (max-width: 768px) {
-                        /* 上段（日付・店舗名）のカラムを 4:6 の比率で横並び固定 */
-                        div[data-testid="stForm"] > div:nth-child(2) div[data-testid="stHorizontalBlock"] {
-                            display: grid !important;
-                            grid-template-columns: 4fr 6fr !important;
-                            gap: 8px !important;
-                        }
-
-                        /* 下段（詳細入力）の1行収容の完成 */
-                        div[data-testid="stForm"] div[data-testid="manual_items_row"] {
-                            display: grid !important;
-                            grid-template-columns: minmax(0, 5fr) minmax(0, 3fr) 45px !important; 
-                            gap: 2px !important; /* 隙間を2pxまで限界まで詰める */
-                            width: 100% !important;
-                            max-width: 100vw !important;
-                            padding: 0 4px !important;
-                            box-sizing: border-box !important;
-                        }
-                        
-                        /* 各カラムとその中にあるすべての要素の制限を解除 */
-                        div[data-testid="stForm"] div[data-testid="manual_items_row"] div[data-testid="column"],
-                        div[data-testid="stForm"] div[data-testid="manual_items_row"] div[data-testid="column"] * {
-                            min-width: 0 !important;
-                            max-width: 100% !important;
-                            box-sizing: border-box !important;
-                        }
-                        
-                        /* 入力ウィジェット自体の限界圧縮 */
-                        div[data-testid="stForm"] div[data-testid="manual_items_row"] input {
-                            width: 100% !important;
-                            padding: 4px 2px !important; /* 内側の余白を極限まで削る */
-                            font-size: 13px !important;
-                        }
-                        
-                        /* 数値入力のスピンボタン（＋/－）完全消去 */
-                        div[data-testid="stForm"] input[type="number"]::-webkit-inner-spin-button,
-                        div[data-testid="stForm"] input[type="number"]::-webkit-outer-spin-button {
-                            -webkit-appearance: none !important;
-                            margin: 0 !important;
-                        }
-                        
-                        /* ラベル（項目名）の折り返し防止 */
-                        div[data-testid="stForm"] div[data-testid="manual_items_row"] label,
-                        div[data-testid="stForm"] div[data-testid="manual_items_row"] label * {
-                            font-size: 10px !important;
-                            white-space: nowrap !important;
-                            overflow: hidden !important;
-                        }
-                        /* 削除ボタンの調整 */
-                        div[data-testid="stForm"] div[data-testid="manual_items_row"] button {
-                            width: 100% !important;
-                            min-width: 0 !important;
-                            padding: 4px !important;
-                            height: 100% !important;
-                        }
+                    /* 3. カラムの幅を「内容に合わせて縮小」させる */
+                    div[data-testid="stForm"] div[data-testid="stHorizontalBlock"] > div[data-testid="column"] {
+                        flex: 1 1 0px !important;
+                        min-width: 0 !important;
                     }
 
-                    /* --- ボタンのカラー設定 --- */
-                    /* 登録ボタン（Primary）を赤色に */
-                    div[data-testid="stForm"] button[kind="primary"] {
-                        background-color: #dc3545 !important;
-                        border-color: #dc3545 !important;
-                        color: white !important;
-                        font-weight: bold !important;
+                    /* 4. 入力欄（input）の余白を削ってさらに圧縮 */
+                    div[data-testid="stForm"] input {
+                        padding: 4px 2px !important;
+                        font-size: 14px !important;
                     }
-                    /* キャンセルボタン（Secondary/Normal）を白（通常）に */
-                    div[data-testid="stForm"] button[kind="secondary"] {
-                        background-color: #ffffff !important;
-                        border-color: #cccccc !important;
-                        color: #333333 !important;
-                        font-weight: normal !important;
+
+                    /* 5. ボタン専用の調整（2つ並んだ時に文字がはみ出さないよう調整） */
+                    div[data-testid="stForm"] button p {
+                        font-size: 12px !important;
+                        white-space: nowrap !important;
+                    }
+
+                    /* 6. 数値入力の＋/－ボタンを非表示（スペース確保） */
+                    div[data-testid="stForm"] input[type="number"]::-webkit-inner-spin-button {
+                        -webkit-appearance: none !important;
                     }
                 </style>
             """, unsafe_allow_html=True)
@@ -1224,20 +1176,16 @@ def main():
                 
                 updated_items = []
                 for i, item in enumerate(st.session_state.manual_input_items):
-                    # スマホ用CSSから特定できるよう、コンテナで囲む
-                    with st.container():
-                        st.markdown('<div data-testid="manual_items_row">', unsafe_allow_html=True)
-                        c1, c2, c3 = st.columns([5, 3, 1.5])
-                        with c1:
-                            iname = st.text_input(f"商品名 {i+1}", value=item["name"], key=f"mi_n_{i}_{fid}", label_visibility="collapsed", placeholder="商品名")
-                        with c2:
-                            iamount = st.number_input(f"金額 {i+1}", value=int(item["amount"]), step=1, key=f"mi_a_{i}_{fid}", label_visibility="collapsed")
-                        with c3:
-                            if st.form_submit_button("🗑️" if len(st.session_state.manual_input_items) > 1 else "×", disabled=len(st.session_state.manual_input_items) <= 1, key=f"mi_del_{i}_{fid}"):
-                                st.session_state.manual_input_items.pop(i)
-                                st.rerun()
-                        updated_items.append({"name": iname, "amount": iamount})
-                        st.markdown('</div>', unsafe_allow_html=True)
+                    c1, c2, c3 = st.columns([5, 3, 1.5])
+                    with c1:
+                        iname = st.text_input(f"商品名 {i+1}", value=item["name"], key=f"mi_n_{i}_{fid}", label_visibility="collapsed", placeholder="商品名")
+                    with c2:
+                        iamount = st.number_input(f"金額 {i+1}", value=int(item["amount"]), step=1, key=f"mi_a_{i}_{fid}", label_visibility="collapsed")
+                    with c3:
+                        if st.form_submit_button("🗑️" if len(st.session_state.manual_input_items) > 1 else "×", disabled=len(st.session_state.manual_input_items) <= 1, key=f"mi_del_{i}_{fid}"):
+                            st.session_state.manual_input_items.pop(i)
+                            st.rerun()
+                    updated_items.append({"name": iname, "amount": iamount})
                 
                 st.session_state.manual_input_items = updated_items
                 
@@ -1249,11 +1197,12 @@ def main():
                         st.rerun()
                 
                 st.write("")
-                col_btn_left, col_btn_right = st.columns(2)
-                with col_btn_left:
-                    submit_manual = st.form_submit_button("この内容で登録する", use_container_width=True, type="primary") # 赤(Primary)
-                with col_btn_right:
-                    cancel_manual = st.form_submit_button("キャンセル", type="secondary", use_container_width=True) # 白(Secondary)
+                col_btn_l, col_btn_r = st.columns(2)
+                with col_btn_l:
+                    submit_manual = st.form_submit_button("登録", use_container_width=True, type="primary")
+                with col_btn_r:
+                    if st.button("戻る", use_container_width=True):
+                        st.rerun()
 
                 if submit_manual:
                     if not input_store:
