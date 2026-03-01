@@ -643,7 +643,7 @@ def main():
             
         # サイドバーメニューの実装
         with st.sidebar:
-            st.subheader("メインメニュー [Ver 2.6.13]")
+            st.subheader("メインメニュー [Ver 2.6.14]")
             st.write(f"🔑 ユーザー: **{st.session_state['username']}**")
             st.markdown("---")
             if 'menu_selection' not in st.session_state:
@@ -1128,42 +1128,49 @@ def main():
                         min-height: 0 !important;
                     }
 
-                    /* スマートフォン（画面幅768px以下）用のフォーム内・最適化設定 */
+                    /* スマートフォン（画面幅768px以下）用のCSS Grid強制レイアウト */
                     @media (max-width: 768px) {
-                        /* 1. 横並び強制＋横スクロールの復活（安全装置） */
+                        /* 1. Flexboxを捨て、絶対的なGridで親枠を分割する */
                         div[data-testid="stForm"] div[data-testid="stHorizontalBlock"] {
-                            flex-direction: row !important;
-                            flex-wrap: nowrap !important;
-                            overflow-x: auto !important; /* スクロールを復活 */
-                            overflow-y: hidden !important;
+                            display: grid !important;
+                            /* 商品名:金額:ボタン = 5:3:固定(45px) の絶対比率で分割 */
+                            grid-template-columns: minmax(0, 5fr) minmax(0, 3fr) 45px !important; 
                             gap: 4px !important;
-                            padding-bottom: 5px !important; /* スクロールバーの余白 */
+                            width: 100% !important;
+                            max-width: 100vw !important;
+                            padding: 0 4px !important;
+                            box-sizing: border-box !important;
                         }
                         
-                        /* 2. カラムの幅制約をリセット */
+                        /* 2. 各カラムはGridの枠に100%従わせる */
                         div[data-testid="stForm"] div[data-testid="stHorizontalBlock"] > div[data-testid="column"] {
-                            min-width: 0 !important;
-                        }
-                        /* 3. 真犯人「Base Web」コンテナの最小幅を強制解除 */
-                        div[data-baseweb="input"],
-                        div[data-baseweb="base-input"],
-                        div[data-baseweb="select"] {
-                            min-width: 0 !important;
                             width: 100% !important;
-                        }
-                        /* 4. 入力欄自体の圧縮（スマホでタップしやすい14pxに設定） */
-                        div[data-testid="stForm"] input {
                             min-width: 0 !important;
-                            padding: 6px 4px !important;
-                            font-size: 14px !important; 
+                            margin: 0 !important;
+                            padding: 0 !important;
                         }
-                        /* 5. 削除ボタンの余白を削る */
+                        /* 3. Base WebコンテナもGrid枠内に強制収容 */
+                        div[data-baseweb="input"],
+                        div[data-baseweb="base-input"] {
+                            width: 100% !important;
+                            min-width: 0 !important;
+                        }
+                        /* 4. 入力欄自体の限界圧縮（はみ出し防止） */
+                        div[data-testid="stForm"] input {
+                            width: 100% !important;
+                            min-width: 0 !important;
+                            padding: 8px 4px !important;
+                            font-size: 13px !important;
+                            box-sizing: border-box !important;
+                        }
+                        /* 5. 削除ボタンの調整（固定枠に収める） */
                         div[data-testid="stForm"] div[data-testid="stHorizontalBlock"] button {
+                            width: 100% !important;
                             min-width: 0 !important;
                             padding: 4px !important;
-                            width: 100% !important;
+                            height: 100% !important; /* 横の入力欄と高さを揃える */
                         }
-                        /* 6. 数値入力のスピンボタン（＋/－）消去 */
+                        /* 6. 数値入力のスピンボタン（＋/－）完全消去 */
                         div[data-testid="stForm"] input[type="number"]::-webkit-inner-spin-button,
                         div[data-testid="stForm"] input[type="number"]::-webkit-outer-spin-button {
                             -webkit-appearance: none !important;
