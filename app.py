@@ -643,7 +643,7 @@ def main():
             
         # サイドバーメニューの実装
         with st.sidebar:
-            st.subheader("メインメニュー [Ver 2.6.1]")
+            st.subheader("メインメニュー [Ver 2.6.2]")
             st.write(f"🔑 ユーザー: **{st.session_state['username']}**")
             st.markdown("---")
             if 'menu_selection' not in st.session_state:
@@ -1103,7 +1103,12 @@ def main():
                     with c1:
                         iname = st.text_input(f"商品名 {i+1}", value=item["name"], key=f"mi_n_{i}", label_visibility="collapsed", placeholder="商品名")
                     with c2:
-                        iamount = st.number_input(f"金額 {i+1}", value=int(item["amount"]), step=1, key=f"mi_a_{i}", label_visibility="collapsed")
+                        # 金額の +/- ボタンをなくすため text_input を使用し、数値に変換
+                        iamount_str = st.text_input(f"金額 {i+1}", value=str(item["amount"]), key=f"mi_a_{i}", label_visibility="collapsed", placeholder="金額")
+                        try:
+                            iamount = int(iamount_str) if iamount_str.isdigit() else 0
+                        except:
+                            iamount = 0
                     with c3:
                         if st.form_submit_button("🗑️" if len(st.session_state.manual_input_items) > 1 else "×", disabled=len(st.session_state.manual_input_items) <= 1, key=f"mi_del_{i}"):
                             st.session_state.manual_input_items.pop(i)
@@ -1127,19 +1132,20 @@ def main():
                     cancel_manual = st.form_submit_button("キャンセル", type="secondary", use_container_width=True)
 
                 if cancel_manual:
+                    # 全てリセットして初期画面（手入力）に戻る
                     st.session_state.manual_input_items = [{"name": "", "amount": 0}]
                     st.session_state.manual_input_store = ""
-                    st.session_state.menu_selection = "ダッシュボード"
+                    st.session_state.manual_input_date = datetime.today()
                     st.rerun()
 
                 if submit_manual:
                     if not input_store:
                         st.error("店舗名を入力してください。")
-                    elif any(not itm["name"] or itm["amount"] <= 0 for itm in st.session_state.manual_input_items):
-                        st.error("商品名と金額（1円以上）を正しく入力してください。")
+                    elif any(not itm["name"] or itm["amount"] < 0 for itm in st.session_state.manual_input_items):
+                        st.error("商品名と金額（0円以上）を正しく入力してください。")
                     else:
                         with st.spinner("AIがカテゴリを判定中..."):
-                            # AIでカテゴリ判定
+                            # 登録ボタン押下時に全明細の解析を実行
                             item_names = [itm["name"] for itm in st.session_state.manual_input_items]
                             categories = categorize_items_with_ai(item_names, input_store)
                             
@@ -1148,7 +1154,6 @@ def main():
                                 init_transactions_sheet(sheet)
                                 
                                 for itm, cat in zip(st.session_state.manual_input_items, categories):
-                                    # 判定結果の整理（見つからない場合はデフォルト）
                                     major = cat.get("major_category", "その他")
                                     minor = cat.get("minor_category", "📁未分類")
                                     
@@ -1164,8 +1169,10 @@ def main():
                                     sheet.append_row(row_data)
                                 
                                 st.success(f"✅ {len(st.session_state.manual_input_items)}件のデータを登録しました！")
+                                # 全てリセットして初期画面に戻る
                                 st.session_state.manual_input_items = [{"name": "", "amount": 0}]
                                 st.session_state.manual_input_store = ""
+                                st.session_state.manual_input_date = datetime.today()
                                 import time
                                 time.sleep(1.5)
                                 st.rerun()
