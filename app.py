@@ -643,7 +643,7 @@ def main():
             
         # サイドバーメニューの実装
         with st.sidebar:
-            st.subheader("メインメニュー [Ver 2.6.6]")
+            st.subheader("メインメニュー [Ver 2.6.7]")
             st.write(f"🔑 ユーザー: **{st.session_state['username']}**")
             st.markdown("---")
             if 'menu_selection' not in st.session_state:
@@ -1105,9 +1105,25 @@ def main():
                     input[type=number] {
                         -moz-appearance: textfield;
                     }
-                    /* 店舗名・商品名入力欄はIMEを有効に（ブラウザ依存） */
-                    input[placeholder="店舗名"], input[placeholder="商品名"] {
-                        ime-mode: active !important;
+                    /* 入力欄全体を極限までコンパクトにする (1/3程度に) */
+                    div[data-testid="stTextInput"] input, 
+                    div[data-testid="stNumberInput"] input, 
+                    div[data-testid="stDateInput"] input {
+                        padding: 2px 8px !important;
+                        min-height: 28px !important; /* 通常の約1/3を目標に */
+                        font-size: 14px !important;
+                        line-height: 1.2 !important;
+                    }
+                    /* 各入力項目のラベルの余白も削る */
+                    div[data-testid="stWidgetLabel"] p {
+                        font-size: 13px !important;
+                        margin-bottom: 2px !important;
+                    }
+                    /* ボタン類も少し小さくしてバランスを取る */
+                    div[data-testid="stBaseButton-secondaryFormSubmit"], 
+                    div[data-testid="stBaseButton-primaryFormSubmit"] {
+                        padding: 2px 10px !important;
+                        min-height: 0 !important;
                     }
 
                     /* スマホ縦画面での一行表示対応 */
