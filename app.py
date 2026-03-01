@@ -643,7 +643,7 @@ def main():
             
         # サイドバーメニューの実装
         with st.sidebar:
-            st.subheader("メインメニュー [Ver 2.6.0]")
+            st.subheader("メインメニュー [Ver 2.6.1]")
             st.write(f"🔑 ユーザー: **{st.session_state['username']}**")
             st.markdown("---")
             if 'menu_selection' not in st.session_state:
@@ -1105,7 +1105,7 @@ def main():
                     with c2:
                         iamount = st.number_input(f"金額 {i+1}", value=int(item["amount"]), step=1, key=f"mi_a_{i}", label_visibility="collapsed")
                     with c3:
-                        if st.form_submit_button("🗑️" if len(st.session_state.manual_input_items) > 1 else "×", disabled=len(st.session_state.manual_input_items) <= 1):
+                        if st.form_submit_button("🗑️" if len(st.session_state.manual_input_items) > 1 else "×", disabled=len(st.session_state.manual_input_items) <= 1, key=f"mi_del_{i}"):
                             st.session_state.manual_input_items.pop(i)
                             st.rerun()
                     updated_items.append({"name": iname, "amount": iamount})
