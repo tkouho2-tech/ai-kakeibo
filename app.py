@@ -643,7 +643,7 @@ def main():
             
         # サイドバーメニューの実装
         with st.sidebar:
-            st.subheader("メインメニュー [Ver 2.6.5]")
+            st.subheader("メインメニュー [Ver 2.6.6]")
             st.write(f"🔑 ユーザー: **{st.session_state['username']}**")
             st.markdown("---")
             if 'menu_selection' not in st.session_state:
@@ -1076,9 +1076,6 @@ def main():
         elif menu_selection == "レシート手入力":
             st.markdown("#### 📝 レシート手入力")
             
-            # 共通ナビゲーションの適用
-            _ = render_month_navigation()
-            
             # セッション状態で入力を管理
             if 'manual_input_form_id' not in st.session_state:
                 st.session_state.manual_input_form_id = 0
@@ -1111,6 +1108,33 @@ def main():
                     /* 店舗名・商品名入力欄はIMEを有効に（ブラウザ依存） */
                     input[placeholder="店舗名"], input[placeholder="商品名"] {
                         ime-mode: active !important;
+                    }
+
+                    /* スマホ縦画面での一行表示対応 */
+                    @media (max-width: 640px) {
+                        /* カラムの隙間を最小限に */
+                        div[data-testid="column"] {
+                            padding-left: 2px !important;
+                            padding-right: 2px !important;
+                            min-width: 0 !important;
+                            flex: 1 1 0% !important;
+                        }
+                        /* 商品名カラムを広めに、金額を適度に、削除ボタンを最小に */
+                        div[data-testid="stHorizontalBlock"] > div:nth-child(1) {
+                            flex: 3 1 0% !important;
+                        }
+                        div[data-testid="stHorizontalBlock"] > div:nth-child(2) {
+                            flex: 2 1 0% !important;
+                        }
+                        div[data-testid="stHorizontalBlock"] > div:nth-child(3) {
+                            flex: 1 1 0% !important;
+                            min-width: 45px !important;
+                        }
+                        /* 入力欄のパディングを調整してさらに詰め込む */
+                        div[data-testid="stNumberInput"] input, div[data-testid="stTextInput"] input {
+                            padding: 4px 8px !important;
+                            font-size: 14px !important;
+                        }
                     }
                 </style>
             """, unsafe_allow_html=True)
