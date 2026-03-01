@@ -643,7 +643,7 @@ def main():
             
         # サイドバーメニューの実装
         with st.sidebar:
-            st.subheader("メインメニュー [Ver 2.6.3]")
+            st.subheader("メインメニュー [Ver 2.6.4]")
             st.write(f"🔑 ユーザー: **{st.session_state['username']}**")
             st.markdown("---")
             if 'menu_selection' not in st.session_state:
@@ -1137,9 +1137,11 @@ def main():
                     for k in list(st.session_state.keys()):
                         if k.startswith("mi_n_") or k.startswith("mi_a_") or k.startswith("mi_del_"):
                             del st.session_state[k]
+                    # 初期状態（1行、空）にする
                     st.session_state.manual_input_items = [{"name": "", "amount": 0}]
                     st.session_state.manual_input_store = ""
                     st.session_state.manual_input_date = datetime.today()
+                    # メニュー自体を再選択したように rerun する（手入力画面は維持される）
                     st.rerun()
 
                 if submit_manual:
@@ -1178,11 +1180,14 @@ def main():
                                 for k in list(st.session_state.keys()):
                                     if k.startswith("mi_n_") or k.startswith("mi_a_") or k.startswith("mi_del_"):
                                         del st.session_state[k]
+                                # 初期状態（1行、空）にする
                                 st.session_state.manual_input_items = [{"name": "", "amount": 0}]
                                 st.session_state.manual_input_store = ""
                                 st.session_state.manual_input_date = datetime.today()
+                                
                                 import time
                                 time.sleep(1.5)
+                                # メニュー自体を再選択したように rerun する
                                 st.rerun()
                             except Exception as e:
                                 st.error(f"登録エラー: {e}")
