@@ -643,7 +643,7 @@ def main():
             
         # サイドバーメニューの実装
         with st.sidebar:
-            st.subheader("メインメニュー [Ver 2.6.8]")
+            st.subheader("メインメニュー [Ver 2.6.9]")
             st.write(f"🔑 ユーザー: **{st.session_state['username']}**")
             st.markdown("---")
             if 'menu_selection' not in st.session_state:
@@ -1126,27 +1126,44 @@ def main():
                         min-height: 0 !important;
                     }
 
-                    /* スマートフォン（画面幅768px以下）用のフォーム内横並び強制設定 */
+                    /* スマートフォン（画面幅768px以下）用のフォーム内完全圧縮設定 */
                     @media (max-width: 768px) {
-                        /* フォーム内のカラムの縦積みを禁止し、横並びを強制 */
+                        /* 1. カラムの隙間（gap）を極限まで減らし、横並びを維持 */
                         div[data-testid="stForm"] div[data-testid="stHorizontalBlock"] {
                             flex-direction: row !important;
                             flex-wrap: nowrap !important;
-                            align-items: flex-end !important; /* 入力欄と削除ボタンの縦位置を揃える */
+                            gap: 4px !important; /* カラム間の隙間を最小化 */
+                            width: 100% !important; /* 画面幅を超えないように強制 */
+                            align-items: flex-end !important;
                         }
                         
-                        /* 各カラムがスマホ画面で100%の幅になるのを防ぎ、比率を維持して縮小させる */
+                        /* 2. 各カラムの「最低幅」の制限を解除し、縮小可能にする */
                         div[data-testid="stForm"] div[data-testid="stHorizontalBlock"] > div[data-testid="column"] {
-                            width: auto !important;
-                            flex: 1 1 0% !important; /* 基本は均等割り（Python側の重み付けが優先される） */
-                            min-width: 0 !important;
-                            padding-right: 0.5rem !important; /* スマホ用に隙間を少し詰める */
+                            min-width: 0 !important; /* ★ここが一番重要（強制縮小） */
+                            padding: 0 !important;
                         }
                         
-                        /* スマホ画面に合わせて入力欄の文字サイズを少し小さくし、見切れを防ぐ */
-                        div[data-testid="stForm"] input {
-                            font-size: 14px !important;
-                            padding: 2px 4px !important; /* コンパクト設定を優先 (元は8px 4px) */
+                        /* 3. 入力欄（テキスト・数値）自体のパディングと文字サイズを縮小 */
+                        div[data-testid="stForm"] div[data-testid="stHorizontalBlock"] input {
+                            min-width: 0 !important;
+                            width: 100% !important;
+                            padding: 6px 4px !important;
+                            font-size: 13px !important;
+                        }
+                        
+                        /* 4. 数値入力欄（金額）の無駄な「＋/－」ボタンを消去してスペースを確保 */
+                        div[data-testid="stForm"] input[type="number"]::-webkit-inner-spin-button,
+                        div[data-testid="stForm"] input[type="number"]::-webkit-outer-spin-button {
+                            -webkit-appearance: none !important;
+                            margin: 0 !important;
+                        }
+                        
+                        /* 5. 削除ボタンの左右の余白を削る */
+                        div[data-testid="stForm"] div[data-testid="stHorizontalBlock"] button {
+                            padding-left: 0 !important;
+                            padding-right: 0 !important;
+                            min-width: 0 !important;
+                            width: 100% !important;
                         }
                     }
                 </style>
