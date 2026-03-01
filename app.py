@@ -1198,62 +1198,14 @@ def main():
                 
                 st.write("")
                 col_btn_l, col_btn_r = st.columns(2)
-                with col_btn_l:
-                    submit_manual = st.form_submit_button("登録", use_container_width=True, type="primary")
                 with col_btn_r:
                     if st.button("戻る", use_container_width=True):
+                        # フォームIDを更新して初期状態に戻す
+                        st.session_state.manual_input_form_id += 1
+                        st.session_state.manual_input_items = [{"name": "", "amount": 0}]
+                        st.session_state.manual_input_store = ""
+                        st.session_state.manual_input_date = datetime.today()
                         st.rerun()
-
-                if submit_manual:
-                    if not input_store:
-                        st.error("店舗名を入力してください。")
-                    elif any(not itm["name"] or itm["amount"] < 0 for itm in st.session_state.manual_input_items):
-                        st.error("商品名と金額（0円以上）を正しく入力してください。")
-                    else:
-                        with st.spinner("AIがカテゴリを判定中..."):
-                            # 登録ボタン押下時に全明細の解析を実行
-                            item_names = [itm["name"] for itm in st.session_state.manual_input_items]
-                            categories = categorize_items_with_ai(item_names, input_store)
-                            
-                            try:
-                                sheet = get_sheet(TRANSACTIONS_WORKSHEET_NAME)
-                                init_transactions_sheet(sheet)
-                                
-                                for itm, cat in zip(st.session_state.manual_input_items, categories):
-                                    major = cat.get("major_category", "その他")
-                                    minor = cat.get("minor_category", "📁未分類")
-                                    
-                                    row_data = [
-                                        st.session_state['username'],
-                                        input_date.strftime('%Y-%m-%d'),
-                                        input_store,
-                                        itm["name"],
-                                        major,
-                                        minor,
-                                        int(itm["amount"])
-                                    ]
-                                    sheet.append_row(row_data)
-                                
-                                st.success(f"✅ {len(st.session_state.manual_input_items)}件のデータを登録しました！")
-                                # フォームIDを更新して全ウィジェットを強制リセット
-                                st.session_state.manual_input_form_id += 1
-                                st.session_state.manual_input_items = [{"name": "", "amount": 0}]
-                                st.session_state.manual_input_store = ""
-                                st.session_state.manual_input_date = datetime.today()
-                                
-                                import time
-                                time.sleep(1.5)
-                                st.rerun()
-                            except Exception as e:
-                                st.error(f"登録エラー: {e}")
-
-                if cancel_manual:
-                    # フォームIDを更新して初期状態に戻す
-                    st.session_state.manual_input_form_id += 1
-                    st.session_state.manual_input_items = [{"name": "", "amount": 0}]
-                    st.session_state.manual_input_store = ""
-                    st.session_state.manual_input_date = datetime.today()
-                    st.rerun()
         elif menu_selection == "レシート修正":
             st.markdown("#### ⚙️ レシート修正")
             
