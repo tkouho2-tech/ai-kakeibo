@@ -643,7 +643,7 @@ def main():
             
         # サイドバーメニューの実装
         with st.sidebar:
-            st.subheader("メインメニュー [Ver 2.6.4]")
+            st.subheader("メインメニュー [Ver 2.6.5]")
             st.write(f"🔑 ユーザー: **{st.session_state['username']}**")
             st.markdown("---")
             if 'menu_selection' not in st.session_state:
@@ -1080,6 +1080,8 @@ def main():
             _ = render_month_navigation()
             
             # セッション状態で入力を管理
+            if 'manual_input_form_id' not in st.session_state:
+                st.session_state.manual_input_form_id = 0
             if 'manual_input_items' not in st.session_state:
                 st.session_state.manual_input_items = [{"name": "", "amount": 0}]
             if 'manual_input_date' not in st.session_state:
@@ -1087,12 +1089,41 @@ def main():
             if 'manual_input_store' not in st.session_state:
                 st.session_state.manual_input_store = ""
 
-            with st.form("manual_input_form", clear_on_submit=False):
+            # IME制御とnumber_inputのボタン隠し用CSS
+            st.markdown("""
+                <style>
+                    /* 金額入力欄（number_input）の +/- ボタンを非表示にする */
+                    div[data-testid="stNumberInput"] button {
+                        display: none !important;
+                    }
+                    div[data-testid="stNumberInput"] input {
+                        ime-mode: disabled !important;
+                    }
+                    /* ブラウザ標準のスピンボタンも非表示にする */
+                    input[type=number]::-webkit-inner-spin-button, 
+                    input[type=number]::-webkit-outer-spin-button { 
+                        -webkit-appearance: none; 
+                        margin: 0; 
+                    }
+                    input[type=number] {
+                        -moz-appearance: textfield;
+                    }
+                    /* 店舗名・商品名入力欄はIMEを有効に（ブラウザ依存） */
+                    input[placeholder="店舗名"], input[placeholder="商品名"] {
+                        ime-mode: active !important;
+                    }
+                </style>
+            """, unsafe_allow_html=True)
+
+            fid = st.session_state.manual_input_form_id
+            with st.form(f"manual_input_form_{fid}", clear_on_submit=False):
                 col_d, col_s = st.columns(2)
                 with col_d:
-                    input_date = st.date_input("日付", value=st.session_state.manual_input_date)
+                    # keyを追加してリセット可能にする
+                    input_date = st.date_input("日付", value=st.session_state.manual_input_date, key=f"mi_d_{fid}")
                 with col_s:
-                    input_store = st.text_input("店舗名", value=st.session_state.manual_input_store)
+                    # keyを追加してリセット可能にする
+                    input_store = st.text_input("店舗名", value=st.session_state.manual_input_store, key=f"mi_s_{fid}", placeholder="店舗名")
                 
                 st.write("---")
                 st.write("**明細入力**")
@@ -1101,16 +1132,13 @@ def main():
                 for i, item in enumerate(st.session_state.manual_input_items):
                     c1, c2, c3 = st.columns([3, 2, 1])
                     with c1:
-                        iname = st.text_input(f"商品名 {i+1}", value=item["name"], key=f"mi_n_{i}", label_visibility="collapsed", placeholder="商品名")
+                        iname = st.text_input(f"商品名 {i+1}", value=item["name"], key=f"mi_n_{i}_{fid}", label_visibility="collapsed", placeholder="商品名")
                     with c2:
-                        # 金額の +/- ボタンをなくすため text_input を使用し、数値に変換
-                        iamount_str = st.text_input(f"金額 {i+1}", value=str(item["amount"]), key=f"mi_a_{i}", label_visibility="collapsed", placeholder="金額")
-                        try:
-                            iamount = int(iamount_str) if iamount_str.isdigit() else 0
-                        except:
-                            iamount = 0
+                        # 金額入力: number_input を使用（IME半角優先のため。ボタンはCSSで隠す）
+                        iamount = st.number_input(f"金額 {i+1}", value=int(item["amount"]), step=1, key=f"mi_a_{i}_{fid}", label_visibility="collapsed")
                     with c3:
-                        if st.form_submit_button("🗑️" if len(st.session_state.manual_input_items) > 1 else "×", disabled=len(st.session_state.manual_input_items) <= 1, key=f"mi_del_{i}"):
+                        if st.form_submit_button("🗑️" if len(st.session_state.manual_input_items) > 1 else "×", disabled=len(st.session_state.manual_input_items) <= 1, key=f"mi_del_{i}_{fid}"):
+                            # 削除時は items を更新して rerun (form_idは変えない)
                             st.session_state.manual_input_items.pop(i)
                             st.rerun()
                     updated_items.append({"name": iname, "amount": iamount})
@@ -1130,19 +1158,6 @@ def main():
                     submit_manual = st.form_submit_button("登録", type="primary", use_container_width=True)
                 with col_act2:
                     cancel_manual = st.form_submit_button("キャンセル", type="secondary", use_container_width=True)
-
-                if cancel_manual:
-                    # 全てリセットして初期画面（手入力）に戻る
-                    # ウィジェットのキーも明示的に削除してリセットを確実にする
-                    for k in list(st.session_state.keys()):
-                        if k.startswith("mi_n_") or k.startswith("mi_a_") or k.startswith("mi_del_"):
-                            del st.session_state[k]
-                    # 初期状態（1行、空）にする
-                    st.session_state.manual_input_items = [{"name": "", "amount": 0}]
-                    st.session_state.manual_input_store = ""
-                    st.session_state.manual_input_date = datetime.today()
-                    # メニュー自体を再選択したように rerun する（手入力画面は維持される）
-                    st.rerun()
 
                 if submit_manual:
                     if not input_store:
@@ -1175,22 +1190,25 @@ def main():
                                     sheet.append_row(row_data)
                                 
                                 st.success(f"✅ {len(st.session_state.manual_input_items)}件のデータを登録しました！")
-                                # 全てリセットして初期画面に戻る
-                                # ウィジェットのキーも明示的に削除
-                                for k in list(st.session_state.keys()):
-                                    if k.startswith("mi_n_") or k.startswith("mi_a_") or k.startswith("mi_del_"):
-                                        del st.session_state[k]
-                                # 初期状態（1行、空）にする
+                                # フォームIDを更新して全ウィジェットを強制リセット
+                                st.session_state.manual_input_form_id += 1
                                 st.session_state.manual_input_items = [{"name": "", "amount": 0}]
                                 st.session_state.manual_input_store = ""
                                 st.session_state.manual_input_date = datetime.today()
                                 
                                 import time
                                 time.sleep(1.5)
-                                # メニュー自体を再選択したように rerun する
                                 st.rerun()
                             except Exception as e:
                                 st.error(f"登録エラー: {e}")
+
+                if cancel_manual:
+                    # フォームIDを更新して初期状態に戻す
+                    st.session_state.manual_input_form_id += 1
+                    st.session_state.manual_input_items = [{"name": "", "amount": 0}]
+                    st.session_state.manual_input_store = ""
+                    st.session_state.manual_input_date = datetime.today()
+                    st.rerun()
         elif menu_selection == "レシート修正":
             st.markdown("#### ⚙️ レシート修正")
             
