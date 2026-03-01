@@ -456,6 +456,47 @@ JSONの出力形式は以下を厳守してください。マークダウンの 
     except Exception as e:
         return {"error": str(e)}
 
+def categorize_items_with_ai(items, store_name):
+    """商品名リストと店舗名から、Gemini APIを使用してカテゴリを自動判別する"""
+    client = st.session_state.get('genai_client')
+    if not client:
+        return [{"major_category": "その他", "minor_category": "📁未分類"} for _ in items]
+        
+    prompt = f"""
+以下の店舗で購入した商品のリストについて、それぞれの大分類と小分類を判定してJSONで返してください。
+
+店舗名: {store_name}
+
+【カテゴリシステム: 大分類と小分類のリスト】
+{get_categories_prompt_text()}
+
+入力商品リスト:
+{json.dumps(items, ensure_ascii=False)}
+
+出力形式 (JSON配列のみ):
+[
+  {{"item_name": "商品名", "major_category": "大分類", "minor_category": "小分類"}},
+  ...
+]
+"""
+    try:
+        response = safe_gemini_call(
+            client.models.generate_content,
+            model='gemini-2.5-flash',
+            contents=[prompt]
+        )
+        response_text = response.text.strip()
+        # JSON部分の抽出
+        if "```json" in response_text:
+            response_text = response_text.split("```json")[1].split("```")[0].strip()
+        elif "```" in response_text:
+            response_text = response_text.split("```")[1].split("```")[0].strip()
+            
+        return json.loads(response_text)
+    except Exception:
+        # エラー時は「その他」で返す
+        return [{"major_category": "その他", "minor_category": "📁未分類"} for _ in items]
+
 # ---------- ページUIの実装 ----------
 def show_dashboard():
     # ヘッダーを表示するためのプレースホルダー（コンテナ）を先に準備
@@ -602,7 +643,7 @@ def main():
             
         # サイドバーメニューの実装
         with st.sidebar:
-            st.subheader("メインメニュー [Ver 2.5.7]")
+            st.subheader("メインメニュー [Ver 2.6.0]")
             st.write(f"🔑 ユーザー: **{st.session_state['username']}**")
             st.markdown("---")
             if 'menu_selection' not in st.session_state:
@@ -1038,7 +1079,98 @@ def main():
             # 共通ナビゲーションの適用
             _ = render_month_navigation()
             
-            st.info("準備中: 手動でのレシート入力機能は今後のフェーズで実装されます。")
+            # セッション状態で入力を管理
+            if 'manual_input_items' not in st.session_state:
+                st.session_state.manual_input_items = [{"name": "", "amount": 0}]
+            if 'manual_input_date' not in st.session_state:
+                st.session_state.manual_input_date = datetime.today()
+            if 'manual_input_store' not in st.session_state:
+                st.session_state.manual_input_store = ""
+
+            with st.form("manual_input_form", clear_on_submit=False):
+                col_d, col_s = st.columns(2)
+                with col_d:
+                    input_date = st.date_input("日付", value=st.session_state.manual_input_date)
+                with col_s:
+                    input_store = st.text_input("店舗名", value=st.session_state.manual_input_store)
+                
+                st.write("---")
+                st.write("**明細入力**")
+                
+                updated_items = []
+                for i, item in enumerate(st.session_state.manual_input_items):
+                    c1, c2, c3 = st.columns([3, 2, 1])
+                    with c1:
+                        iname = st.text_input(f"商品名 {i+1}", value=item["name"], key=f"mi_n_{i}", label_visibility="collapsed", placeholder="商品名")
+                    with c2:
+                        iamount = st.number_input(f"金額 {i+1}", value=int(item["amount"]), step=1, key=f"mi_a_{i}", label_visibility="collapsed")
+                    with c3:
+                        if st.form_submit_button("🗑️" if len(st.session_state.manual_input_items) > 1 else "×", disabled=len(st.session_state.manual_input_items) <= 1):
+                            st.session_state.manual_input_items.pop(i)
+                            st.rerun()
+                    updated_items.append({"name": iname, "amount": iamount})
+                
+                st.session_state.manual_input_items = updated_items
+                
+                # ボタン類
+                col_btn1, col_btn2, col_btn3 = st.columns([1, 1, 1])
+                with col_btn1:
+                    if st.form_submit_button("➕ 行を追加", use_container_width=True):
+                        st.session_state.manual_input_items.append({"name": "", "amount": 0})
+                        st.rerun()
+                
+                st.write("")
+                col_act1, col_act2 = st.columns(2)
+                with col_act1:
+                    submit_manual = st.form_submit_button("登録", type="primary", use_container_width=True)
+                with col_act2:
+                    cancel_manual = st.form_submit_button("キャンセル", type="secondary", use_container_width=True)
+
+                if cancel_manual:
+                    st.session_state.manual_input_items = [{"name": "", "amount": 0}]
+                    st.session_state.manual_input_store = ""
+                    st.session_state.menu_selection = "ダッシュボード"
+                    st.rerun()
+
+                if submit_manual:
+                    if not input_store:
+                        st.error("店舗名を入力してください。")
+                    elif any(not itm["name"] or itm["amount"] <= 0 for itm in st.session_state.manual_input_items):
+                        st.error("商品名と金額（1円以上）を正しく入力してください。")
+                    else:
+                        with st.spinner("AIがカテゴリを判定中..."):
+                            # AIでカテゴリ判定
+                            item_names = [itm["name"] for itm in st.session_state.manual_input_items]
+                            categories = categorize_items_with_ai(item_names, input_store)
+                            
+                            try:
+                                sheet = get_sheet(TRANSACTIONS_WORKSHEET_NAME)
+                                init_transactions_sheet(sheet)
+                                
+                                for itm, cat in zip(st.session_state.manual_input_items, categories):
+                                    # 判定結果の整理（見つからない場合はデフォルト）
+                                    major = cat.get("major_category", "その他")
+                                    minor = cat.get("minor_category", "📁未分類")
+                                    
+                                    row_data = [
+                                        st.session_state['username'],
+                                        input_date.strftime('%Y-%m-%d'),
+                                        input_store,
+                                        itm["name"],
+                                        major,
+                                        minor,
+                                        int(itm["amount"])
+                                    ]
+                                    sheet.append_row(row_data)
+                                
+                                st.success(f"✅ {len(st.session_state.manual_input_items)}件のデータを登録しました！")
+                                st.session_state.manual_input_items = [{"name": "", "amount": 0}]
+                                st.session_state.manual_input_store = ""
+                                import time
+                                time.sleep(1.5)
+                                st.rerun()
+                            except Exception as e:
+                                st.error(f"登録エラー: {e}")
         elif menu_selection == "レシート修正":
             st.markdown("#### ⚙️ レシート修正")
             
