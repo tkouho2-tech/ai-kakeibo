@@ -643,7 +643,7 @@ def main():
             
         # サイドバーメニューの実装
         with st.sidebar:
-            st.subheader("メインメニュー [Ver 2.6.2]")
+            st.subheader("メインメニュー [Ver 2.6.3]")
             st.write(f"🔑 ユーザー: **{st.session_state['username']}**")
             st.markdown("---")
             if 'menu_selection' not in st.session_state:
@@ -1133,6 +1133,10 @@ def main():
 
                 if cancel_manual:
                     # 全てリセットして初期画面（手入力）に戻る
+                    # ウィジェットのキーも明示的に削除してリセットを確実にする
+                    for k in list(st.session_state.keys()):
+                        if k.startswith("mi_n_") or k.startswith("mi_a_") or k.startswith("mi_del_"):
+                            del st.session_state[k]
                     st.session_state.manual_input_items = [{"name": "", "amount": 0}]
                     st.session_state.manual_input_store = ""
                     st.session_state.manual_input_date = datetime.today()
@@ -1170,6 +1174,10 @@ def main():
                                 
                                 st.success(f"✅ {len(st.session_state.manual_input_items)}件のデータを登録しました！")
                                 # 全てリセットして初期画面に戻る
+                                # ウィジェットのキーも明示的に削除
+                                for k in list(st.session_state.keys()):
+                                    if k.startswith("mi_n_") or k.startswith("mi_a_") or k.startswith("mi_del_"):
+                                        del st.session_state[k]
                                 st.session_state.manual_input_items = [{"name": "", "amount": 0}]
                                 st.session_state.manual_input_store = ""
                                 st.session_state.manual_input_date = datetime.today()
