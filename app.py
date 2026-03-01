@@ -643,7 +643,7 @@ def main():
             
         # サイドバーメニューの実装
         with st.sidebar:
-            st.subheader("メインメニュー [Ver 2.6.17]")
+            st.subheader("メインメニュー [Ver 2.6.18]")
             st.write(f"🔑 ユーザー: **{st.session_state['username']}**")
             st.markdown("---")
             if 'menu_selection' not in st.session_state:
@@ -1121,49 +1121,48 @@ def main():
                         font-size: 13px !important;
                         margin-bottom: 2px !important;
                     }
-                    /* 1. 背景色と文字色の強制固定（ライトモード） */
-                    .stApp, div[data-testid="stForm"] {
+                    /* 1. アプリ全体とフォームの背景を白、文字を黒に強制 */
+                    .stApp, [data-testid="stForm"] {
                         background-color: #ffffff !important;
                         color: #000000 !important;
                     }
-                    /* 2. フォーム内の【すべての横並びブロック】を強制1行化 */
-                    div[data-testid="stForm"] div[data-testid="stHorizontalBlock"] {
-                        display: flex !important;
-                        flex-direction: row !important;
-                        flex-wrap: nowrap !important;
-                        align-items: flex-end !important;
-                        gap: 4px !important;
-                        width: 100% !important;
-                    }
+                    /* 2. スマホ画面（768px以下）でのグリッド強制 */
+                    @media (max-width: 768px) {
+                        /* 日付・店舗名の段 */
+                        div[data-testid="stForm"] > div:nth-child(2) div[data-testid="stHorizontalBlock"] {
+                            display: grid !important;
+                            grid-template-columns: 4fr 6fr !important;
+                            gap: 5px !important;
+                        }
 
-                    /* 3. カラムの幅を「内容に合わせて縮小」させる */
-                    div[data-testid="stForm"] div[data-testid="stHorizontalBlock"] > div[data-testid="column"] {
-                        flex: 1 1 0px !important;
-                        min-width: 0 !important;
-                    }
+                        /* 商品名・金額・削除ボタンの段 */
+                        div[data-testid="stForm"] .row-widget.stHorizontalBlock {
+                            display: grid !important;
+                            grid-template-columns: 5fr 3fr 1fr !important; /* ボタンを最小限に */
+                            gap: 4px !important;
+                            width: 100% !important;
+                        }
+                        /* 3. 入力欄の最小幅を強制解除して画面内に収める */
+                        div[data-baseweb="input"], div[data-baseweb="base-input"] {
+                            min-width: 0 !important;
+                            width: 100% !important;
+                        }
+                        input {
+                            padding: 6px 4px !important;
+                            font-size: 14px !important;
+                        }
 
-                    /* 4. 入力欄（input）の余白を削ってさらに圧縮 */
-                    div[data-testid="stForm"] input {
-                        padding: 4px 2px !important;
-                        font-size: 14px !important;
-                    }
-
-                    /* 5. ボタン専用の調整（2つ並んだ時に文字がはみ出さないよう調整） */
-                    div[data-testid="stForm"] button p {
-                        font-size: 12px !important;
-                        white-space: nowrap !important;
-                    }
-
-                    /* 6. 数値入力の＋/－ボタンを非表示（スペース確保） */
-                    div[data-testid="stForm"] input[type="number"]::-webkit-inner-spin-button {
-                        -webkit-appearance: none !important;
+                        /* 4. ラベル（日付、店舗名など）の文字も小さく */
+                        label p {
+                            font-size: 12px !important;
+                        }
                     }
                 </style>
             """, unsafe_allow_html=True)
 
             fid = st.session_state.manual_input_form_id
             with st.form(f"manual_input_form_{fid}", clear_on_submit=False):
-                col_d, col_s = st.columns([1, 2])
+                col_d, col_s = st.columns([4, 6])
                 with col_d:
                     # keyを追加してリセット可能にする
                     input_date = st.date_input("日付", value=st.session_state.manual_input_date, key=f"mi_d_{fid}")
@@ -1183,6 +1182,7 @@ def main():
                         iamount = st.number_input(f"金額 {i+1}", value=int(item["amount"]), step=1, key=f"mi_a_{i}_{fid}", label_visibility="collapsed")
                     with c3:
                         if st.form_submit_button("🗑️" if len(st.session_state.manual_input_items) > 1 else "×", disabled=len(st.session_state.manual_input_items) <= 1, key=f"mi_del_{i}_{fid}"):
+                            # 削除時は items を更新して rerun (form_idは変えない)
                             st.session_state.manual_input_items.pop(i)
                             st.rerun()
                     updated_items.append({"name": iname, "amount": iamount})
@@ -1199,15 +1199,21 @@ def main():
                 st.write("")
                 col_btn_l, col_btn_r = st.columns(2)
                 with col_btn_l:
+                    st.write("")
+                st.markdown("<br>", unsafe_allow_html=True) # 少し余白
+                col_btn_l, col_btn_r = st.columns(2)
+                with col_btn_l:
                     submit_manual = st.form_submit_button("登録", use_container_width=True, type="primary")
                 with col_btn_r:
-                    if st.button("戻る", use_container_width=True):
-                        # フォームIDを更新して初期状態に戻す
-                        st.session_state.manual_input_form_id += 1
-                        st.session_state.manual_input_items = [{"name": "", "amount": 0}]
-                        st.session_state.manual_input_store = ""
-                        st.session_state.manual_input_date = datetime.today()
-                        st.rerun()
+                    cancel_manual = st.form_submit_button("キャンセル", use_container_width=True)
+                
+                if cancel_manual:
+                    # フォームIDを更新して初期状態に戻す
+                    st.session_state.manual_input_form_id += 1
+                    st.session_state.manual_input_items = [{"name": "", "amount": 0}]
+                    st.session_state.manual_input_store = ""
+                    st.session_state.manual_input_date = datetime.today()
+                    st.rerun()
 
                 if submit_manual:
                     if not input_store:
