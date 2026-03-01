@@ -643,7 +643,7 @@ def main():
             
         # サイドバーメニューの実装
         with st.sidebar:
-            st.subheader("メインメニュー [Ver 2.6.9]")
+            st.subheader("メインメニュー [Ver 2.6.10]")
             st.write(f"🔑 ユーザー: **{st.session_state['username']}**")
             st.markdown("---")
             if 'menu_selection' not in st.session_state:
@@ -1113,6 +1113,8 @@ def main():
                         min-height: 28px !important; /* 通常の約1/3を目標に */
                         font-size: 14px !important;
                         line-height: 1.2 !important;
+                        border: 1px solid #ccc !important; /* 罫線を追加 */
+                        border-radius: 4px !important;
                     }
                     /* 各入力項目のラベルの余白も削る */
                     div[data-testid="stWidgetLabel"] p {
