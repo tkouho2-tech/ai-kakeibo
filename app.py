@@ -1196,10 +1196,6 @@ def main():
                         st.session_state.manual_input_items.append({"name": "", "amount": 0})
                         st.rerun()
                 
-                st.write("")
-                col_btn_l, col_btn_r = st.columns(2)
-                with col_btn_l:
-                    st.write("")
                 st.markdown("<br>", unsafe_allow_html=True) # 少し余白
                 col_btn_l, col_btn_r = st.columns(2)
                 with col_btn_l:
