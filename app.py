@@ -643,7 +643,7 @@ def main():
             
         # サイドバーメニューの実装
         with st.sidebar:
-            st.subheader("メインメニュー [Ver 2.6.7]")
+            st.subheader("メインメニュー [Ver 2.6.8]")
             st.write(f"🔑 ユーザー: **{st.session_state['username']}**")
             st.markdown("---")
             if 'menu_selection' not in st.session_state:
@@ -1126,30 +1126,27 @@ def main():
                         min-height: 0 !important;
                     }
 
-                    /* スマホ縦画面での一行表示対応 */
-                    @media (max-width: 640px) {
-                        /* カラムの隙間を最小限に */
-                        div[data-testid="column"] {
-                            padding-left: 2px !important;
-                            padding-right: 2px !important;
+                    /* スマートフォン（画面幅768px以下）用のフォーム内横並び強制設定 */
+                    @media (max-width: 768px) {
+                        /* フォーム内のカラムの縦積みを禁止し、横並びを強制 */
+                        div[data-testid="stForm"] div[data-testid="stHorizontalBlock"] {
+                            flex-direction: row !important;
+                            flex-wrap: nowrap !important;
+                            align-items: flex-end !important; /* 入力欄と削除ボタンの縦位置を揃える */
+                        }
+                        
+                        /* 各カラムがスマホ画面で100%の幅になるのを防ぎ、比率を維持して縮小させる */
+                        div[data-testid="stForm"] div[data-testid="stHorizontalBlock"] > div[data-testid="column"] {
+                            width: auto !important;
+                            flex: 1 1 0% !important; /* 基本は均等割り（Python側の重み付けが優先される） */
                             min-width: 0 !important;
-                            flex: 1 1 0% !important;
+                            padding-right: 0.5rem !important; /* スマホ用に隙間を少し詰める */
                         }
-                        /* 商品名カラムを広めに、金額を適度に、削除ボタンを最小に */
-                        div[data-testid="stHorizontalBlock"] > div:nth-child(1) {
-                            flex: 3 1 0% !important;
-                        }
-                        div[data-testid="stHorizontalBlock"] > div:nth-child(2) {
-                            flex: 2 1 0% !important;
-                        }
-                        div[data-testid="stHorizontalBlock"] > div:nth-child(3) {
-                            flex: 1 1 0% !important;
-                            min-width: 45px !important;
-                        }
-                        /* 入力欄のパディングを調整してさらに詰め込む */
-                        div[data-testid="stNumberInput"] input, div[data-testid="stTextInput"] input {
-                            padding: 4px 8px !important;
+                        
+                        /* スマホ画面に合わせて入力欄の文字サイズを少し小さくし、見切れを防ぐ */
+                        div[data-testid="stForm"] input {
                             font-size: 14px !important;
+                            padding: 2px 4px !important; /* コンパクト設定を優先 (元は8px 4px) */
                         }
                     }
                 </style>
