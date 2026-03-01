@@ -643,7 +643,7 @@ def main():
             
         # サイドバーメニューの実装
         with st.sidebar:
-            st.subheader("メインメニュー [Ver 2.6.12]")
+            st.subheader("メインメニュー [Ver 2.6.13]")
             st.write(f"🔑 ユーザー: **{st.session_state['username']}**")
             st.markdown("---")
             if 'menu_selection' not in st.session_state:
@@ -1128,45 +1128,46 @@ def main():
                         min-height: 0 !important;
                     }
 
-                    /* スマートフォン（画面幅768px以下）用のフォーム内・全要素強制圧縮設定 */
+                    /* スマートフォン（画面幅768px以下）用のフォーム内・最適化設定 */
                     @media (max-width: 768px) {
-                        /* 1. 横並びの親コンテナ */
+                        /* 1. 横並び強制＋横スクロールの復活（安全装置） */
                         div[data-testid="stForm"] div[data-testid="stHorizontalBlock"] {
                             flex-direction: row !important;
                             flex-wrap: nowrap !important;
-                            gap: 2px !important; /* 隙間を2pxまで限界まで詰める */
-                            width: 100% !important;
-                            overflow: hidden !important; /* 万が一のはみ出しも画面外 for カット */
+                            overflow-x: auto !important; /* スクロールを復活 */
+                            overflow-y: hidden !important;
+                            gap: 4px !important;
+                            padding-bottom: 5px !important; /* スクロールバーの余白 */
                         }
                         
-                        /* 2. カラムと、その中にある【すべての要素（マトリョーシカ状態のdiv）】の制限を解除 */
-                        div[data-testid="stForm"] div[data-testid="stHorizontalBlock"] div[data-testid="column"],
-                        div[data-testid="stForm"] div[data-testid="stHorizontalBlock"] div[data-testid="column"] * {
+                        /* 2. カラムの幅制約をリセット */
+                        div[data-testid="stForm"] div[data-testid="stHorizontalBlock"] > div[data-testid="column"] {
                             min-width: 0 !important;
-                            max-width: 100% !important;
-                            box-sizing: border-box !important;
                         }
-                        
-                        /* 3. 入力ウィジェット（テキスト・数値）自体の限界圧縮 */
-                        div[data-testid="stForm"] div[data-testid="stHorizontalBlock"] input {
+                        /* 3. 真犯人「Base Web」コンテナの最小幅を強制解除 */
+                        div[data-baseweb="input"],
+                        div[data-baseweb="base-input"],
+                        div[data-baseweb="select"] {
+                            min-width: 0 !important;
                             width: 100% !important;
-                            padding: 4px 2px !important; /* 内側の余白も極限まで削る */
-                            font-size: 13px !important;
                         }
-                        
-                        /* 4. 数値入力のスピンボタン（＋/－）消去 */
+                        /* 4. 入力欄自体の圧縮（スマホでタップしやすい14pxに設定） */
+                        div[data-testid="stForm"] input {
+                            min-width: 0 !important;
+                            padding: 6px 4px !important;
+                            font-size: 14px !important; 
+                        }
+                        /* 5. 削除ボタンの余白を削る */
+                        div[data-testid="stForm"] div[data-testid="stHorizontalBlock"] button {
+                            min-width: 0 !important;
+                            padding: 4px !important;
+                            width: 100% !important;
+                        }
+                        /* 6. 数値入力のスピンボタン（＋/－）消去 */
                         div[data-testid="stForm"] input[type="number"]::-webkit-inner-spin-button,
                         div[data-testid="stForm"] input[type="number"]::-webkit-outer-spin-button {
                             -webkit-appearance: none !important;
                             margin: 0 !important;
-                        }
-                        
-                        /* 5. ラベル（項目名）の折り返し防止 */
-                        div[data-testid="stForm"] div[data-testid="stHorizontalBlock"] label,
-                        div[data-testid="stForm"] div[data-testid="stHorizontalBlock"] label * {
-                            font-size: 10px !important;
-                            white-space: nowrap !important;
-                            overflow: hidden !important;
                         }
                     }
                 </style>
@@ -1187,7 +1188,7 @@ def main():
                 
                 updated_items = []
                 for i, item in enumerate(st.session_state.manual_input_items):
-                    c1, c2, c3 = st.columns([3, 2, 1])
+                    c1, c2, c3 = st.columns([5, 3, 1.5])
                     with c1:
                         iname = st.text_input(f"商品名 {i+1}", value=item["name"], key=f"mi_n_{i}_{fid}", label_visibility="collapsed", placeholder="商品名")
                     with c2:
