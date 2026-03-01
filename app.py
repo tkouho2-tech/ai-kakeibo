@@ -643,7 +643,7 @@ def main():
             
         # サイドバーメニューの実装
         with st.sidebar:
-            st.subheader("メインメニュー [Ver 2.6.14]")
+            st.subheader("メインメニュー [Ver 2.6.15]")
             st.write(f"🔑 ユーザー: **{st.session_state['username']}**")
             st.markdown("---")
             if 'menu_selection' not in st.session_state:
@@ -1177,12 +1177,28 @@ def main():
                             margin: 0 !important;
                         }
                     }
+
+                    /* --- ボタンのカラー設定 --- */
+                    /* 登録ボタン（Primary）を青色に */
+                    div[data-testid="stForm"] button[kind="primary"] {
+                        background-color: #007bff !important;
+                        border-color: #007bff !important;
+                        color: white !important;
+                        font-weight: bold !important;
+                    }
+                    /* キャンセルボタン（Secondary）を赤色に */
+                    div[data-testid="stForm"] button[kind="secondary"] {
+                        background-color: #dc3545 !important;
+                        border-color: #dc3545 !important;
+                        color: white !important;
+                        font-weight: bold !important;
+                    }
                 </style>
             """, unsafe_allow_html=True)
 
             fid = st.session_state.manual_input_form_id
             with st.form(f"manual_input_form_{fid}", clear_on_submit=False):
-                col_d, col_s = st.columns(2)
+                col_d, col_s = st.columns([1, 2])
                 with col_d:
                     # keyを追加してリセット可能にする
                     input_date = st.date_input("日付", value=st.session_state.manual_input_date, key=f"mi_d_{fid}")
@@ -1220,9 +1236,9 @@ def main():
                 st.write("")
                 col_act1, col_act2 = st.columns(2)
                 with col_act1:
-                    submit_manual = st.form_submit_button("登録", type="primary", use_container_width=True)
-                with col_act2:
                     cancel_manual = st.form_submit_button("キャンセル", type="secondary", use_container_width=True)
+                with col_act2:
+                    submit_manual = st.form_submit_button("この内容で登録する", type="primary", use_container_width=True)
 
                 if submit_manual:
                     if not input_store:
