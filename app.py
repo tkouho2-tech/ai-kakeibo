@@ -259,6 +259,26 @@ def load_transactions_data(target_month):
     # クレンジング（不要なスペース等削除、データ型変換）
     df.columns = df.columns.str.strip()
     
+    # --- カラム名の正規化（日本語ヘッダーへの対応） ---
+    rename_rules = {
+        "日付": "date",
+        "店舗名": "store_name",
+        "店舗": "store_name",
+        "商品名": "item_name",
+        "内容": "item_name",
+        "支出内容": "item_name",
+        "金額": "amount",
+        "大分類": "category",
+        "小分類": "subcategory"
+    }
+    # 既存のカラム名と変換ルールを照合してリネーム
+    actual_rename = {}
+    for old, new in rename_rules.items():
+        if old in df.columns and new not in df.columns:
+            actual_rename[old] = new
+    if actual_rename:
+        df = df.rename(columns=actual_rename)
+    
     # "username"でフィルタ
     if "username" in df.columns:
         df = df[df["username"].astype(str).str.lower() == st.session_state['username']]
@@ -582,7 +602,7 @@ def main():
             
         # サイドバーメニューの実装
         with st.sidebar:
-            st.subheader("メインメニュー [Ver 2.5.6]")
+            st.subheader("メインメニュー [Ver 2.5.7]")
             st.write(f"🔑 ユーザー: **{st.session_state['username']}**")
             st.markdown("---")
             if 'menu_selection' not in st.session_state:
@@ -750,10 +770,13 @@ def main():
                 # 該当日のデータをフィルタリング
                 # selected_date (YYYY-MM-DD) と一致するか、current_month内でdayが一致するか
                 day_val = int(selected_date.split("-")[-1])
-                day_df = df[df['date'].dt.day == day_val].copy()
+                
+                day_df = pd.DataFrame()
+                if not df.empty and 'date' in df.columns:
+                    day_df = df[df['date'].dt.day == day_val].copy()
                 
                 # 合計額の計算
-                day_total = int(day_df['amount'].sum()) if not day_df.empty else 0
+                day_total = int(day_df['amount'].sum()) if (not day_df.empty and 'amount' in day_df.columns) else 0
                 # 合計額の計算
                 day_total = int(day_df['amount'].sum()) if not day_df.empty else 0
                 # デザインより翻訳回避を優先し、ネイティブなマークダウンで表示
