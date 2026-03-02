@@ -1201,9 +1201,10 @@ def main():
                         with st.popover("🗑️" if len(st.session_state.manual_input_items) > 1 else "×", disabled=len(st.session_state.manual_input_items) <= 1):
                             st.write("この行を削除しますか？")
                             if st.button("削除実行", key=f"mi_del_manual_{row_id}_{fid}"): 
-                                st.session_state.manual_input_items.pop(i)
+                                # IDを元に削除対象を特定して削除
+                                st.session_state.manual_input_items = [itm for itm in st.session_state.manual_input_items if itm.get("id") != row_id]
                                 st.rerun()
-                    updated_items.append({"name": iname, "amount": iamount})
+                    updated_items.append({"id": row_id, "name": iname, "amount": iamount})
                 
                 st.session_state.manual_input_items = updated_items
                 
