@@ -1339,6 +1339,13 @@ def main():
                                         "major": major,
                                         "minor": sub
                                     }
+                                
+                                # ヘッダー情報（日付・店舗名）も管理
+                                if 'edit_header' not in st.session_state or st.session_state.get('current_receipt_key') != receipt_key:
+                                    st.session_state['edit_header'] = {
+                                        "date": target_date.date(),
+                                        "store": target_store
+                                    }
                                     
                             st.write("##### 明細一覧")
                             
@@ -1381,7 +1388,20 @@ def main():
                                 with st.container():
                                     st.markdown('<span id="receipt-table-target"></span>', unsafe_allow_html=True)
                                     
+                                    # レシートヘッダー（日付・店舗名）の修正用フィールド
+                                    col_h1, col_h2 = st.columns(2)
+                                    with col_h1:
+                                        new_header_date = st.date_input("レシート日付", value=st.session_state['edit_header']['date'], key="edit_header_date")
+                                    with col_h2:
+                                        new_header_store = st.text_input("店舗名", value=st.session_state['edit_header']['store'], key="edit_header_store")
+                                    
+                                    st.write("---")
+                                    
                                     modified = False
+                                    if new_header_date != st.session_state['edit_header']['date'] or new_header_store != st.session_state['edit_header']['store']:
+                                        st.session_state['edit_header']['date'] = new_header_date
+                                        st.session_state['edit_header']['store'] = new_header_store
+                                        modified = True
                                     
                                     for i, (idx, row) in enumerate(details.iterrows(), 1):
                                         row_index_gs = row["_row_index"]
@@ -1449,12 +1469,22 @@ def main():
                                                 
                                                 updates = []
                                                 item_col_idx = headers.index(item_col) + 1 if item_col in headers else None
+                                                date_col_idx = headers.index("date") + 1 if "date" in headers else None
+                                                store_col_idx = headers.index(store_col) + 1 if store_col in headers else None
+                                                
+                                                # ヘッダー情報の取得
+                                                new_date_str = st.session_state['edit_header']['date'].strftime('%Y-%m-%d')
+                                                new_store_str = str(st.session_state['edit_header']['store']).strip()
                                                 
                                                 for r_idx_gs, vals in st.session_state['edit_data'].items():
-                                                    if item_col_idx: updates.append(gspread.Cell(row=r_idx_gs, col=item_col_idx, value=vals["name"]))
-                                                    if amount_col_idx: updates.append(gspread.Cell(row=r_idx_gs, col=amount_col_idx, value=vals["amount"]))
-                                                    if category_col_idx: updates.append(gspread.Cell(row=r_idx_gs, col=category_col_idx, value=vals["major"]))
-                                                    if sub_col_idx: updates.append(gspread.Cell(row=r_idx_gs, col=sub_col_idx, value=vals["minor"]))
+                                                    if item_col_idx: updates.append(gspread.Cell(row=r_idx_gs, col=item_col_idx, value=str(vals["name"])))
+                                                    if amount_col_idx: updates.append(gspread.Cell(row=r_idx_gs, col=amount_col_idx, value=int(vals["amount"])))
+                                                    if category_col_idx: updates.append(gspread.Cell(row=r_idx_gs, col=category_col_idx, value=str(vals["major"])))
+                                                    if sub_col_idx: updates.append(gspread.Cell(row=r_idx_gs, col=sub_col_idx, value=str(vals["minor"])))
+                                                    
+                                                    # 日付と店舗名は全行に対して更新
+                                                    if date_col_idx: updates.append(gspread.Cell(row=r_idx_gs, col=date_col_idx, value=new_date_str))
+                                                    if store_col_idx: updates.append(gspread.Cell(row=r_idx_gs, col=store_col_idx, value=new_store_str))
                                                     
                                                 if updates:
                                                     sheet.update_cells(updates)
