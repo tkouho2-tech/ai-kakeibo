@@ -1189,10 +1189,13 @@ def main():
                     with c2:
                         iamount = st.number_input(f"金額 {i+1}", value=int(item["amount"]), step=1, key=f"mi_a_{i}_{fid}", label_visibility="collapsed")
                     with c3:
-                        if st.form_submit_button("🗑️" if len(st.session_state.manual_input_items) > 1 else "×", disabled=len(st.session_state.manual_input_items) <= 1, key=f"mi_del_{i}_{fid}"):
-                            # 削除時は items を更新して rerun (form_idは変えない)
-                            st.session_state.manual_input_items.pop(i)
-                            st.rerun()
+                        # 削除ボタンに確認フェーズを追加
+                        with st.popover("🗑️" if len(st.session_state.manual_input_items) > 1 else "×", disabled=len(st.session_state.manual_input_items) <= 1):
+                            st.write("この行を削除しますか？")
+                            if st.form_submit_button("削除実行", key=f"mi_del_{i}_{fid}"):
+                                # 削除時は items を更新して rerun (form_idは変えない)
+                                st.session_state.manual_input_items.pop(i)
+                                st.rerun()
                     updated_items.append({"name": iname, "amount": iamount})
                 
                 st.session_state.manual_input_items = updated_items
@@ -1549,22 +1552,24 @@ def main():
                                         st.rerun()
                                         
                                 with col2:
-                                    if st.button("削除", use_container_width=True, key="delete_receipt"):
-                                        try:
-                                            with st.spinner("削除中..."):
-                                                sheet = get_sheet(TRANSACTIONS_WORKSHEET_NAME)
-                                                # 下から順に削除する（インデックスがずれないように）
-                                                rows_to_delete = sorted(list(st.session_state['edit_data'].keys()), reverse=True)
-                                                for r_idx in rows_to_delete:
-                                                    sheet.delete_rows(r_idx)
-                                                    
-                                                st.success("✅ レシートを削除しました")
-                                                st.session_state['edit_data'] = {}
-                                                st.session_state[mode_key] = False
-                                                import time; time.sleep(1)
-                                                st.rerun()
-                                        except Exception as e:
-                                            st.error(f"エラー: {e}")
+                                    with st.popover("削除", use_container_width=True):
+                                        st.write("本当にこのレシートを削除しますか？")
+                                        if st.button("はい、削除します", use_container_width=True, key="delete_receipt_confirm"):
+                                            try:
+                                                with st.spinner("削除中..."):
+                                                    sheet = get_sheet(TRANSACTIONS_WORKSHEET_NAME)
+                                                    # 下から順に削除する（インデックスがずれないように）
+                                                    rows_to_delete = sorted(list(st.session_state['edit_data'].keys()), reverse=True)
+                                                    for r_idx in rows_to_delete:
+                                                        sheet.delete_rows(r_idx)
+                                                        
+                                                    st.success("✅ レシートを削除しました")
+                                                    st.session_state['edit_data'] = {}
+                                                    st.session_state[mode_key] = False
+                                                    import time; time.sleep(1)
+                                                    st.rerun()
+                                            except Exception as e:
+                                                st.error(f"エラー: {e}")
                             
                             # CSSの代わりにJSを使ってより確実にボタンの色を変更
                             import streamlit.components.v1 as components
@@ -1579,7 +1584,7 @@ def main():
                                         b.style.color = 'white';
                                         b.style.borderColor = '#007bff';
                                     }
-                                    if (text === '削除' || text === 'キャンセル') {
+                                    if (text === '削除' || text === 'キャンセル' || text === '削除実行' || text === 'はい、削除します') {
                                         b.style.backgroundColor = '#dc3545';
                                         b.style.color = 'white';
                                         b.style.borderColor = '#dc3545';
