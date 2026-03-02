@@ -1088,7 +1088,7 @@ def main():
             if 'manual_input_form_id' not in st.session_state:
                 st.session_state.manual_input_form_id = 0
             if 'manual_input_items' not in st.session_state:
-                st.session_state.manual_input_items = [{"name": "", "amount": 0}]
+                st.session_state.manual_input_items = [{"id": int(time.time() * 1000), "name": "", "amount": 0}]
             if 'manual_input_date' not in st.session_state:
                 st.session_state.manual_input_date = datetime.today()
             if 'manual_input_store' not in st.session_state:
@@ -1185,21 +1185,23 @@ def main():
                 updated_items = []
                 for i, item in enumerate(st.session_state.manual_input_items):
                     c1, c2, c3 = st.columns([5, 3, 1.5])
+                    row_id = item.get("id", i) # 互換性のため
                     with c1:
-                        iname = st.text_input(f"商品名 {i+1}", value=item["name"], key=f"mi_n_{i}_{fid}", label_visibility="collapsed", placeholder="商品名")
+                        iname = st.text_input(f"商品名 {i+1}", value=item["name"], key=f"mi_n_{row_id}_{fid}", label_visibility="collapsed", placeholder="商品名")
                     with c2:
                         # 金額入力時に自動で次の行を追加するコールバック用
                         def add_empty_row_if_last(idx=i):
                             if idx == len(st.session_state.manual_input_items) - 1:
-                                # 金額が入力されたら新しい行を追加
-                                st.session_state.manual_input_items.append({"name": "", "amount": 0})
+                                # 金額が入力されたら新しい行を追加（IDを付与）
+                                new_id = int(time.time() * 1000) + len(st.session_state.manual_input_items)
+                                st.session_state.manual_input_items.append({"id": new_id, "name": "", "amount": 0})
 
-                        iamount = st.number_input(f"金額 {i+1}", value=int(item["amount"]), step=1, key=f"mi_a_{i}_{fid}", label_visibility="collapsed", on_change=add_empty_row_if_last)
+                        iamount = st.number_input(f"金額 {i+1}", value=int(item["amount"]), step=1, key=f"mi_a_{row_id}_{fid}", label_visibility="collapsed", on_change=add_empty_row_if_last)
                     with c3:
                         # 削除ボタンに確認フェーズを追加
                         with st.popover("🗑️" if len(st.session_state.manual_input_items) > 1 else "×", disabled=len(st.session_state.manual_input_items) <= 1):
                             st.write("この行を削除しますか？")
-                            if st.button("削除実行", key=f"mi_del_manual_{i}_{fid}"): # form_submit_button から button へ変更
+                            if st.button("削除実行", key=f"mi_del_manual_{row_id}_{fid}"): 
                                 st.session_state.manual_input_items.pop(i)
                                 st.rerun()
                     updated_items.append({"name": iname, "amount": iamount})
@@ -1217,7 +1219,7 @@ def main():
                 if cancel_manual:
                     # フォームIDを更新して初期状態に戻す
                     st.session_state.manual_input_form_id += 1
-                    st.session_state.manual_input_items = [{"name": "", "amount": 0}]
+                    st.session_state.manual_input_items = [{"id": int(time.time() * 1000), "name": "", "amount": 0}]
                     st.session_state.manual_input_store = ""
                     st.session_state.manual_input_date = datetime.today()
                     st.rerun()
@@ -1258,7 +1260,7 @@ def main():
                                 st.success(f"✅ {len(st.session_state.manual_input_items)}件のデータを登録しました！")
                                 # フォームIDを更新して全ウィジェットを強制リセット
                                 st.session_state.manual_input_form_id += 1
-                                st.session_state.manual_input_items = [{"name": "", "amount": 0}]
+                                st.session_state.manual_input_items = [{"id": int(time.time() * 1000), "name": "", "amount": 0}]
                                 st.session_state.manual_input_store = ""
                                 st.session_state.manual_input_date = datetime.today()
                                 
