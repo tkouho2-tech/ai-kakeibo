@@ -36,6 +36,7 @@ EXPENSE_CATEGORIES = {
     "手数料": ["📦送料", "💳手数料", "❓その他"],
     "ペット用品": ["🐈フード", "🚽トイレ用品", "🏥ペット医療", "❓その他"],
     "医療": ["🏥病院診療", "💊薬処方", "💉検査健診", "❓その他"],
+    "園芸・植物": ["🌻苗・種", "🪴観葉植物", "🧱土・肥料・鉢", "🛠️園芸用品", "❓その他"],
     "消費税": ["8%", "10%", "❓その他"],
     "その他": ["📁未分類"]
 }
@@ -1050,12 +1051,12 @@ def main():
                                     item_name = str(item.get("item_name", ""))
                                     
                                     row_data = [
-                                        st.session_state['username'],
+                                        str(st.session_state['username']),
                                         str(item.get("date", "")),
-                                        store_name,
-                                        item_name,
-                                        final_major,
-                                        final_minor,
+                                        str(store_name),
+                                        str(item_name),
+                                        str(final_major),
+                                        str(final_minor),
                                         int(item.get("amount", 0))
                                     ]
                                     sheet.append_row(row_data)
@@ -1231,12 +1232,12 @@ def main():
                                     minor = cat.get("minor_category", "📁未分類")
                                     
                                     row_data = [
-                                        st.session_state['username'],
-                                        input_date.strftime('%Y-%m-%d'),
-                                        input_store,
-                                        itm["name"],
-                                        major,
-                                        minor,
+                                        str(st.session_state['username']),
+                                        str(input_date.strftime('%Y-%m-%d')),
+                                        str(input_store),
+                                        str(itm["name"]),
+                                        str(major),
+                                        str(minor),
                                         int(itm["amount"])
                                     ]
                                     sheet.append_row(row_data)
