@@ -1169,7 +1169,8 @@ def main():
             """, unsafe_allow_html=True)
 
             fid = st.session_state.manual_input_form_id
-            with st.form(f"manual_input_form_{fid}", clear_on_submit=False):
+            # st.form をコンテナに変更してリアクティブな挙動を可能にする
+            with st.container():
                 col_d, col_s = st.columns([4, 6])
                 with col_d:
                     # keyを追加してリセット可能にする
@@ -1183,17 +1184,21 @@ def main():
                 
                 updated_items = []
                 for i, item in enumerate(st.session_state.manual_input_items):
-                    c1, c2, c3 = st.columns([5, 3, 1.5])
                     with c1:
                         iname = st.text_input(f"商品名 {i+1}", value=item["name"], key=f"mi_n_{i}_{fid}", label_visibility="collapsed", placeholder="商品名")
                     with c2:
-                        iamount = st.number_input(f"金額 {i+1}", value=int(item["amount"]), step=1, key=f"mi_a_{i}_{fid}", label_visibility="collapsed")
+                        # 金額入力時に自動で次の行を追加するコールバック用
+                        def add_empty_row_if_last(idx=i):
+                            if idx == len(st.session_state.manual_input_items) - 1:
+                                # 金額が入力されたら新しい行を追加
+                                st.session_state.manual_input_items.append({"name": "", "amount": 0})
+
+                        iamount = st.number_input(f"金額 {i+1}", value=int(item["amount"]), step=1, key=f"mi_a_{i}_{fid}", label_visibility="collapsed", on_change=add_empty_row_if_last)
                     with c3:
                         # 削除ボタンに確認フェーズを追加
                         with st.popover("🗑️" if len(st.session_state.manual_input_items) > 1 else "×", disabled=len(st.session_state.manual_input_items) <= 1):
                             st.write("この行を削除しますか？")
-                            if st.form_submit_button("削除実行", key=f"mi_del_{i}_{fid}"):
-                                # 削除時は items を更新して rerun (form_idは変えない)
+                            if st.button("削除実行", key=f"mi_del_manual_{i}_{fid}"): # form_submit_button から button へ変更
                                 st.session_state.manual_input_items.pop(i)
                                 st.rerun()
                     updated_items.append({"name": iname, "amount": iamount})
@@ -1201,18 +1206,12 @@ def main():
                 st.session_state.manual_input_items = updated_items
                 
                 # ボタン類
-                col_btn1, col_btn2, col_btn3 = st.columns([1, 1, 1])
-                with col_btn1:
-                    if st.form_submit_button("➕ 行を追加", use_container_width=True):
-                        st.session_state.manual_input_items.append({"name": "", "amount": 0})
-                        st.rerun()
-                
-                st.markdown("<br>", unsafe_allow_html=True) # 少し余白
+                st.markdown("<br>", unsafe_allow_html=True) 
                 col_btn_l, col_btn_r = st.columns(2)
                 with col_btn_l:
-                    submit_manual = st.form_submit_button("登録", use_container_width=True, type="primary")
+                    submit_manual = st.button("登録", use_container_width=True, type="primary", key="submit_manual_input")
                 with col_btn_r:
-                    cancel_manual = st.form_submit_button("キャンセル", use_container_width=True)
+                    cancel_manual = st.button("キャンセル", use_container_width=True, key="cancel_manual_input")
                 
                 if cancel_manual:
                     # フォームIDを更新して初期状態に戻す
@@ -1223,21 +1222,24 @@ def main():
                     st.rerun()
 
                 if submit_manual:
+                    # 入力されているデータのみを抽出（商品名があり、かつ金額が 0 ではないもの）
+                    valid_items = [itm for itm in st.session_state.manual_input_items if itm["name"].strip() != "" and itm["amount"] != 0]
+
                     if not input_store:
                         st.error("店舗名を入力してください。")
-                    elif any(not itm["name"] or itm["amount"] < 0 for itm in st.session_state.manual_input_items):
-                        st.error("商品名と金額（0円以上）を正しく入力してください。")
+                    elif not valid_items:
+                        st.error("少なくとも1件以上の有効なデータを入力してください。")
                     else:
                         with st.spinner("AIがカテゴリを判定中..."):
-                            # 登録ボタン押下時に全明細の解析を実行
-                            item_names = [itm["name"] for itm in st.session_state.manual_input_items]
+                            # 登録ボタン押下時に有効な明細のみ解析を実行
+                            item_names = [itm["name"] for itm in valid_items]
                             categories = categorize_items_with_ai(item_names, input_store)
                             
                             try:
                                 sheet = get_sheet(TRANSACTIONS_WORKSHEET_NAME)
                                 init_transactions_sheet(sheet)
                                 
-                                for itm, cat in zip(st.session_state.manual_input_items, categories):
+                                for itm, cat in zip(valid_items, categories):
                                     major = cat.get("major_category", "その他")
                                     minor = cat.get("minor_category", "📁未分類")
                                     
