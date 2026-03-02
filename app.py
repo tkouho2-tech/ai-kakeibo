@@ -539,50 +539,63 @@ def show_dashboard():
         
         st.markdown("##### カテゴリ別内訳")
         
-        # 大分類ごとの一覧をアコーディオン形式（st.expander）で表示
-        for _, row in grouped_df.iterrows():
-            cat = row['category']
-            total_amt_str = f"￥{int(row['amount']):,}"
-            
-            with st.expander(f"{cat}：{total_amt_str}"):
-                # 該当カテゴリのデータを抽出
-                cat_df = df[df["category"] == cat].copy()
+        # 表示パターンの選択
+        view_pattern = st.radio("表示パターン", ["大分類別", "店舗別"], horizontal=True, key="dashboard_view_pattern")
+        
+        if view_pattern == "大分類別":
+            # 大分類ごとの一覧をアコーディオン形式（st.expander）で表示
+            for _, row in grouped_df.iterrows():
+                cat = row['category']
+                total_amt_str = f"￥{int(row['amount']):,}"
                 
-                # 小分類を判別するための列名を探す
-                sub_col = None
-                for col_name in ["subcategory", "sub_category", "小分類"]:
-                    if col_name in cat_df.columns:
-                        sub_col = col_name
-                        break
-                
-                if sub_col:
-                    sub_grouped = cat_df.groupby(sub_col, as_index=False)["amount"].sum()
-                    sub_grouped = sub_grouped.sort_values(by="amount", ascending=False)
-                    sub_grouped["amount"] = sub_grouped["amount"].apply(lambda x: f"￥{int(x):,}")
-                    sub_grouped.columns = ["小分類", "金額"]
-                    st.dataframe(sub_grouped, use_container_width=True, hide_index=True)
-                else:
-                    # 小分類カラムがない場合は、明細レベルで内訳を表示する
-                    if "store_name" in cat_df.columns and "item_name" in cat_df.columns:
-                        display_df = cat_df[["date", "store_name", "item_name", "amount"]].copy()
-                        if "date" in display_df.columns:
-                            display_df["date"] = display_df["date"].dt.strftime('%m/%d').fillna("")
-                        display_df["amount"] = display_df["amount"].apply(lambda x: f"￥{int(x):,}")
-                        display_df.columns = ["日付", "店舗名", "商品名", "金額"]
-                        st.dataframe(display_df, use_container_width=True, hide_index=True)
-                    elif "memo" in cat_df.columns:
-                        display_df = cat_df[["date", "memo", "amount"]].copy()
-                        if "date" in display_df.columns:
-                            display_df["date"] = display_df["date"].dt.strftime('%m/%d').fillna("")
-                        display_df["amount"] = display_df["amount"].apply(lambda x: f"￥{int(x):,}")
-                        display_df.columns = ["日付", "内容", "金額"]
-                        st.dataframe(display_df, use_container_width=True, hide_index=True)
+                with st.expander(f"{cat}：{total_amt_str}"):
+                    # 該当カテゴリのデータを抽出
+                    cat_df = df[df["category"] == cat].copy()
+                    
+                    # 小分類を判別するための列名を探す
+                    sub_col = None
+                    for col_name in ["subcategory", "sub_category", "小分類"]:
+                        if col_name in cat_df.columns:
+                            sub_col = col_name
+                            break
+                    
+                    if sub_col:
+                        sub_grouped = cat_df.groupby(sub_col, as_index=False)["amount"].sum()
+                        sub_grouped = sub_grouped.sort_values(by="amount", ascending=False)
+                        sub_grouped["amount"] = sub_grouped["amount"].apply(lambda x: f"￥{int(x):,}")
+                        sub_grouped.columns = ["小分類", "金額"]
+                        st.dataframe(sub_grouped, use_container_width=True, hide_index=True)
                     else:
-                        display_df = cat_df[["amount"]].copy()
-                        if "date" in cat_df.columns:
-                            display_df.insert(0, "date", cat_df["date"].dt.strftime('%m/%d').fillna(""))
+                        # 小分類なしの場合は明細を表示
+                        display_df = cat_df.copy()
+                        # 不要な列を削除
+                        cols_to_keep = [c for c in ["date", "store_name", "store", "item_name", "item", "amount"] if c in display_df.columns]
+                        display_df = display_df[cols_to_keep]
+                        if "date" in display_df.columns:
+                            display_df["date"] = display_df["date"].dt.strftime('%m/%d')
                         display_df["amount"] = display_df["amount"].apply(lambda x: f"￥{int(x):,}")
                         st.dataframe(display_df, use_container_width=True, hide_index=True)
+        else:
+            # 店舗別の表示
+            store_col = "store_name" if "store_name" in df.columns else "store" if "store" in df.columns else None
+            if store_col:
+                store_grouped = df.groupby(store_col, as_index=False)["amount"].sum()
+                store_grouped = store_grouped.sort_values(by="amount", ascending=False)
+                
+                for _, row in store_grouped.iterrows():
+                    store = row[store_col]
+                    total_amt_str = f"￥{int(row['amount']):,}"
+                    
+                    with st.expander(f"{store}：{total_amt_str}"):
+                        # その店舗のデータを抽出してカテゴリ別に集計
+                        store_df = df[df[store_col] == store].copy()
+                        cat_breakdown = store_df.groupby("category", as_index=False)["amount"].sum()
+                        cat_breakdown = cat_breakdown.sort_values(by="amount", ascending=False)
+                        cat_breakdown["amount"] = cat_breakdown["amount"].apply(lambda x: f"￥{int(x):,}")
+                        cat_breakdown.columns = ["大分類", "金額"]
+                        st.dataframe(cat_breakdown, use_container_width=True, hide_index=True)
+            else:
+                st.info("店舗情報がありません。")
     else:
         st.warning("シートに 'category' または 'amount' 列がありません。")
 
