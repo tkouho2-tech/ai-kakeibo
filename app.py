@@ -888,7 +888,7 @@ def main():
                         column_config={
                             "大分類": st.column_config.TextColumn("大分類", width="small"),
                             "小分類": st.column_config.TextColumn("小分類", width="small"),
-                            "店舗名": st.column_config.TextColumn("店舗名", width="medium"),
+                            "店舗名": st.column_config.TextColumn("店舗名", width="small"),
                             "金額": st.column_config.NumberColumn("金額", width="small", format="¥%d")
                         }
                     )
