@@ -1184,6 +1184,7 @@ def main():
                 
                 updated_items = []
                 for i, item in enumerate(st.session_state.manual_input_items):
+                    c1, c2, c3 = st.columns([5, 3, 1.5])
                     with c1:
                         iname = st.text_input(f"商品名 {i+1}", value=item["name"], key=f"mi_n_{i}_{fid}", label_visibility="collapsed", placeholder="商品名")
                     with c2:
