@@ -540,9 +540,30 @@ def show_dashboard():
         st.markdown("##### カテゴリ別内訳")
         
         # 表示パターンの選択
-        view_pattern = st.radio("表示パターン", ["大分類別", "店舗別", "小分類別"], horizontal=True, key="dashboard_view_pattern")
+        view_pattern = st.radio("表示パターン", ["店舗別", "大分類別", "小分類別"], horizontal=True, key="dashboard_view_pattern")
         
-        if view_pattern == "大分類別":
+        if view_pattern == "店舗別":
+            # 店舗別の表示
+            store_col = "store_name" if "store_name" in df.columns else "store" if "store" in df.columns else None
+            if store_col:
+                store_grouped = df.groupby(store_col, as_index=False)["amount"].sum()
+                store_grouped = store_grouped.sort_values(by="amount", ascending=False)
+                
+                for _, row in store_grouped.iterrows():
+                    store = row[store_col]
+                    total_amt_str = f"￥{int(row['amount']):,}"
+                    
+                    with st.expander(f"{store}：{total_amt_str}"):
+                        # その店舗のデータを抽出してカテゴリ別に集計
+                        store_df = df[df[store_col] == store].copy()
+                        cat_breakdown = store_df.groupby("category", as_index=False)["amount"].sum()
+                        cat_breakdown = cat_breakdown.sort_values(by="amount", ascending=False)
+                        cat_breakdown["amount"] = cat_breakdown["amount"].apply(lambda x: f"￥{int(x):,}")
+                        cat_breakdown.columns = ["大分類", "金額"]
+                        st.dataframe(cat_breakdown, use_container_width=True, hide_index=True)
+            else:
+                st.info("店舗情報がありません。")
+        elif view_pattern == "大分類別":
             # 大分類ごとの一覧をアコーディオン形式（st.expander）で表示
             for _, row in grouped_df.iterrows():
                 cat = row['category']
@@ -578,27 +599,6 @@ def show_dashboard():
                             display_df["date"] = display_df["date"].dt.strftime('%m/%d')
                         display_df["amount"] = display_df["amount"].apply(lambda x: f"￥{int(x):,}")
                         st.dataframe(display_df, use_container_width=True, hide_index=True)
-        elif view_pattern == "店舗別":
-            # 店舗別の表示
-            store_col = "store_name" if "store_name" in df.columns else "store" if "store" in df.columns else None
-            if store_col:
-                store_grouped = df.groupby(store_col, as_index=False)["amount"].sum()
-                store_grouped = store_grouped.sort_values(by="amount", ascending=False)
-                
-                for _, row in store_grouped.iterrows():
-                    store = row[store_col]
-                    total_amt_str = f"￥{int(row['amount']):,}"
-                    
-                    with st.expander(f"{store}：{total_amt_str}"):
-                        # その店舗のデータを抽出してカテゴリ別に集計
-                        store_df = df[df[store_col] == store].copy()
-                        cat_breakdown = store_df.groupby("category", as_index=False)["amount"].sum()
-                        cat_breakdown = cat_breakdown.sort_values(by="amount", ascending=False)
-                        cat_breakdown["amount"] = cat_breakdown["amount"].apply(lambda x: f"￥{int(x):,}")
-                        cat_breakdown.columns = ["大分類", "金額"]
-                        st.dataframe(cat_breakdown, use_container_width=True, hide_index=True)
-            else:
-                st.info("店舗情報がありません。")
         else:
             # 小分類別の表示
             sub_col = None
