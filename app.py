@@ -14,6 +14,7 @@ from PIL import Image
 from google import genai
 from google.genai import types
 import streamlit.components.v1 as components
+import time
 
 # ---------- 構成設定 ----------
 SPREADSHEET_NAME = "Kakeibo_Data" # 実際のGoogleスプレッドシート名に合わせて変更してください
@@ -122,7 +123,6 @@ def get_gspread_client():
         return None
 
 # --- リトライ可能なAPI呼び出しヘルパー ---
-import time
 
 def safe_gspread_call(func, *args, max_retries=3, delay=2, **kwargs):
     """API呼び出しをリトライする関数"""
@@ -1071,7 +1071,6 @@ def main():
                                 
                                 st.session_state.flash_message = f"✅ 解析が完了し、{written_count}件のデータを保存しました！"
                                 
-                                import time
                                 time.sleep(1)
                                 
                                 st.session_state.parsed_results = None
@@ -1264,7 +1263,6 @@ def main():
                                 st.session_state.manual_input_store = ""
                                 st.session_state.manual_input_date = datetime.today()
                                 
-                                import time
                                 time.sleep(1.5)
                                 st.rerun()
                             except Exception as e:
@@ -1504,7 +1502,7 @@ def main():
                                                 st.success("✅ レシート明細を更新しました")
                                                 st.session_state['edit_data'] = {} # リセット
                                                 st.session_state[mode_key] = False # 閲覧モードに戻す
-                                                import time; time.sleep(1)
+                                                time.sleep(1)
                                                 st.rerun()
                                         except Exception as e:
                                             st.error(f"エラー: {e}")
@@ -1569,7 +1567,7 @@ def main():
                                                     st.success("✅ レシートを削除しました")
                                                     st.session_state['edit_data'] = {}
                                                     st.session_state[mode_key] = False
-                                                    import time; time.sleep(1)
+                                                    time.sleep(1)
                                                     st.rerun()
                                             except Exception as e:
                                                 st.error(f"エラー: {e}")
