@@ -883,8 +883,14 @@ def main():
                     
                     st.dataframe(
                         display_df[final_cols],
-                        use_container_width=True,
-                        hide_index=True
+                        width="stretch",
+                        hide_index=True,
+                        column_config={
+                            "大分類": st.column_config.TextColumn("大分類", width="small"),
+                            "小分類": st.column_config.TextColumn("小分類", width="small"),
+                            "店舗名": st.column_config.TextColumn("店舗名", width="medium"),
+                            "金額": st.column_config.NumberColumn("金額", width="small", format="¥%d")
+                        }
                     )
                 else:
                     st.info("この日の支出データはありません。")
