@@ -1332,6 +1332,11 @@ def main():
                             if st.session_state.get('current_receipt_key') != receipt_key:
                                 st.session_state['current_receipt_key'] = receipt_key
                                 st.session_state['edit_data'] = {}
+                                # ヘッダー情報（日付・店舗名）もここで確実に初期化
+                                st.session_state['edit_header'] = {
+                                    "date": target_date.date(),
+                                    "store": target_store
+                                }
                             
                             for idx, row in details.iterrows():
                                 row_index_gs = row["_row_index"]
@@ -1347,13 +1352,6 @@ def main():
                                         "amount": int(row.get("amount", 0)),
                                         "major": major,
                                         "minor": sub
-                                    }
-                                
-                                # ヘッダー情報（日付・店舗名）も管理
-                                if 'edit_header' not in st.session_state or st.session_state.get('current_receipt_key') != receipt_key:
-                                    st.session_state['edit_header'] = {
-                                        "date": target_date.date(),
-                                        "store": target_store
                                     }
                                     
                             st.write("##### 明細一覧")
