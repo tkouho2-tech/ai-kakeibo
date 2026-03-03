@@ -704,7 +704,7 @@ def main():
             
         # サイドバーメニューの実装
         with st.sidebar:
-            st.subheader("マイニー [Ver 2.8.1]")
+            st.subheader("マイニー [Ver 2.9.0]")
             st.write(f"🔑 ユーザー: **{st.session_state['username']}**")
             st.markdown("---")
             if 'menu_selection' not in st.session_state:
@@ -1626,6 +1626,7 @@ def main():
                 # 表示用カラムのリネーム
                 rename_map = {
                     "store_name": "店舗名",
+                    "item_name": "商品名",
                     "category": "大分類",
                     "subcategory": "小分類",
                     "amount": "金額"
@@ -1634,7 +1635,7 @@ def main():
                 actual_rename = {k: v for k, v in rename_map.items() if k in df_user.columns}
                 df_user = df_user.rename(columns=actual_rename)
                 
-                target_cols = ["対象年月", "日付", "店舗名", "大分類", "小分類", "金額"]
+                target_cols = ["対象年月", "日付", "店舗名", "商品名", "大分類", "小分類", "金額"]
                 available_cols = [c for c in target_cols if c in df_user.columns]
                 
                 return df_user[available_cols].to_csv(index=False)
@@ -1681,7 +1682,9 @@ def main():
                         try:
                             # システムプロンプトを都度構築（最新データを反映させるため）
                             system_prompt = f"""あなたはユーザー専属の優秀なファイナンシャルプランナーです。
-以下のCSVデータは、このユーザー（{st.session_state['username']}）個人の家計簿データです。このデータに基づいて、ユーザーの質問に正確かつ親身に答えてください。
+以下のCSVデータは、このユーザー（{st.session_state['username']}）個人の家計簿データです。
+このデータには「商品名」も含まれており、いつ、どこで、何を買ったかを詳細に把握できます。
+ユーザーからの「特定の商品の購入時期（例：鶏肉ナンコツはいつ買った？）」や「商品の価格推移」などの質問に対し、正確かつ親身に答えてください。
 データに存在しない推測は避け、無駄遣いの指摘や節約のアドバイスなども積極的に行ってください。
 
 【ユーザーの家計簿データ】
@@ -1881,7 +1884,7 @@ def main():
                 """)
 
             st.markdown("---")
-            st.caption(f"マイニー Ver 2.8.1 - ユーザー: {st.session_state['username']}")
+            st.caption(f"マイニー Ver 2.9.0 - ユーザー: {st.session_state['username']}")
             
     # 未ログインの状態 (ログイン・登録画面)
     else:
