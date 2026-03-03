@@ -695,7 +695,7 @@ def show_yearly_dashboard():
         return
 
     # --- グラフ表示選択 ---
-    graph_type = st.radio("グラフ表示選択", ["年間大分類別シェア", "前年対比棒グラフ"], horizontal=True)
+    graph_type = st.radio("グラフ表示選択", ["年次大分類別シェア", "前年対比棒グラフ"], horizontal=True)
 
     if graph_type == "前年対比棒グラフ":
         # 当年データの月別集計
@@ -739,7 +739,7 @@ def show_yearly_dashboard():
             st.metric(f"{selected_year}年 総支出額", f"￥{int(year_total):,}")
     
     st.markdown("---")
-    st.markdown("##### カテゴリ別内訳 (年間)")
+    st.markdown("##### カテゴリ別内訳 (年次)")
     render_transaction_breakdown(df, "yearly_dashboard")
 
 def handle_menu_change():
@@ -817,7 +817,7 @@ def main():
 
         # サイドバーメニューの実装
         with st.sidebar:
-            st.subheader("マイニー [Ver 3.0.1]")
+            st.subheader("マイニー [Ver 3.0.2]")
             st.write(f"🔑 ユーザー: **{st.session_state['username']}**")
             st.markdown("---")
             if 'menu_selection' not in st.session_state:
@@ -2028,7 +2028,7 @@ def main():
                 """)
 
             st.markdown("---")
-            st.caption(f"マイニー Ver 3.0.1 - ユーザー: {st.session_state['username']}")
+            st.caption(f"マイニー Ver 3.0.2 - ユーザー: {st.session_state['username']}")
             
     # 未ログインの状態 (ログイン・登録画面)
     else:
