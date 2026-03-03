@@ -341,6 +341,27 @@ def load_transactions_data(target_date, mode="monthly"):
         
     return df
 
+def render_year_navigation():
+    """年次集計用の年選択ナビゲーションを表示する"""
+    curr = st.session_state.get('current_month', datetime.today().replace(day=1))
+    prev_year = curr - relativedelta(years=1)
+    next_year = curr + relativedelta(years=1)
+    
+    prev_date_str = prev_year.strftime('%Y-%m-01')
+    next_date_str = next_year.strftime('%Y-%m-01')
+    current_user = st.session_state.get("username", "")
+    current_menu = st.session_state.get("menu_selection", "ダッシュボード（年次集計）")
+    
+    header_html = f"""
+    <div style='display: flex; justify-content: center; align-items: center; gap: 20px; margin-bottom: 5px;'>
+        <a href="/?date={prev_date_str}&user={current_user}&menu={current_menu}" target="_self" style='text-decoration: none; font-size: 1.1rem; color: #007bff;'>◀ 前年</a>
+        <h3 style='margin: 0; font-size: 1.4rem;'>{curr.strftime('%Y年')}</h3>
+        <a href="/?date={next_date_str}&user={current_user}&menu={current_menu}" target="_self" style='text-decoration: none; font-size: 1.1rem; color: #007bff;'>翌年 ▶</a>
+    </div>
+    """
+    st.markdown(header_html, unsafe_allow_html=True)
+    st.markdown("---")
+
 def render_month_navigation():
     """全機能共通の月選択ナビゲーションと月間合計を表示する"""
     # 月選択UI (リンク方式)
@@ -650,13 +671,16 @@ def show_dashboard():
         st.warning("シートに 'category' または 'amount' 列がありません。")
 
 def show_yearly_dashboard():
-    st.markdown("#### 📊 ダッシュボード (年次集計)")
+    # ヘッダーを表示するためのプレースホルダー
+    header_placeholder = st.empty()
     
-    # 対象年の選択
-    current_year = datetime.today().year
-    years = [y for y in range(current_year - 5, current_year + 2)]
-    selected_year = st.selectbox("対象年を選択", years, index=years.index(current_year))
+    # 年次ナビゲーションを表示
+    render_year_navigation()
     
+    # メインタイトル表示
+    header_placeholder.markdown("#### 📊 ダッシュボード (年次集計)")
+    
+    selected_year = st.session_state['current_month'].year
     target_date = datetime(selected_year, 1, 1)
     
     with st.spinner(f"{selected_year}年のデータを集計中..."):
@@ -670,31 +694,24 @@ def show_yearly_dashboard():
         st.info(f"※{selected_year}年のデータはまだありません。")
         return
 
-    # --- 年次推移グラフ ---
-    st.markdown("##### 年次推移推移")
-    graph_type = st.radio("グラフ表示選択", ["月別合計 (棒グラフ)", "前年対比 (折れ線グラフ)"], horizontal=True)
-    
-    # 当年データの月別集計
-    df['month'] = df['date'].dt.month
-    monthly_summary = df.groupby('month', as_index=False)['amount'].sum()
-    # 1-12月を確実に埋める
-    full_months = pd.DataFrame({'month': range(1, 13)})
-    monthly_summary = pd.merge(full_months, monthly_summary, on='month', how='left').fillna(0)
-    monthly_summary['month_label'] = monthly_summary['month'].apply(lambda x: f"{x}月")
+    # --- グラフ表示選択 ---
+    graph_type = st.radio("グラフ表示選択", ["年間大分類別シェア", "前年対比棒グラフ"], horizontal=True)
 
-    if graph_type == "月別合計 (棒グラフ)":
-        fig = px.bar(monthly_summary, x='month_label', y='amount', 
-                     labels={'amount': '支出金額', 'month_label': '月'},
-                     title=f"{selected_year}年 月別支出推移")
-        st.plotly_chart(fig, use_container_width=True)
-    else:
-        # 前年比較 (仕様上は棒グラフでの対比を希望)
+    if graph_type == "前年対比棒グラフ":
+        # 当年データの月別集計
+        df['month'] = df['date'].dt.month
+        monthly_summary = df.groupby('month', as_index=False)['amount'].sum()
+        # 1-12月を確実に埋める
+        full_months = pd.DataFrame({'month': range(1, 13)})
+        monthly_summary = pd.merge(full_months, monthly_summary, on='month', how='left').fillna(0)
+        monthly_summary['month_label'] = monthly_summary['month'].apply(lambda x: f"{x}月")
+
         # 前年データの月別集計
         df_prev['month'] = df_prev['date'].dt.month
         prev_summary = df_prev.groupby('month', as_index=False)['amount'].sum()
         prev_summary = pd.merge(full_months, prev_summary, on='month', how='left').fillna(0)
         
-        # データをロング形式に変換して Plotly Express で扱いやすくする
+        # データをロング形式に変換
         comparison_data = pd.DataFrame({
             '月': list(monthly_summary['month_label']) * 2,
             '金額': list(monthly_summary['amount']) + list(prev_summary['amount']),
@@ -706,20 +723,20 @@ def show_yearly_dashboard():
                      barmode='group',
                      title=f"{selected_year}年 vs {selected_year-1}年 支出比較 (月次展開)")
         st.plotly_chart(fig, use_container_width=True)
-
-    # --- 円グラフ（シェア） ---
-    if "category" in df.columns:
-        cat_grouped = df.groupby("category", as_index=False)["amount"].sum()
-        cat_grouped = cat_grouped.sort_values(by="amount", ascending=False)
-        
-        fig_pie = px.pie(cat_grouped, values='amount', names='category', hole=0.4,
-                         title='年間大分類別シェア',
-                         category_orders={"category": cat_grouped["category"].tolist()})
-        fig_pie.update_traces(textposition='inside', textinfo='percent+label', sort=False)
-        st.plotly_chart(fig_pie, use_container_width=True)
-        
-        year_total = cat_grouped["amount"].sum()
-        st.metric("年間総支出額", f"￥{int(year_total):,}")
+    else:
+        # 年間大分類別シェア (円グラフ)
+        if "category" in df.columns:
+            cat_grouped = df.groupby("category", as_index=False)["amount"].sum()
+            cat_grouped = cat_grouped.sort_values(by="amount", ascending=False)
+            
+            fig_pie = px.pie(cat_grouped, values='amount', names='category', hole=0.4,
+                             title=f'{selected_year}年 大分類別支出シェア',
+                             category_orders={"category": cat_grouped["category"].tolist()})
+            fig_pie.update_traces(textposition='inside', textinfo='percent+label', sort=False)
+            st.plotly_chart(fig_pie, use_container_width=True)
+            
+            year_total = cat_grouped["amount"].sum()
+            st.metric(f"{selected_year}年 総支出額", f"￥{int(year_total):,}")
     
     st.markdown("---")
     st.markdown("##### カテゴリ別内訳 (年間)")
@@ -800,7 +817,7 @@ def main():
 
         # サイドバーメニューの実装
         with st.sidebar:
-            st.subheader("マイニー [Ver 3.0.0]")
+            st.subheader("マイニー [Ver 3.0.1]")
             st.write(f"🔑 ユーザー: **{st.session_state['username']}**")
             st.markdown("---")
             if 'menu_selection' not in st.session_state:
@@ -2011,7 +2028,7 @@ def main():
                 """)
 
             st.markdown("---")
-            st.caption(f"マイニー Ver 2.9.0 - ユーザー: {st.session_state['username']}")
+            st.caption(f"マイニー Ver 3.0.1 - ユーザー: {st.session_state['username']}")
             
     # 未ログインの状態 (ログイン・登録画面)
     else:
