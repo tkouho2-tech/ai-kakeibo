@@ -243,8 +243,11 @@ def authenticate_user(username, password):
     return False
 
 # ---------- データ取得機能 ----------
-def load_transactions_data(target_month):
-    """指定した月・ログインユーザーのデータを取得する"""
+def load_transactions_data(target_date, mode="monthly"):
+    """
+    指定した月または年の、ログインユーザーのデータを取得する
+    mode: "monthly" (月次) または "yearly" (年次)
+    """
     sheet = get_sheet(TRANSACTIONS_WORKSHEET_NAME)
     init_transactions_sheet(sheet)
     # レコード取得にリトライを適用
@@ -292,8 +295,11 @@ def load_transactions_data(target_month):
     df["date"] = pd.to_datetime(df["date"], errors="coerce")
     df = df.dropna(subset=["date"])
     
-    # 月でフィルタ
-    df = df[(df["date"].dt.year == target_month.year) & (df["date"].dt.month == target_month.month)]
+    # 期間でフィルタ
+    if mode == "monthly":
+        df = df[(df["date"].dt.year == target_date.year) & (df["date"].dt.month == target_date.month)]
+    else:  # yearly
+        df = df[df["date"].dt.year == target_date.year]
     
     # 金額を数値に変換
     if "amount" in df.columns:
@@ -608,6 +614,7 @@ def show_dashboard():
     header_placeholder = st.empty()
 
     # 共通ナビゲーションの適用
+    # モードを明示的に指定（月次）
     df = render_month_navigation()
 
     # 月の切り替え操作が行われた「後」の最新の状態でヘッダーを更新する
@@ -617,14 +624,11 @@ def show_dashboard():
         st.info("※今月のデータはまだありません。")
         return
 
-    # グラフと表の表示エリア
-    
-    # カテゴリ("category")ごとに金額("amount")を合計
+    # カテゴリごとに合算して円グラフ表示（既存ロジック）
     if "category" in df.columns and "amount" in df.columns:
         grouped_df = df.groupby("category", as_index=False)["amount"].sum()
         grouped_df = grouped_df.sort_values(by="amount", ascending=False)
         
-        # 円グラフ（ドーナツ型） - 金額順に並べる
         fig = px.pie(
             grouped_df, 
             values='amount', 
@@ -645,12 +649,96 @@ def show_dashboard():
     else:
         st.warning("シートに 'category' または 'amount' 列がありません。")
 
+def show_yearly_dashboard():
+    st.markdown("#### 📊 ダッシュボード (年次集計)")
+    
+    # 対象年の選択
+    current_year = datetime.today().year
+    years = [y for y in range(current_year - 5, current_year + 2)]
+    selected_year = st.selectbox("対象年を選択", years, index=years.index(current_year))
+    
+    target_date = datetime(selected_year, 1, 1)
+    
+    with st.spinner(f"{selected_year}年のデータを集計中..."):
+        # 年次モードでデータを取得
+        df = load_transactions_data(target_date, mode="yearly")
+        # 前年比較用に前年データも取得
+        prev_year_date = target_date - relativedelta(years=1)
+        df_prev = load_transactions_data(prev_year_date, mode="yearly")
+
+    if df.empty:
+        st.info(f"※{selected_year}年のデータはまだありません。")
+        return
+
+    # --- 年次推移グラフ ---
+    st.markdown("##### 年次推移推移")
+    graph_type = st.radio("グラフ表示選択", ["月別合計 (棒グラフ)", "前年対比 (折れ線グラフ)"], horizontal=True)
+    
+    # 当年データの月別集計
+    df['month'] = df['date'].dt.month
+    monthly_summary = df.groupby('month', as_index=False)['amount'].sum()
+    # 1-12月を確実に埋める
+    full_months = pd.DataFrame({'month': range(1, 13)})
+    monthly_summary = pd.merge(full_months, monthly_summary, on='month', how='left').fillna(0)
+    monthly_summary['month_label'] = monthly_summary['month'].apply(lambda x: f"{x}月")
+
+    if graph_type == "月別合計 (棒グラフ)":
+        fig = px.bar(monthly_summary, x='month_label', y='amount', 
+                     labels={'amount': '支出金額', 'month_label': '月'},
+                     title=f"{selected_year}年 月別支出推移")
+        st.plotly_chart(fig, use_container_width=True)
+    else:
+        # 前年比較 (仕様上は棒グラフでの対比を希望)
+        # 前年データの月別集計
+        df_prev['month'] = df_prev['date'].dt.month
+        prev_summary = df_prev.groupby('month', as_index=False)['amount'].sum()
+        prev_summary = pd.merge(full_months, prev_summary, on='month', how='left').fillna(0)
+        
+        # データをロング形式に変換して Plotly Express で扱いやすくする
+        comparison_data = pd.DataFrame({
+            '月': list(monthly_summary['month_label']) * 2,
+            '金額': list(monthly_summary['amount']) + list(prev_summary['amount']),
+            '年度': [f'{selected_year}年'] * 12 + [f'{selected_year-1}年'] * 12
+        })
+        
+        # グループ化された棒グラフで表示
+        fig = px.bar(comparison_data, x='月', y='金額', color='年度',
+                     barmode='group',
+                     title=f"{selected_year}年 vs {selected_year-1}年 支出比較 (月次展開)")
+        st.plotly_chart(fig, use_container_width=True)
+
+    # --- 円グラフ（シェア） ---
+    if "category" in df.columns:
+        cat_grouped = df.groupby("category", as_index=False)["amount"].sum()
+        cat_grouped = cat_grouped.sort_values(by="amount", ascending=False)
+        
+        fig_pie = px.pie(cat_grouped, values='amount', names='category', hole=0.4,
+                         title='年間大分類別シェア',
+                         category_orders={"category": cat_grouped["category"].tolist()})
+        fig_pie.update_traces(textposition='inside', textinfo='percent+label', sort=False)
+        st.plotly_chart(fig_pie, use_container_width=True)
+        
+        year_total = cat_grouped["amount"].sum()
+        st.metric("年間総支出額", f"￥{int(year_total):,}")
+    
+    st.markdown("---")
+    st.markdown("##### カテゴリ別内訳 (年間)")
+    render_transaction_breakdown(df, "yearly_dashboard")
+
 def handle_menu_change():
-    """サイドバーでのメニュー変更時にURLパラメータをクリアする"""
+    """サイドバーでのメニュー変更時にURLパラメータをクリアし、必要に応じてダッシュボード表示を月次にリセットする"""
     if "date" in st.query_params:
         del st.query_params["date"]
     if "menu" in st.query_params:
         del st.query_params["menu"]
+    
+    # セッション内のメニュー選択を確認（on_change時点で st.session_state.menu_selection は更新されている）
+    target_menu = st.session_state.get("menu_selection")
+    # 仕様：カレンダー、レシート取込、レシート修正を選択した際、ダッシュボード選択状態をリセット
+    if target_menu in ["カレンダー", "レシート取込", "レシート修正"]:
+        st.session_state["menu_selection_reset_flag"] = True # フラグを立てておき、後でリセットを促すか、直接書き換える
+        # 直接書き換えると無限ループの恐れがあるが、ラジオボタンの値を操作するには st.session_state.key をいじる
+        # ただし on_change 中に自身をいじるのは制限があるため、main側で処理する方が安全な場合もある
 
 def main():
     # URLパラメータの同期（セッション維持のため冒頭で行う）
@@ -699,23 +787,60 @@ def main():
         
         # 自動画面遷移のためのリダイレクト処理
         if st.session_state.get('redirect_to_dashboard'):
-            st.session_state['menu_selection'] = "ダッシュボード"
+            st.session_state['menu_selection'] = "ダッシュボード（月次集計）"
             st.session_state['redirect_to_dashboard'] = False
             
+        # サイドバー連動ロジック（自動切り替え）
+        # handle_menu_change でセットされたフラグをチェック
+        if st.session_state.get("menu_selection_reset_flag"):
+            # リセット対象メニュー（カレンダー、レシート系）が選ばれた現在の状態から、
+            # 次にダッシュボードに戻った時に「月次集計」になるように内部状態をいじる
+            # ただし、現状の radio ボタンの挙動として、「もし次ダッシュボード系を選ぶなら」という制御が必要
+            st.session_state["menu_selection_reset_flag"] = False
+
         # サイドバーメニューの実装
         with st.sidebar:
-            st.subheader("マイニー [Ver 2.9.0]")
+            st.subheader("マイニー [Ver 3.0.0]")
             st.write(f"🔑 ユーザー: **{st.session_state['username']}**")
             st.markdown("---")
             if 'menu_selection' not in st.session_state:
-                st.session_state['menu_selection'] = "ダッシュボード"
-                
+                st.session_state['menu_selection'] = "ダッシュボード（月次集計）"
+            
+            # 既存の "ダッシュボード" を "ダッシュボード（月次集計）" に置換し、年次を追加
+            menu_options = [
+                "ダッシュボード（月次集計）", 
+                "ダッシュボード（年次集計）", 
+                "カレンダー", 
+                "レシート取込", 
+                "レシート手入力", 
+                "レシート修正", 
+                "👁AI相談", 
+                "ヘルプ", 
+                "📗マニュアル"
+            ]
+            
+            # メニューのリセット処理（別の画面から戻ってきたとき用）
+            # もしカレンダー等から「ダッシュボード系以外」を経由して戻ってきた場合、
+            # 次にダッシュボードをクリックしたときに「月次」にしたいという要件。
+            # 直前の値を保持しておき、遷移を検知する
+            if "last_menu_selection" not in st.session_state:
+                st.session_state.last_menu_selection = st.session_state['menu_selection']
+            
+            # 直前がカレンダー等で、今がダッシュボード（年次）なら、月次に書き換える（仕様の解釈）
+            # ※ユーザーが明示的に年次を選んだ場合は通すべきなので、
+            # 「他のメニューからダッシュボード系に戻ってきた最初の一歩」を判定する
+            if st.session_state.last_menu_selection in ["カレンダー", "レシート取込", "レシート手入力", "レシート修正"] \
+               and st.session_state.menu_selection == "ダッシュボード（年次集計）":
+                st.session_state.menu_selection = "ダッシュボード（月次集計）"
+
             menu_selection = st.radio(
                 "機能を選択",
-                ["ダッシュボード", "カレンダー", "レシート取込", "レシート手入力", "レシート修正", "👁AI相談", "ヘルプ", "📗マニュアル"],
+                menu_options,
                 key="menu_selection",
                 on_change=handle_menu_change
             )
+            st.session_state.last_menu_selection = menu_selection
+            
             st.markdown("---")
             if st.button("ログアウト", use_container_width=True):
                 st.session_state['logged_in'] = False
@@ -723,8 +848,10 @@ def main():
                 st.rerun()
 
         # メインコンテンツの切り替え
-        if menu_selection == "ダッシュボード":
+        if menu_selection == "ダッシュボード（月次集計）":
             show_dashboard()
+        elif menu_selection == "ダッシュボード（年次集計）":
+            show_yearly_dashboard()
         elif menu_selection == "カレンダー":
             st.markdown("#### 📅 カレンダー")
             
