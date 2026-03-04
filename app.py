@@ -534,8 +534,8 @@ def render_transaction_breakdown(df, key_prefix):
         st.info("データがありません。")
         return
 
-    # 表示パターンの選択
-    view_pattern = st.radio("表示パターン", ["店舗別", "大分類別", "小分類別"], horizontal=True, key=f"{key_prefix}_view_pattern")
+    # 表示パターンの選択（小分類別を削除）
+    view_pattern = st.radio("表示パターン", ["店舗別", "大分類別"], horizontal=True, key=f"{key_prefix}_view_pattern")
     
     if view_pattern == "店舗別":
         store_col = "store_name" if "store_name" in df.columns else "store" if "store" in df.columns else None
@@ -549,11 +549,71 @@ def render_transaction_breakdown(df, key_prefix):
                 
                 with st.expander(f"{store}：{total_amt_str}"):
                     store_df = df[df[store_col] == store].copy()
-                    cat_breakdown = store_df.groupby("category", as_index=False)["amount"].sum()
-                    cat_breakdown = cat_breakdown.sort_values(by="amount", ascending=False)
-                    cat_breakdown["amount"] = cat_breakdown["amount"].apply(lambda x: f"￥{int(x):,}")
-                    cat_breakdown.columns = ["大分類", "金額"]
-                    st.dataframe(cat_breakdown, use_container_width=True, hide_index=True)
+                    cat_grouped = store_df.groupby("category", as_index=False)["amount"].sum()
+                    cat_grouped = cat_grouped.sort_values(by="amount", ascending=False)
+                    
+                    for _, cat_row in cat_grouped.iterrows():
+                        cat = cat_row["category"]
+                        cat_amt_str = f"￥{int(cat_row['amount']):,}"
+                        
+                        # 2段階目：大分類アコーディオン
+                        sub_df = store_df[store_df["category"] == cat].copy()
+                        sub_col = None
+                        for col_name in ["subcategory", "sub_category", "小分類"]:
+                            if col_name in sub_df.columns:
+                                sub_col = col_name
+                                break
+                        
+                        if sub_col:
+                            sub_grouped = sub_df.groupby(sub_col, as_index=False)["amount"].sum()
+                            sub_grouped = sub_grouped.sort_values(by="amount", ascending=False)
+                            
+                            with st.expander(f"  └ {cat}：{cat_amt_str}"):
+                                if key_prefix == "calendar":
+                                    # カレンダー詳細（店舗別）のみ 3階層目以降をカスタムHTMLで極薄表示
+                                    for _, sub_row in sub_grouped.iterrows():
+                                        sub_name = sub_row[sub_col]
+                                        sub_amt_str = f"￥{int(sub_row['amount']):,}"
+                                        
+                                        # 3階層目（小分類）と4階層目（商品名）を一つのdetailsタグにまとめる
+                                        # インデントがあるとMarkdownのコードブロックと誤認されるため、左詰めにする
+                                        html_str = f'<details style="margin: 1px 0;">'
+                                        html_str += f'<summary style="background-color: #f0f2f6; padding: 2px 8px; margin: 0; border-left: 5px solid #007bff; font-size: 0.9rem; line-height: 1.2; list-style: none; cursor: pointer;">'
+                                        html_str += f'L {sub_name}：{sub_amt_str}</summary>'
+                                        html_str += f'<div style="padding-left: 10px;">'
+                                        
+                                        # 4階層目：商品名（詳細）
+                                        item_df = sub_df[sub_df[sub_col] == sub_name].copy()
+                                        item_col = "item_name" if "item_name" in item_df.columns else "item" if "item" in item_df.columns else None
+                                        
+                                        if item_col:
+                                            item_grouped = item_df.groupby(item_col, as_index=False)["amount"].sum()
+                                            item_grouped = item_grouped.sort_values(by="amount", ascending=False)
+                                            for _, i_row in item_grouped.iterrows():
+                                                i_name = i_row[item_col]
+                                                i_amt = f"￥{int(i_row['amount']):,}"
+                                                html_str += f'<div style="padding-left: 10px; font-size: 0.85rem; line-height: 1.1; margin: 0; color: #555;">└ {i_name}：{i_amt}</div>'
+                                        else:
+                                            for _, i_row in item_df.iterrows():
+                                                i_amt = f"￥{int(i_row['amount']):,}"
+                                                html_str += f'<div style="padding-left: 10px; font-size: 0.85rem; line-height: 1.1; margin: 0; color: #555;">└ {i_amt}</div>'
+                                        
+                                        html_str += "</div></details>"
+                                        st.markdown(html_str, unsafe_allow_html=True)
+                                else:
+                                    # その他（ダッシュボード等）は 3階層のまま（大分類 > 小分類リスト）
+                                    sub_grouped_disp = sub_grouped.copy()
+                                    sub_grouped_disp["amount"] = sub_grouped_disp["amount"].apply(lambda x: f"￥{int(x):,}")
+                                    sub_grouped_disp.columns = ["小分類", "金額"]
+                                    st.dataframe(sub_grouped_disp, use_container_width=True, hide_index=True)
+                        else:
+                            # 小分類がない場合は明細
+                            item_cols = [c for c in ["item_name", "item", "amount"] if c in sub_df.columns]
+                            display_items = sub_df[item_cols].copy()
+                            display_items["amount"] = display_items["amount"].apply(lambda x: f"￥{int(x):,}")
+                            
+                            with st.expander(f"  └ {cat}：{cat_amt_str}"):
+                                st.dataframe(display_items, use_container_width=True, hide_index=True)
         else:
             st.info("店舗情報がありません。")
 
@@ -575,11 +635,31 @@ def render_transaction_breakdown(df, key_prefix):
                             break
                     
                     if sub_col:
+                        # 2段階目：小分類アコーディオン（大分類 > 小分類 > 商品名）
                         sub_grouped = cat_df.groupby(sub_col, as_index=False)["amount"].sum()
                         sub_grouped = sub_grouped.sort_values(by="amount", ascending=False)
-                        sub_grouped["amount"] = sub_grouped["amount"].apply(lambda x: f"￥{int(x):,}")
-                        sub_grouped.columns = ["小分類", "金額"]
-                        st.dataframe(sub_grouped, use_container_width=True, hide_index=True)
+                        
+                        for _, sub_row in sub_grouped.iterrows():
+                            sub_name = sub_row[sub_col]
+                            sub_amt_str = f"￥{int(sub_row['amount']):,}"
+                            
+                            with st.expander(f"  └ {sub_name}：{sub_amt_str}"):
+                                item_df = cat_df[cat_df[sub_col] == sub_name].copy()
+                                item_col = "item_name" if "item_name" in item_df.columns else "item" if "item" in item_df.columns else None
+                                
+                                if item_col:
+                                    item_grouped = item_df.groupby(item_col, as_index=False)["amount"].sum()
+                                    item_grouped = item_grouped.sort_values(by="amount", ascending=False)
+                                    item_grouped["amount"] = item_grouped["amount"].apply(lambda x: f"￥{int(x):,}")
+                                    item_grouped.columns = ["商品名", "金額"]
+                                    st.dataframe(item_grouped, use_container_width=True, hide_index=True)
+                                else:
+                                    detail_df = item_df[["date", "amount"]].copy() if "date" in item_df.columns else item_df[["amount"]].copy()
+                                    detail_df = detail_df.sort_values(by="amount", ascending=False)
+                                    if "date" in detail_df.columns:
+                                        detail_df["date"] = detail_df["date"].dt.strftime('%m/%d')
+                                    detail_df["amount"] = detail_df["amount"].apply(lambda x: f"￥{int(x):,}")
+                                    st.dataframe(detail_df, use_container_width=True, hide_index=True)
                     else:
                         display_df = cat_df.copy()
                         cols_to_keep = [c for c in ["date", "store_name", "store", "item_name", "item", "amount"] if c in display_df.columns]
@@ -592,42 +672,6 @@ def render_transaction_breakdown(df, key_prefix):
                         st.dataframe(display_df, use_container_width=True, hide_index=True)
         else:
             st.warning("カテゴリ情報がありません。")
-
-    else:
-        # 小分類別の表示
-        sub_col = None
-        for col_name in ["subcategory", "sub_category", "小分類"]:
-            if col_name in df.columns:
-                sub_col = col_name
-                break
-        
-        if sub_col:
-            sub_total_grouped = df.groupby(sub_col, as_index=False)["amount"].sum()
-            sub_total_grouped = sub_total_grouped.sort_values(by="amount", ascending=False)
-            
-            for _, row in sub_total_grouped.iterrows():
-                sub_name = row[sub_col]
-                total_amt_str = f"￥{int(row['amount']):,}"
-                
-                with st.expander(f"{sub_name}：{total_amt_str}"):
-                    item_df = df[df[sub_col] == sub_name].copy()
-                    item_col = "item_name" if "item_name" in item_df.columns else "item" if "item" in item_df.columns else None
-                    
-                    if item_col:
-                        item_grouped = item_df.groupby(item_col, as_index=False)["amount"].sum()
-                        item_grouped = item_grouped.sort_values(by="amount", ascending=False)
-                        item_grouped["amount"] = item_grouped["amount"].apply(lambda x: f"￥{int(x):,}")
-                        item_grouped.columns = ["商品名", "金額"]
-                        st.dataframe(item_grouped, use_container_width=True, hide_index=True)
-                    else:
-                        detail_df = item_df[["date", "amount"]].copy() if "date" in item_df.columns else item_df[["amount"]].copy()
-                        detail_df = detail_df.sort_values(by="amount", ascending=False)
-                        if "date" in detail_df.columns:
-                            detail_df["date"] = detail_df["date"].dt.strftime('%m/%d')
-                        detail_df["amount"] = detail_df["amount"].apply(lambda x: f"￥{int(x):,}")
-                        st.dataframe(detail_df, use_container_width=True, hide_index=True)
-        else:
-            st.info("小分類情報がありません。")
 
 # ---------- ページUIの実装 ----------
 def show_dashboard():
@@ -1433,17 +1477,9 @@ def main():
                     receipts_df["金額合計"] = receipts_df["金額合計"].apply(lambda x: int(x))
                     receipts_df = receipts_df.sort_values(by="日付", ascending=False).reset_index(drop=True)
                     
-                    # 総合計行を追加
-                    total_amount = receipts_df["金額合計"].sum()
-                    total_items = receipts_df["明細数"].sum()
-                    total_row = pd.DataFrame([{
-                        "日付": "総合計",
-                        "店舗名": "",
-                        "金額合計": int(total_amount),
-                        "明細数": int(total_items)
-                    }])
-                    receipts_df = pd.concat([receipts_df, total_row], ignore_index=True)
-                    
+                    if "receipt_list_version" not in st.session_state:
+                        st.session_state.receipt_list_version = 0
+
                     st.markdown("<p style='font-size: 0.85rem; font-weight: bold; margin-bottom: 5px;'>レシート一覧表（対象レシートを選択してください）</p>", unsafe_allow_html=True)
                     
                     # dataframe 選択
@@ -1452,7 +1488,8 @@ def main():
                         use_container_width=True, 
                         hide_index=True, 
                         selection_mode="single-row",
-                        on_select="rerun"
+                        on_select="rerun",
+                        key=f"receipt_list_df_{st.session_state.receipt_list_version}"
                     )
                     
                     if len(event.selection.rows) > 0:
@@ -1642,6 +1679,7 @@ def main():
                                                 st.success("✅ レシート明細を更新しました")
                                                 st.session_state['edit_data'] = {} # リセット
                                                 st.session_state[mode_key] = False # 閲覧モードに戻す
+                                                st.session_state.receipt_list_version += 1 # 一覧の選択をリセット
                                                 time.sleep(1)
                                                 st.rerun()
                                         except Exception as e:
@@ -1652,6 +1690,7 @@ def main():
                                         # 状態をリセットし閲覧モードに戻る
                                         st.session_state['current_receipt_key'] = "" # キーを空にして初期化処理を無理やり再実行させる
                                         st.session_state[mode_key] = False
+                                        st.session_state.receipt_list_version += 1 # 一覧の選択をリセット
                                         st.rerun()
                                 
                             else:
@@ -1707,6 +1746,7 @@ def main():
                                                     st.success("✅ レシートを削除しました")
                                                     st.session_state['edit_data'] = {}
                                                     st.session_state[mode_key] = False
+                                                    st.session_state.receipt_list_version += 1 # 一覧の選択をリセット
                                                     time.sleep(1)
                                                     st.rerun()
                                             except Exception as e:
