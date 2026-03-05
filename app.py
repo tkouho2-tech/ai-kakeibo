@@ -67,20 +67,43 @@ if api_key:
 
 st.set_page_config(page_title="AI家計簿アプリ - ダッシュボード", page_icon="📊", layout="wide")
 
-# ブラウザの自動翻訳の誤作動を防ぐため、大元の言語設定を日本語(ja)に強制上書き
+# ブラウザの自動翻訳の誤作動を防ぐため、HTMLの言語設定と翻訳拒否設定を強化
 components.html(
     """
     <script>
+        // HTML要素の言語を日本語に固定
         const html = window.parent.document.getElementsByTagName('html')[0];
         html.setAttribute('lang', 'ja');
+        html.setAttribute('translate', 'no');
+        html.classList.add('notranslate');
+
+        // headにmetaタグを挿入してGoogle翻訳を明示的に拒否
+        const head = window.parent.document.getElementsByTagName('head')[0];
+        if (!window.parent.document.querySelector('meta[name="google"][content="notranslate"]')) {
+            const meta = window.parent.document.createElement('meta');
+            meta.name = 'google';
+            meta.content = 'notranslate';
+            head.appendChild(meta);
+        }
     </script>
     """,
     width=0,
     height=0,
 )
 
-# ---------- 翻訳拒否設定（ブラウザの自動翻訳による誤変換防止） ----------
-st.markdown('<meta name="google" content="notranslate">', unsafe_allow_html=True)
+# 全体のスタイルとしても翻訳拒否を適用
+st.markdown("""
+    <style>
+        /* アプリ全体で翻訳を無効化 */
+        .stApp {
+            unicode-bidi: isolate;
+        }
+        /* classNameを使った拒否（一部ブラウザ向け） */
+        .notranslate {
+            translate: no !important;
+        }
+    </style>
+""", unsafe_allow_html=True)
 
 # ---------- セッション状態の初期化 ----------
 if 'logged_in' not in st.session_state:
@@ -242,6 +265,66 @@ def authenticate_user(username, password):
                 return True
     return False
 
+# ---------- データ取得機能 (共通ヘルパー) ----------
+def get_clean_df(records, username):
+    """
+    レコードからDataFrameを作成し、カラム名の正規化(日本語対応)とユーザーフィルタリングを行う
+    """
+    if not records:
+        return pd.DataFrame()
+        
+    df = pd.DataFrame(records)
+    
+    # クレンジング（不要なスペース等削除、小文字化してマッチングしやすくする）
+    df.columns = df.columns.str.strip()
+    
+    # 既存のカラム名（小文字）とターゲットのマップを作成
+    col_map = {c.lower(): c for c in df.columns}
+    
+    # --- カラム名の正規化（日本語ヘッダー・大文字小文字への対応） ---
+    rename_rules = {
+        "日付": "date",
+        "date": "date",
+        "ユーザー名": "username",
+        "username": "username",
+        "user": "username",
+        "店舗名": "store_name",
+        "店舗": "store_name",
+        "商品名": "item_name",
+        "内容": "item_name",
+        "金額": "amount",
+        "大分類": "category",
+        "小分類": "subcategory"
+    }
+    
+    actual_rename = {}
+    for key, target in rename_rules.items():
+        # keyがカラム名（そのまま、または小文字）に含まれているか確認
+        if key in df.columns:
+            actual_rename[key] = target
+        elif key.lower() in col_map:
+            actual_rename[col_map[key.lower()]] = target
+            
+    if actual_rename:
+        df = df.rename(columns=actual_rename)
+    
+    # "username"でフィルタ (必須)
+    if "username" in df.columns:
+        # 値自体の余白も削除して比較
+        df["username"] = df["username"].astype(str).str.strip().str.lower()
+        df = df[df["username"] == username.lower()]
+    else:
+        return pd.DataFrame()
+        
+    if df.empty or "date" not in df.columns:
+          return pd.DataFrame()
+
+    # "date"列をdatetime型に変換
+    df["date"] = pd.to_datetime(df["date"], errors="coerce")
+    df = df.dropna(subset=["date"])
+    
+    return df
+
 # ---------- データ取得機能 ----------
 def load_transactions_data(target_date, mode="monthly"):
     """
@@ -253,47 +336,23 @@ def load_transactions_data(target_date, mode="monthly"):
     # レコード取得にリトライを適用
     records = safe_gspread_call(sheet.get_all_records)
     
-    if not records:
+    # 共通ヘルパーでクレンジングとフィルタリング
+    curr_user = st.session_state.get('username', "")
+    df = get_clean_df(records, curr_user)
+    
+    if df.empty:
          return pd.DataFrame()
-         
-    for i, r in enumerate(records):
-        r['_row_index'] = i + 2  # ヘッダー行を考慮して+2
-         
-    df = pd.DataFrame(records)
     
-    # クレンジング（不要なスペース等削除、データ型変換）
-    df.columns = df.columns.str.strip()
+    # 行インデックスの付与（recordsの順番に基づく）
+    # recordsのインデックスとdfのインデックスを合わせる必要があるため、クレンジング前のrecords長を使用
+    # recordsは全ユーザー分あるが、dfはフィルタ済み。
+    # recordsにある元の行番号を保持するためにDataFrame作成時に付与しておく
+    df_all_temp = pd.DataFrame(records)
+    df_all_temp['_row_index'] = range(2, len(records) + 2)
     
-    # --- カラム名の正規化（日本語ヘッダーへの対応） ---
-    rename_rules = {
-        "日付": "date",
-        "店舗名": "store_name",
-        "店舗": "store_name",
-        "商品名": "item_name",
-        "内容": "item_name",
-        "支出内容": "item_name",
-        "金額": "amount",
-        "大分類": "category",
-        "小分類": "subcategory"
-    }
-    # 既存のカラム名と変換ルールを照合してリネーム
-    actual_rename = {}
-    for old, new in rename_rules.items():
-        if old in df.columns and new not in df.columns:
-            actual_rename[old] = new
-    if actual_rename:
-        df = df.rename(columns=actual_rename)
-    
-    # "username"でフィルタ
-    if "username" in df.columns:
-        df = df[df["username"].astype(str).str.lower() == st.session_state['username']]
-    
-    if df.empty or "date" not in df.columns:
-         return pd.DataFrame()
-
-    # "date"列をdatetime型にするため、エラーは強制的にNaTに
-    df["date"] = pd.to_datetime(df["date"], errors="coerce")
-    df = df.dropna(subset=["date"])
+    # dfにrow_indexを結合
+    # pd.mergeを使うため、元のインデックスを利用
+    df = df.join(df_all_temp[['_row_index']])
     
     # 期間でフィルタ
     if mode == "monthly":
@@ -341,47 +400,293 @@ def load_transactions_data(target_date, mode="monthly"):
         
     return df
 
+def get_transaction_range(username):
+    """ユーザーの全データの最小年月と最大年月を取得し、セッションに保持する"""
+    # 修正を即時反映させるため、一時的にキャッシュを無効化するか、強制リフレッシュを挟む
+    # ここでは、もし不整合があれば再取得するようにガードを強化
+    if 'date_range' in st.session_state and st.session_state.get('last_range_fetch_user') == username:
+        if st.session_state['date_range']: # 空でないことを確認
+            return st.session_state['date_range']
+    
+    sheet = get_sheet(TRANSACTIONS_WORKSHEET_NAME)
+    records = safe_gspread_call(sheet.get_all_records)
+    
+    # 共通ヘルパーでクレンジングとフィルタリング
+    df_user = get_clean_df(records, username)
+    
+    if df_user.empty:
+        return []
+        
+    # ユニークな年月を抽出してソート
+    df_user["year_month"] = df_user["date"].dt.to_period("M").dt.to_timestamp()
+    available_months = sorted(df_user["year_month"].unique().tolist())
+    
+    st.session_state['date_range'] = available_months
+    st.session_state['last_range_fetch_user'] = username
+    return available_months
+
 def render_year_navigation():
-    """年次集計用の年選択ナビゲーションを表示する"""
+    """年次集計用の年選択ナビゲーションを表示する (データがある年のみ移動可能)"""
     curr = st.session_state.get('current_month', datetime.today().replace(day=1))
-    prev_year = curr - relativedelta(years=1)
-    next_year = curr + relativedelta(years=1)
-    
-    prev_date_str = prev_year.strftime('%Y-%m-01')
-    next_date_str = next_year.strftime('%Y-%m-01')
     current_user = st.session_state.get("username", "")
-    current_menu = st.session_state.get("menu_selection", "ダッシュボード（年次集計）")
+    current_menu = st.session_state.get("menu_selection", "カレンダー")
     
-    header_html = f"""
-    <div style='display: flex; justify-content: center; align-items: center; gap: 20px; margin-bottom: 5px;'>
-        <a href="/?date={prev_date_str}&user={current_user}&menu={current_menu}" target="_self" style='text-decoration: none; font-size: 1.1rem; color: #007bff;'>◀ 前年</a>
-        <h3 style='margin: 0; font-size: 1.4rem;'>{curr.strftime('%Y年')}</h3>
-        <a href="/?date={next_date_str}&user={current_user}&menu={current_menu}" target="_self" style='text-decoration: none; font-size: 1.1rem; color: #007bff;'>翌年 ▶</a>
-    </div>
-    """
-    st.markdown(header_html, unsafe_allow_html=True)
+    # データが存在するユニークな月リストを取得
+    available_months = get_transaction_range(current_user)
+    available_years = sorted(list(set([m.year for m in available_months])))
+    
+    # 前後の年を検索
+    prev_y = next((y for y in reversed(available_years) if y < curr.year), None)
+    next_y = next((y for y in available_years if y > curr.year), None)
+    
+    has_prev = prev_y is not None
+    has_next = next_y is not None
+    
+    prev_date_str = f"{prev_y}-01-01" if has_prev else ""
+    next_date_str = f"{next_y}-01-01" if has_next else ""
+    
+    # 月次と同様のCSSを適用して1行に収める
+    st.markdown("""
+        <style>
+            /* st.columns の親要素に対して横並びを強制 */
+            div[data-testid="stHorizontalBlock"] {
+                display: flex !important;
+                flex-direction: row !important;
+                flex-wrap: nowrap !important;
+                align-items: center !important;
+                justify-content: center !important;
+                gap: 2px !important;
+            }
+            /* 前年・翌年ボタンのカラム */
+            div[data-testid="stHorizontalBlock"] > div:nth-child(1),
+            div[data-testid="stHorizontalBlock"] > div:nth-child(3) {
+                flex: 1 1 0% !important;
+                width: auto !important;
+                min-width: 0 !important;
+            }
+            /* 当年ポップオーバーのカラム */
+            div[data-testid="stHorizontalBlock"] > div:nth-child(2) {
+                flex: 0 0 auto !important;
+                width: 130px !important;
+                min-width: 130px !important;
+            }
+            /* ポップオーバーボタンの余白を削る */
+            div[data-testid="stPopover"] > button {
+                padding-left: 2px !important;
+                padding-right: 2px !important;
+            }
+            /* ポップオーバーボタンのテキストサイズと折り返し禁止 */
+            div[data-testid="stPopover"] > button p {
+                font-size: 0.95rem !important;
+                white-space: nowrap !important;
+                margin: 0 !important;
+            }
+        </style>
+    """, unsafe_allow_html=True)
+
+    col1, col2, col3 = st.columns([1, 2, 1])
+    
+    with col1:
+        if has_prev:
+            st.markdown(f"""
+                <div style='display: flex; align-items: center; justify-content: flex-end; font-size: 0.9rem; white-space: nowrap;'>
+                    <a href="/?date={prev_date_str}&user={current_user}&menu={current_menu}" target="_self" style='text-decoration: none; color: #007bff; font-weight: bold;'>◀ 前年</a>
+                </div>
+            """, unsafe_allow_html=True)
+        else:
+            st.markdown(f"<div style='text-align: right; color: #ccc; font-size: 0.9rem;'>◀ 前年</div>", unsafe_allow_html=True)
+            
+    with col2:
+        # 月次とスタイルを合わせてポップオーバー化
+        with st.popover(curr.strftime('%Y年 ▼'), use_container_width=True):
+            # 選択可能な年のリストを作成 (データ範囲内)
+            if available_years:
+                nav_years = sorted(available_years, reverse=True)
+            else:
+                nav_years = [curr.year]
+
+            list_html = "<div style='text-align: center;'>"
+            for y in nav_years:
+                y_str = f"{y}-01-01"
+                y_label = f"{y}年"
+                is_current = (y == curr.year)
+                
+                bg_color = "#e6f2ff" if is_current else "transparent"
+                font_weight = "bold" if is_current else "normal"
+                color = "#0056b3" if is_current else "#333"
+                
+                link = f"<a href='/?date={y_str}&user={current_user}&menu={current_menu}' target='_self' style='display: block; padding: 10px; margin: 2px 0; border-radius: 4px; background-color: {bg_color}; color: {color}; text-decoration: none; font-weight: {font_weight}; font-size: 1.1rem;'>{y_label}</a>"
+                list_html += link
+            list_html += "</div>"
+            st.markdown(list_html, unsafe_allow_html=True)
+            
+    with col3:
+        if has_next:
+            st.markdown(f"""
+                <div style='display: flex; align-items: center; justify-content: flex-start; font-size: 0.9rem; white-space: nowrap;'>
+                    <a href="/?date={next_date_str}&user={current_user}&menu={current_menu}" target="_self" style='text-decoration: none; color: #007bff; font-weight: bold;'>翌年 ▶</a>
+                </div>
+            """, unsafe_allow_html=True)
+        else:
+            st.markdown(f"<div style='text-align: left; color: #ccc; font-size: 0.9rem;'>翌年 ▶</div>", unsafe_allow_html=True)
+    
     st.markdown("---")
 
 def render_month_navigation():
     """全機能共通の月選択ナビゲーションと月間合計を表示する"""
-    # 月選択UI (リンク方式)
-    curr = st.session_state.get('current_month', datetime.today().replace(day=1))
-    prev_month = curr - relativedelta(months=1)
-    next_month = curr + relativedelta(months=1)
+    # 現在の月を取得
+    if 'current_month' not in st.session_state:
+        st.session_state['current_month'] = datetime.today().replace(day=1)
     
-    prev_date_str = prev_month.strftime('%Y-%m-01')
-    next_date_str = next_month.strftime('%Y-%m-01')
+    curr = st.session_state['current_month']
+    
+    # 年月リストの作成 (2023年1月から翌年末まで、昇順)
+    start_date = datetime(2023, 1, 1)
+    end_date = datetime.today().replace(day=1) + relativedelta(years=1, month=12)
+    
+    month_options = []
+    temp_date = start_date
+    while temp_date <= end_date:
+        month_options.append(temp_date)
+        temp_date += relativedelta(months=1)
+    
+    # 降順（新しい順）に並び替える
+    month_options.reverse()
+    
+    # 表示用のラベル作成
+    month_labels = [dt.strftime('%Y年%m月') for dt in month_options]
+    
+    # 現在のインデックスを取得
+    try:
+        current_idx = month_options.index(curr.replace(day=1))
+    except ValueError:
+        # 万が一見つからない場合はリストの先頭（最新）に追加して再ソート
+        month_options.append(curr.replace(day=1))
+        month_options.sort(reverse=True)
+        month_labels = [dt.strftime('%Y年%m月') for dt in month_options]
+        current_idx = month_options.index(curr.replace(day=1))
+
+    # ナビゲーションUIのスタイル調整 (スマホでも横並びを強制、サイズ最小化)
+    st.markdown("""
+        <style>
+            /* st.columns の親要素に対して横並びを強制 */
+            div[data-testid="stHorizontalBlock"] {
+                display: flex !important;
+                flex-direction: row !important;
+                flex-wrap: nowrap !important;
+                align-items: center !important;
+                justify-content: center !important;
+                gap: 2px !important;
+            }
+            /* 前月・翌月ボタンのカラム */
+            div[data-testid="stHorizontalBlock"] > div:nth-child(1),
+            div[data-testid="stHorizontalBlock"] > div:nth-child(3) {
+                flex: 1 1 0% !important;
+                width: auto !important;
+                min-width: 0 !important;
+            }
+            /* 当月ポップオーバーのカラム */
+            div[data-testid="stHorizontalBlock"] > div:nth-child(2) {
+                flex: 0 0 auto !important;
+                width: 130px !important; /* スマホで1行に収まるように幅を少し戻す */
+                min-width: 130px !important;
+            }
+            /* ポップオーバーボタンの余白を削る */
+            div[data-testid="stPopover"] > button {
+                padding-left: 2px !important;
+                padding-right: 2px !important;
+            }
+            /* ポップオーバーボタンのテキストサイズと折り返し禁止 */
+            div[data-testid="stPopover"] > button p {
+                font-size: 0.95rem !important;
+                white-space: nowrap !important;
+                margin: 0 !important;
+            }
+        </style>
+    """, unsafe_allow_html=True)
+
+    # ナビゲーションUI (3カラム)
     current_user = st.session_state.get("username", "")
-    current_menu = st.session_state.get("menu_selection", "ダッシュボード")
+    current_menu = st.session_state.get("menu_selection", "カレンダー")
+
+    # データが存在するユニークな月リストを取得
+    available_months = get_transaction_range(current_user)
     
-    header_html = f"""
-    <div style='display: flex; justify-content: center; align-items: center; gap: 20px; margin-bottom: 5px;'>
-        <a href="/?date={prev_date_str}&user={current_user}&menu={current_menu}" target="_self" style='text-decoration: none; font-size: 1.1rem; color: #007bff;'>◀ 前月</a>
-        <h3 style='margin: 0; font-size: 1.4rem;'>{curr.strftime('%Y年%m月')}</h3>
-        <a href="/?date={next_date_str}&user={current_user}&menu={current_menu}" target="_self" style='text-decoration: none; font-size: 1.1rem; color: #007bff;'>翌月 ▶</a>
-    </div>
-    """
-    st.markdown(header_html, unsafe_allow_html=True)
+    # 前後の月をリストから検索 (データがある月へジャンプ)
+    curr_month_start = curr.replace(day=1)
+    prev_m = next((m for m in reversed(available_months) if m < curr_month_start), None)
+    next_m = next((m for m in available_months if m > curr_month_start), None)
+    
+    has_prev = prev_m is not None
+    has_next = next_m is not None
+    
+    prev_date_str = prev_m.strftime('%Y-%m-01') if has_prev else ""
+    next_date_str = next_m.strftime('%Y-%m-01') if has_next else ""
+
+    col1, col2, col3 = st.columns([1, 2, 1])
+    
+    with col1:
+        if has_prev:
+            st.markdown(f"""
+                <div style='display: flex; align-items: center; justify-content: flex-end; font-size: 0.9rem; white-space: nowrap;'>
+                    <a href="/?date={prev_date_str}&user={current_user}&menu={current_menu}" target="_self" style='text-decoration: none; color: #007bff; font-weight: bold;'>◀ 前月</a>
+                </div>
+            """, unsafe_allow_html=True)
+        else:
+            st.markdown(f"<div style='text-align: right; color: #ccc; font-size: 0.9rem;'>◀ 前月</div>", unsafe_allow_html=True)
+            
+    with col2:
+        # ポップオーバーで月選択ボタン風のUIを作成
+        with st.popover(curr.strftime('%Y年%m月 ▼'), use_container_width=True):
+            # 新しい順に月をリストアップ
+            nav_months = sorted(available_months, reverse=True)
+            if not nav_months:
+                nav_months = [curr]
+                
+            list_html = "<div id='month-scroll-container' style='max-height: 250px; overflow-y: auto; text-align: center; border-radius: 5px;'>"
+            
+            for m in nav_months:
+                m_str = m.strftime('%Y-%m-01')
+                m_label = m.strftime('%Y年%m月')
+                is_current = (m.year == curr.year and m.month == curr.month)
+                
+                bg_color = "#e6f2ff" if is_current else "transparent"
+                font_weight = "bold" if is_current else "normal"
+                color = "#0056b3" if is_current else "#333"
+                id_attr = "id='current-month-link'" if is_current else ""
+                
+                # aタグによる画面遷移（クエリパラメータ更新）
+                link = f"<a {id_attr} href='/?date={m_str}&user={current_user}&menu={current_menu}' target='_self' style='display: block; padding: 10px; margin: 2px 0; border-radius: 4px; background-color: {bg_color}; color: {color}; text-decoration: none; font-weight: {font_weight}; font-size: 1.1rem; transition: background 0.2s;'>{m_label}</a>"
+                list_html += link
+                
+            list_html += "</div>"
+            
+            # JavaScriptで、開いた瞬間に current-month-link の位置まで自動スクロールする
+            js = """
+            <script>
+            setTimeout(function() {
+                var container = window.parent.document.getElementById('month-scroll-container');
+                var target = window.parent.document.getElementById('current-month-link');
+                if (container && target) {
+                    var scrollPos = target.offsetTop - (container.clientHeight / 2) + (target.clientHeight / 2);
+                    container.scrollTo({ top: scrollPos, behavior: 'instant' });
+                }
+            }, 50);
+            </script>
+            """
+            
+            st.markdown(list_html, unsafe_allow_html=True)
+            components.html(js, height=0)
+            
+    with col3:
+        if has_next:
+            st.markdown(f"""
+                <div style='display: flex; align-items: center; justify-content: flex-start; font-size: 0.9rem; white-space: nowrap;'>
+                    <a href="/?date={next_date_str}&user={current_user}&menu={current_menu}" target="_self" style='text-decoration: none; color: #007bff; font-weight: bold;'>翌月 ▶</a>
+                </div>
+            """, unsafe_allow_html=True)
+        else:
+            st.markdown(f"<div style='text-align: left; color: #ccc; font-size: 0.9rem;'>翌月 ▶</div>", unsafe_allow_html=True)
 
     # データの読み込み
     with st.spinner("データを読み込み中..."):
@@ -673,6 +978,161 @@ def render_transaction_breakdown(df, key_prefix):
         else:
             st.warning("カテゴリ情報がありません。")
 
+# ---------- 音声機能関連のユーティリティ ----------
+def render_speech_synthesis_button(text, key):
+    """テキストを読み上げるスピーカーボタンを表示する"""
+    if not text:
+        return
+    
+    # JavaScriptによる読み上げロジック
+    # クリーンアップ（改行などの除去）
+    clean_text = text.replace("'", "\\'").replace("\n", " ")
+    
+    html_code = f"""
+    <button id="btn-{key}" style="
+        background: none;
+        border: 1px solid #ddd;
+        border-radius: 5px;
+        padding: 2px 8px;
+        cursor: pointer;
+        font-size: 16px;
+        margin-top: 5px;
+        color: #555;
+    " onclick="speak_{key}()" title="読み上げる">🔊</button>
+    
+    <script>
+    function speak_{key}() {{
+        const btn = document.getElementById('btn-{key}');
+        
+        // 再生中の場合は停止
+        if (window.speechSynthesis.speaking) {{
+            window.speechSynthesis.cancel();
+            btn.innerText = '🔊';
+            return;
+        }}
+        
+        // iOS Safari対策: 一度空のcancelを呼ぶことで音声エンジンを強制的にアクティブにする
+        window.speechSynthesis.cancel();
+        
+        // 少し遅延を入れてから発話させる（iOS対策）
+        setTimeout(() => {{
+            const uttr = new SpeechSynthesisUtterance('{clean_text}');
+            uttr.lang = 'ja-JP';
+            uttr.rate = 1.1;
+            
+            uttr.onstart = () => {{ btn.innerText = '⏹'; btn.style.color = '#dc3545'; }};
+            uttr.onend = () => {{ btn.innerText = '🔊'; btn.style.color = '#555'; }};
+            uttr.onerror = (e) => {{
+                console.error("SpeechSynthesisError:", e);
+                btn.innerText = '🔊'; 
+                btn.style.color = '#555'; 
+            }};
+            
+            window.speechSynthesis.speak(uttr);
+        }}, 50);
+    }}
+    </script>
+    """
+    components.html(html_code, height=45)
+
+def render_voice_input_button(key_prefix):
+    """音声入力ボタンを表示し、結果をセッション状態に返す"""
+    # Streamlitのセッション状態との橋渡し用hidden field
+    input_key = f"{key_prefix}_voice_input_result"
+    
+    html_code = f"""
+    <div style="display: flex; align-items: center; margin-bottom: 10px;">
+        <button id="mic-btn-{key_prefix}" style="
+            background-color: #f0f2f6;
+            border: 1px solid #dcdfe6;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            cursor: pointer;
+            font-size: 20px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            transition: all 0.3s;
+        " onclick="startRecognition()">🎤</button>
+        <span id="status-{key_prefix}" style="margin-left: 10px; font-size: 14px; color: #666;"></span>
+    </div>
+
+    <script>
+    function startRecognition() {{
+        const btn = document.getElementById('mic-btn-{key_prefix}');
+        const status = document.getElementById('status-{key_prefix}');
+        const recognition = new (window.SpeechRecognition || window.webkitSpeechRecognition)();
+        
+        recognition.lang = 'ja-JP';
+        recognition.interimResults = false;
+        recognition.maxAlternatives = 1;
+
+        recognition.onstart = () => {{
+            btn.style.backgroundColor = '#ff4b4b';
+            btn.style.color = 'white';
+            status.innerText = '音声を認識中... 話してください';
+        }};
+
+        recognition.onspeechend = () => {{
+            recognition.stop();
+        }};
+
+        recognition.onresult = (event) => {{
+            const result = event.results[0][0].transcript;
+            status.innerText = '認識完了: ' + result;
+            
+            // 親ウィンドウ（Streamlit）の隠し入力フィールドに値をセットして送信
+            // ただしStreamlitの仕様上、直接セットしても反応しない場合があるため、
+            // カスタムイベントや特定のDOM操作が必要
+            window.parent.postMessage({{
+                type: 'streamlit:set_component_value',
+                value: result,
+                key: '{input_key}'
+            }}, '*');
+            
+            // 簡易的な方法として、ブラウザのプロンプト等で値を渡すことも可能だが、
+            // ここではStreamlitのセッション更新を待つ
+            setTimeout(() => {{
+                // ページ全体にメッセージを送る
+                const event = new CustomEvent('voiceInput', {{ detail: result }});
+                window.parent.document.dispatchEvent(event);
+            }}, 500);
+        }};
+
+        recognition.onerror = (event) => {{
+            if (event.error === 'not-allowed') {{
+                status.innerText = 'マイク権限エラー: 設定で許可するか、AndroidはHTTPS通信が必要です';
+            }} else {{
+                status.innerText = 'エラーが発生しました: ' + event.error;
+            }}
+            btn.style.backgroundColor = '#f0f2f6';
+            btn.style.color = 'black';
+        }};
+
+        recognition.onend = () => {{
+            btn.style.backgroundColor = '#f0f2f6';
+            btn.style.color = 'black';
+        }};
+
+        recognition.start();
+    }}
+    </script>
+    """
+    
+    # 認識結果を受け取るためのコンポーネント
+    # 注意: Streamlit公式のiframeから親への通信は制限があるため、
+    # 実際にはURLパラメータや、カスタムコンポーネントライブラリなしでは少し工夫が必要。
+    # ここでは、認識されたテキストを一時的に表示し、ユーザーが確認して送信できるスタイルにするか、
+    # あるいは直接セッションに書き込むための「隠しボタン」的なアプローチをとる。
+    
+    components.html(html_code, height=60)
+    
+    # 結果を受け取るための実験的な仕組み
+    # (実際には st.chat_input に自動で流し込むのはJSのセキュリティ制約上難しいため、
+    # 音声認識されたテキストを通知として表示し、それを入力欄に反映させるガイドを出すのが現実的)
+    return None
+
 # ---------- ページUIの実装 ----------
 def show_dashboard():
     # ヘッダーを表示するためのプレースホルダー（コンテナ）を先に準備
@@ -689,30 +1149,103 @@ def show_dashboard():
         st.info("※今月のデータはまだありません。")
         return
 
-    # カテゴリごとに合算して円グラフ表示（既存ロジック）
-    if "category" in df.columns and "amount" in df.columns:
-        grouped_df = df.groupby("category", as_index=False)["amount"].sum()
-        grouped_df = grouped_df.sort_values(by="amount", ascending=False)
-        
-        fig = px.pie(
-            grouped_df, 
-            values='amount', 
-            names='category', 
-            hole=0.4, 
-            title='大分類別金額シェア',
-            category_orders={"category": grouped_df["category"].tolist()} 
+    # 分析軸とグラフ種類の選択UI
+    col_a, col_b = st.columns(2)
+    with col_a:
+        analysis_axis = st.selectbox(
+            "分析軸を選択", 
+            ["大分類別", "小分類別", "店舗別"], 
+            index=0, 
+            key="monthly_analysis_axis"
         )
-        fig.update_traces(textposition='inside', textinfo='percent+label', sort=False)
-        st.plotly_chart(fig, use_container_width=True)
-        
-        total_amount = grouped_df["amount"].sum()
-        st.metric("総支出額", f"￥{int(total_amount):,}")
+    with col_b:
+        graph_type = st.selectbox(
+            "グラフを選択",
+            ["円グラフ", "棒グラフ"],
+            index=0,
+            key="monthly_graph_type"
+        )
+
+    # 選択に応じて集計対象の列を決定
+    group_col = None
+    title_label = ""
+    
+    if analysis_axis == "大分類別":
+        group_col = "category"
+        title_label = "大分類別金額シェア"
+    elif analysis_axis == "小分類別":
+        for col in ["subcategory", "sub_category", "小分類"]:
+            if col in df.columns:
+                group_col = col
+                break
+        title_label = "小分類別金額シェア"
+    elif analysis_axis == "店舗別":
+        for col in ["store_name", "store", "店舗"]:
+            if col in df.columns:
+                group_col = col
+                break
+        title_label = "店舗別金額シェア"
+
+    if group_col and group_col in df.columns and "amount" in df.columns:
+        if graph_type == "円グラフ":
+            grouped_df = df.groupby(group_col, as_index=False)["amount"].sum()
+            grouped_df = grouped_df.sort_values(by="amount", ascending=False)
+            
+            fig = px.pie(
+                grouped_df, 
+                values='amount', 
+                names=group_col, 
+                hole=0.4, 
+                title=title_label,
+                category_orders={group_col: grouped_df[group_col].tolist()} 
+            )
+            fig.update_traces(textposition='inside', textinfo='percent+label', sort=False)
+            st.plotly_chart(fig, use_container_width=True)
+            
+            total_amount = grouped_df["amount"].sum()
+            st.metric("当月総支出額", f"￥{int(total_amount):,}")
+            
+        else: # 棒グラフの場合
+            selected_year = st.session_state['current_month'].year
+            selected_month = st.session_state['current_month'].month
+            
+            # 日付ごとの集計のために日を抽出
+            # dfはすでに当月のデータを含んでいる
+            df_bar = df.copy()
+            df_bar['day'] = df_bar['date'].dt.day
+            df_bar['day_label'] = df_bar['day'].apply(lambda x: f"{x}日")
+            
+            # 指定された分析軸で日ごとのデータをグループ化
+            daily_grouped = df_bar.groupby(['day', 'day_label', group_col], as_index=False)["amount"].sum()
+            
+            # 指定の順番を保つため、全体の合計額順でカテゴリーをソートする
+            cat_sum = daily_grouped.groupby(group_col)["amount"].sum().sort_values(ascending=False).index.tolist()
+            
+            # 当月の日数を計算 (月末までカレンダー通り表示)
+            _, last_day = calendar.monthrange(selected_year, selected_month)
+            all_days = [f"{i}日" for i in range(1, last_day + 1)]
+            
+            fig = px.bar(
+                daily_grouped,
+                x='day_label',
+                y='amount',
+                color=group_col,
+                title=f"{selected_year}年{selected_month}月 {title_label}日次推移 (積上げ棒グラフ)",
+                labels={"amount": "金額", "day_label": "日", group_col: analysis_axis[:-1]},
+                category_orders={"day_label": all_days, group_col: cat_sum}
+            )
+            st.plotly_chart(fig, use_container_width=True)
+            
+            # 当月の合計金額はそのまま表示
+            current_month_total = df['amount'].sum() if not df.empty else 0
+            st.metric("当月総支出額", f"￥{int(current_month_total):,}")
+
         st.markdown("---")
         
-        st.markdown("##### カテゴリ別内訳")
+        st.markdown("##### カテゴリ別内訳 (当月)")
         render_transaction_breakdown(df, "dashboard")
     else:
-        st.warning("シートに 'category' または 'amount' 列がありません。")
+        st.warning(f"分析に必要な列（{analysis_axis[:-1]}）がありません。")
 
 def show_yearly_dashboard():
     # ヘッダーを表示するためのプレースホルダー
@@ -738,15 +1271,46 @@ def show_yearly_dashboard():
         st.info(f"※{selected_year}年のデータはまだありません。")
         return
 
-    # --- グラフ表示選択 ---
-    # --- グラフ表示選択 ---
-    graph_type = st.radio("グラフ表示選択", ["年次大分類別シェア", "前年対比棒グラフ"], horizontal=True)
+    # --- グラフ表示選択 (月次と同様に2カラムのドロップダウン) ---
+    col_a, col_b = st.columns(2)
+    with col_a:
+        analysis_axis = st.selectbox(
+            "分析軸を選択", 
+            ["大分類別", "小分類別", "店舗別"], 
+            index=0, 
+            key="yearly_analysis_axis"
+        )
+    with col_b:
+        graph_type = st.selectbox(
+            "グラフを選択",
+            ["円グラフ", "棒グラフ", "前年対比"],
+            index=0,
+            key="yearly_graph_type"
+        )
 
-    if graph_type == "前年対比棒グラフ":
+    # 選択に応じて集計対象の列を決定
+    group_col = None
+    title_label = ""
+    if analysis_axis == "大分類別":
+        group_col = "category"
+        title_label = "大分類別"
+    elif analysis_axis == "小分類別":
+        for col in ["subcategory", "sub_category", "小分類"]:
+            if col in df.columns:
+                group_col = col
+                break
+        title_label = "小分類別"
+    elif analysis_axis == "店舗別":
+        for col in ["store_name", "store", "店舗"]:
+            if col in df.columns:
+                group_col = col
+                break
+        title_label = "店舗別"
+
+    if graph_type == "前年対比":
         # 当年データの月別集計
         df['month'] = df['date'].dt.month
         monthly_summary = df.groupby('month', as_index=False)['amount'].sum()
-        # 1-12月を確実に埋める
         full_months = pd.DataFrame({'month': range(1, 13)})
         monthly_summary = pd.merge(full_months, monthly_summary, on='month', how='left').fillna(0)
         monthly_summary['month_label'] = monthly_summary['month'].apply(lambda x: f"{x}月")
@@ -756,32 +1320,57 @@ def show_yearly_dashboard():
         prev_summary = df_prev.groupby('month', as_index=False)['amount'].sum()
         prev_summary = pd.merge(full_months, prev_summary, on='month', how='left').fillna(0)
         
-        # データをロング形式に変換
         comparison_data = pd.DataFrame({
             '月': list(monthly_summary['month_label']) * 2,
-            '金額': list(monthly_summary['amount']) + list(prev_summary['amount']),
-            '年度': [f'{selected_year}年'] * 12 + [f'{selected_year-1}年'] * 12
+            '金額': list(prev_summary['amount']) + list(monthly_summary['amount']),
+            '年度': [f'{selected_year-1}年'] * 12 + [f'{selected_year}年'] * 12
         })
         
-        # グループ化された棒グラフで表示
         fig = px.bar(comparison_data, x='月', y='金額', color='年度',
                      barmode='group',
                      title=f"{selected_year}年 vs {selected_year-1}年 支出比較 (月次展開)")
         st.plotly_chart(fig, use_container_width=True)
-    else:
-        # 年間大分類別シェア (円グラフ)
-        if "category" in df.columns:
-            cat_grouped = df.groupby("category", as_index=False)["amount"].sum()
+
+    elif graph_type == "棒グラフ":
+        # 当年の月別推移 (積上げ棒グラフ)
+        df['month'] = df['date'].dt.month
+        df['month_label'] = df['month'].apply(lambda x: f"{x}月")
+        
+        if group_col and group_col in df.columns:
+            yearly_grouped = df.groupby(['month', 'month_label', group_col], as_index=False)["amount"].sum()
+            cat_sum = yearly_grouped.groupby(group_col)["amount"].sum().sort_values(ascending=False).index.tolist()
+            
+            fig = px.bar(
+                yearly_grouped,
+                x='month_label',
+                y='amount',
+                color=group_col,
+                title=f"{selected_year}年 {title_label}推移 (積上げ棒グラフ)",
+                labels={"amount": "金額", "month_label": "月", group_col: analysis_axis[:-1]},
+                category_orders={"month_label": [f"{i}月" for i in range(1, 13)], group_col: cat_sum}
+            )
+            st.plotly_chart(fig, use_container_width=True)
+            
+            year_total = df["amount"].sum()
+            st.metric(f"{selected_year}年 総支出額", f"￥{int(year_total):,}")
+        else:
+            st.warning(f"分析に必要な列（{analysis_axis[:-1]}）がありません。")
+
+    else: # 円グラフ
+        if group_col and group_col in df.columns:
+            cat_grouped = df.groupby(group_col, as_index=False)["amount"].sum()
             cat_grouped = cat_grouped.sort_values(by="amount", ascending=False)
             
-            fig_pie = px.pie(cat_grouped, values='amount', names='category', hole=0.4,
-                             title=f'{selected_year}年 大分類別支出シェア',
-                             category_orders={"category": cat_grouped["category"].tolist()})
+            fig_pie = px.pie(cat_grouped, values='amount', names=group_col, hole=0.4,
+                             title=f'{selected_year}年 {title_label}支出シェア',
+                             category_orders={group_col: cat_grouped[group_col].tolist()})
             fig_pie.update_traces(textposition='inside', textinfo='percent+label', sort=False)
             st.plotly_chart(fig_pie, use_container_width=True)
             
             year_total = cat_grouped["amount"].sum()
             st.metric(f"{selected_year}年 総支出額", f"￥{int(year_total):,}")
+        else:
+            st.warning(f"分析に必要な列（{analysis_axis[:-1]}）がありません。")
     
     st.markdown("---")
     st.markdown("##### カテゴリ別内訳 (年次)")
@@ -862,11 +1451,11 @@ def main():
 
         # サイドバーメニューの実装
         with st.sidebar:
-            st.subheader("マイニー [Ver 3.0.5]")
+            st.subheader("マイニー [Ver 3.1.0]")
             st.write(f"🔑 ユーザー: **{st.session_state['username']}**")
             st.markdown("---")
             if 'menu_selection' not in st.session_state:
-                st.session_state['menu_selection'] = "ダッシュボード（月次集計）"
+                st.session_state['menu_selection'] = "カレンダー"
             
             # 既存の "ダッシュボード" を "ダッシュボード（月次集計）" に置換し、年次を追加
             menu_options = [
@@ -888,13 +1477,6 @@ def main():
             if "last_menu_selection" not in st.session_state:
                 st.session_state.last_menu_selection = st.session_state['menu_selection']
             
-            # 直前がカレンダー等で、今がダッシュボード（年次）なら、月次に書き換える（仕様の解釈）
-            # ※ユーザーが明示的に年次を選んだ場合は通すべきなので、
-            # 「他のメニューからダッシュボード系に戻ってきた最初の一歩」を判定する
-            if st.session_state.last_menu_selection in ["カレンダー", "レシート取込", "レシート手入力", "レシート修正"] \
-               and st.session_state.menu_selection == "ダッシュボード（年次集計）":
-                st.session_state.menu_selection = "ダッシュボード（月次集計）"
-
             menu_selection = st.radio(
                 "機能を選択",
                 menu_options,
@@ -905,8 +1487,9 @@ def main():
             
             st.markdown("---")
             if st.button("ログアウト", use_container_width=True):
-                st.session_state['logged_in'] = False
-                st.session_state['username'] = None
+                # ログアウト時にURLパラメータとセッション状態を完全にクリアする
+                st.query_params.clear()
+                st.session_state.clear()
                 st.rerun()
 
         # メインコンテンツの切り替え
@@ -1753,7 +2336,6 @@ def main():
                                                 st.error(f"エラー: {e}")
                             
                             # CSSの代わりにJSを使ってより確実にボタンの色を変更
-                            import streamlit.components.v1 as components
                             components.html("""
                             <script>
                             setInterval(() => {
@@ -1845,10 +2427,41 @@ def main():
                 })
 
             # 履歴の表示
-            for msg in st.session_state.ai_consult_messages:
+            for i, msg in enumerate(st.session_state.ai_consult_messages):
                 with st.chat_message(msg["role"]):
                     st.markdown(msg["content"])
-                    
+                    if msg["role"] == "assistant":
+                        render_speech_synthesis_button(msg["content"], f"ai_{i}")
+            
+            # 音声入力ボタン
+            render_voice_input_button("ai_consult")
+            
+            # 音声入力結果をチャット入力欄に反映させるためのJS
+            components.html("""
+                <script>
+                window.parent.document.addEventListener('voiceInput', function(e) {
+                    const input = window.parent.document.querySelector('textarea[data-testid="stChatInputTextArea"]');
+                    if (input) {
+                        // Streamlit(React)の内部状態と同期させるためのハック
+                        const nativeInputValueSetter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, "value").set;
+                        nativeInputValueSetter.call(input, e.detail);
+                        input.dispatchEvent(new Event('input', { bubbles: true }));
+                        
+                        // 送信ボタンをクリックして自動送信
+                        setTimeout(() => {
+                            const btn = window.parent.document.querySelector('button[data-testid="stChatInputSubmitButton"]');
+                            if (btn && !btn.disabled) {
+                                btn.click();
+                            } else {
+                                // 送信ボタンが検知できない場合のフォールバック（Enterキーのシミュレート）
+                                input.dispatchEvent(new KeyboardEvent('keydown', {key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true}));
+                            }
+                        }, 500);
+                    }
+                });
+                </script>
+            """, height=0)
+
             # ユーザー入力
             if user_input := st.chat_input("質問を入力してください..."):
                 st.session_state.ai_consult_messages.append({"role": "user", "content": user_input})
@@ -1893,6 +2506,10 @@ def main():
                                 
                                 # 履歴を更新（画面表示用）
                                 st.session_state.ai_consult_messages.append({"role": "assistant", "content": response_text})
+                                
+                                # 最新の回答にも読み上げボタンを表示
+                                render_speech_synthesis_button(response_text, "ai_latest")
+                                
                                 # SDKの履歴をセッションに同期
                                 st.session_state.ai_consult_chat_history = chat.get_history()
                                 
@@ -1922,10 +2539,34 @@ def main():
                 ]
                 
             # メッセージ履歴の表示
-            for msg in st.session_state.help_messages:
+            for i, msg in enumerate(st.session_state.help_messages):
                 with st.chat_message(msg["role"]):
                     st.markdown(msg["content"])
-                    
+                    if msg["role"] == "assistant":
+                        render_speech_synthesis_button(msg["content"], f"help_{i}")
+            
+            # 音声入力ボタン
+            render_voice_input_button("help")
+
+            # 音声入力結果を反映するためのJS（AI相談と同様）
+            components.html("""
+                <script>
+                window.parent.document.addEventListener('voiceInput', function(e) {
+                    const input = window.parent.document.querySelector('textarea[data-testid="stChatInputTextArea"]');
+                    if (input) {
+                        const nativeInputValueSetter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, "value").set;
+                        nativeInputValueSetter.call(input, e.detail);
+                        input.dispatchEvent(new Event('input', { bubbles: true }));
+                        setTimeout(() => {
+                            const btn = window.parent.document.querySelector('button[data-testid="stChatInputSubmitButton"]');
+                            if (btn && !btn.disabled) btn.click();
+                            else input.dispatchEvent(new KeyboardEvent('keydown', {key: 'Enter', code: 'Enter', keyCode: 13, bubbles: true}));
+                        }, 500);
+                    }
+                });
+                </script>
+            """, height=0)
+
             # ユーザー入力
             if user_input := st.chat_input("質問を入力してください...（例: レシートはどうやって登録するの？）"):
                 # ユーザーのメッセージを表示して履歴に追加
@@ -2008,6 +2649,10 @@ def main():
                                 
                                 # 履歴を更新（画面表示用）
                                 st.session_state.help_messages.append({"role": "assistant", "content": full_response})
+                                
+                                # 最新の回答にも読み上げボタンを表示
+                                render_speech_synthesis_button(full_response, "help_latest")
+                                
                                 # SDKの履歴をセッションに同期
                                 st.session_state.help_chat_history = chat.get_history()
                                 
@@ -2084,11 +2729,46 @@ def main():
                 """)
 
             st.markdown("---")
-            st.caption(f"マイニー Ver 3.0.5 - ユーザー: {st.session_state['username']}")
+            st.caption(f"マイニー Ver 3.1.0 - ユーザー: {st.session_state['username']}")
             
     # 未ログインの状態 (ログイン・登録画面)
     else:
         st.title("AI家計簿アプリ")
+        
+        # ユーザー名とパスワードを半角英数字のみに制限するJS
+        components.html("""
+            <script>
+            function enforceAlphanumeric() {
+                const inputs = window.parent.document.querySelectorAll('input[type="text"], input[type="password"]');
+                inputs.forEach(input => {
+                    if (!input.dataset.alphanumericEnforced) {
+                        input.dataset.alphanumericEnforced = 'true';
+                        // スマホ対応：英語キーボードを出しやすくする
+                        input.setAttribute('inputmode', 'email');
+                        input.setAttribute('autocomplete', 'off');
+                        
+                        input.addEventListener('input', function(e) {
+                            // 全角英数字を半角に変換
+                            let val = e.target.value.replace(/[Ａ-Ｚａ-ｚ０-９]/g, function(s) {
+                                return String.fromCharCode(s.charCodeAt(0) - 0xFEE0);
+                            });
+                            // 半角英数字と一部記号以外を削除
+                            val = val.replace(/[^A-Za-z0-9_.-]/g, '');
+                            
+                            if (e.target.value !== val) {
+                                const nativeInputValueSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value").set;
+                                nativeInputValueSetter.call(e.target, val);
+                                e.target.dispatchEvent(new Event('input', { bubbles: true }));
+                            }
+                        });
+                    }
+                });
+            }
+            // 定期的にチェックして適用
+            setInterval(enforceAlphanumeric, 1000);
+            </script>
+        """, height=0)
+        
         tab1, tab2 = st.tabs(["ログイン", "新規ユーザー登録"])
         
         with tab1:
