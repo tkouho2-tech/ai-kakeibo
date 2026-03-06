@@ -39,9 +39,13 @@ EXPENSE_CATEGORIES = {
     "医療": ["🏥病院診療", "💊薬処方", "💉検査健診", "❓その他"],
     "園芸・植物": ["🌻苗・種", "🪴観葉植物", "🧱土・肥料・鉢", "🛠️園芸用品", "❓その他"],
     "割引・ポイント利用": ["共通ポイント利用", "店舗独自ポイント利用", "クーポン割引", "キャッシュバック・還元"],
-    "消費税": ["8%", "10%", "❓その他"],
+    "消費税（外税）": ["外税8%", "外税10%", "外税？％"],
+    "消費税（内税）": ["内税8%", "内税10%", "内税？％"],
     "その他": ["📁未分類"]
 }
+
+def get_categories():
+    return EXPENSE_CATEGORIES
 
 def get_categories_prompt_text():
     """AI（Gemini等）のプロンプトに埋め込むためのカテゴリ定義文字列を生成"""
@@ -692,10 +696,11 @@ def render_month_navigation():
     with st.spinner("データを読み込み中..."):
         df = load_transactions_data(curr)
     
-    # 合計金額の算出
+    # 合計金額の算出 (消費税（内税）は二重計上防止のため除外)
     monthly_total = 0
     if not df.empty and "amount" in df.columns:
-        monthly_total = df['amount'].sum()
+        agg_df = df[df["category"] != "消費税（内税）"] if "category" in df.columns else df
+        monthly_total = agg_df['amount'].sum()
 
     # 月間合計の表示
     st.markdown(f"<p style='text-align: center; font-size: 1.2rem; font-weight: bold; margin-bottom: 10px; color: black;'>月間合計支出: <span style='color: red;'>￥{int(monthly_total):,}</span></p>", unsafe_allow_html=True)
@@ -735,12 +740,21 @@ def parse_receipt_with_gemini(image_file):
 画像内に病院名などの医療機関の名前、あるいは「診療明細」「領収証（医療機関）」といった文字が含まれている場合、
 すべての大分類は強制的に "(13) 医療" とし、小分類は内容から「🏥病院診療」「💊薬処方」「💉検査健診」のいずれかを推論して設定してください。これ以外の医療系の小分類は生成しないでください。
 
+【金額抽出の厳格ルール】:
+レシートに記載されている各商品の金額（amount）は、内税・外税に関わらず、加工（税抜き計算など）せずに「レシートに記載された数値のまま」を抽出してください。
+
 【消費税の抽出ルール】:
-レシート内に「消費税（8%や10%など）」が明細や項目として記載されている場合、その行を1つの明細として抽出し、大分類を "消費税" 、小分類をその税率（"8%" や "10%"など）として設定してください。
+レシート内に「消費税（8%や10%など）」が明細や項目として記載されている場合、その行を1つの明細として抽出してください。
+その際、レシート内に「内税」という言葉が含まれている場合は、大分類を "消費税（内税）" 、小分類を "内税 + 読み取った税率" （例: "内税8%", "内税10%"）と設定してください。
+「内税」という言葉が含まれていない場合は、大分類を "消費税（外税）" 、小分類を "外税 + 読み取った税率" （例: "外税8%", "外税10%"）と設定してください。
+税率が不明な場合は、小分類を "内税？％" または "外税？％" としてください。
 
 【合計金額の整合性ルール】（重要）:
-レシートの「合計金額」と、抽出したすべての明細の「金額（amount）」の合計額が、計算上必ず完全に一致するようにしてください。
-金額が合わない場合は、明細行・割引や値引（マイナス金額で抽出）・消費税・小計などのいずれかを読み飛ばしているか誤読している可能性があります。読み飛ばしがないよう、すべての金額要素を漏れなく抽出してください。
+レシート内の「合計金額」と、抽出した明細の関係は以下の通りである必要があります：
+1. 「（消費税(内税)以外のすべての明細の金額） + （消費税(外税)の金額）」の合計が、レシートの「合計金額」と完全に一致すること。
+2. 「消費税（内税）」はすでに商品単価に含まれているため、レシート合計金額の計算（検証）においては「無視」してください。
+AIが辻褄を合わせるために勝手に商品金額を調整（減額・増額）することは絶対に禁止します。
+行・割引や値引（マイナス金額で抽出）・消費税・小計などのいずれかを読み飛ばしているか誤読している可能性があります。読み飛ばしがないよう、すべての金額要素を漏れなく抽出してください。
 
 それ以外の場合は、以下のカテゴリ体系に厳密に従って、明細ごとに適切に分類してください。
 {get_categories_prompt_text()}
@@ -839,13 +853,18 @@ def render_transaction_breakdown(df, key_prefix):
         st.info("データがありません。")
         return
 
+    # 集計用のデータ（内税を除外して合計に反映させないようにする）
+    df_agg = df.copy()
+    if "category" in df_agg.columns:
+        df_agg.loc[df_agg["category"] == "消費税（内税）", "amount"] = 0
+
     # 表示パターンの選択（小分類別を削除）
     view_pattern = st.radio("表示パターン", ["店舗別", "大分類別"], horizontal=True, key=f"{key_prefix}_view_pattern")
     
     if view_pattern == "店舗別":
         store_col = "store_name" if "store_name" in df.columns else "store" if "store" in df.columns else None
         if store_col:
-            store_grouped = df.groupby(store_col, as_index=False)["amount"].sum()
+            store_grouped = df_agg.groupby(store_col, as_index=False)["amount"].sum()
             store_grouped = store_grouped.sort_values(by="amount", ascending=False)
             
             for _, row in store_grouped.iterrows():
@@ -854,6 +873,7 @@ def render_transaction_breakdown(df, key_prefix):
                 
                 with st.expander(f"{store}：{total_amt_str}"):
                     store_df = df[df[store_col] == store].copy()
+                    # 内訳（大分類・小分類）は内税を含めて集計する
                     cat_grouped = store_df.groupby("category", as_index=False)["amount"].sum()
                     cat_grouped = cat_grouped.sort_values(by="amount", ascending=False)
                     
@@ -924,6 +944,7 @@ def render_transaction_breakdown(df, key_prefix):
 
     elif view_pattern == "大分類別":
         if "category" in df.columns:
+            # 大分類の集計は内税を含めて表示する
             grouped_df = df.groupby("category", as_index=False)["amount"].sum()
             grouped_df = grouped_df.sort_values(by="amount", ascending=False)
             
@@ -941,6 +962,7 @@ def render_transaction_breakdown(df, key_prefix):
                     
                     if sub_col:
                         # 2段階目：小分類アコーディオン（大分類 > 小分類 > 商品名）
+                        # 小分類の集計は内税を含める
                         sub_grouped = cat_df.groupby(sub_col, as_index=False)["amount"].sum()
                         sub_grouped = sub_grouped.sort_values(by="amount", ascending=False)
                         
@@ -1149,6 +1171,9 @@ def show_dashboard():
         st.info("※今月のデータはまだありません。")
         return
 
+    # 集計用のデータ（内税を除外）
+    df_agg = df[df["category"] != "消費税（内税）"] if "category" in df.columns else df
+
     # 分析軸とグラフ種類の選択UI
     col_a, col_b = st.columns(2)
     with col_a:
@@ -1188,7 +1213,9 @@ def show_dashboard():
 
     if group_col and group_col in df.columns and "amount" in df.columns:
         if graph_type == "円グラフ":
-            grouped_df = df.groupby(group_col, as_index=False)["amount"].sum()
+            # 選択された軸が店舗別なら内税を除外し、大分類・小分類なら含めて表示する（二重計上防止だが内訳は正しく出す）
+            df_for_chart = df_agg if analysis_axis == "店舗別" else df
+            grouped_df = df_for_chart.groupby(group_col, as_index=False)["amount"].sum()
             grouped_df = grouped_df.sort_values(by="amount", ascending=False)
             
             fig = px.pie(
@@ -1202,20 +1229,17 @@ def show_dashboard():
             fig.update_traces(textposition='inside', textinfo='percent+label', sort=False)
             st.plotly_chart(fig, use_container_width=True)
             
-            total_amount = grouped_df["amount"].sum()
+            total_amount = df_agg["amount"].sum() if not df_agg.empty else 0
             st.metric("当月総支出額", f"￥{int(total_amount):,}")
             
         else: # 棒グラフの場合
             selected_year = st.session_state['current_month'].year
             selected_month = st.session_state['current_month'].month
             
-            # 日付ごとの集計のために日を抽出
-            # dfはすでに当月のデータを含んでいる
-            df_bar = df.copy()
+            # 指定された分析軸で日ごとのデータをグループ化 (店舗別なら内税除外、それ以外は含める)
+            df_bar = df_agg.copy() if analysis_axis == "店舗別" else df.copy()
             df_bar['day'] = df_bar['date'].dt.day
             df_bar['day_label'] = df_bar['day'].apply(lambda x: f"{x}日")
-            
-            # 指定された分析軸で日ごとのデータをグループ化
             daily_grouped = df_bar.groupby(['day', 'day_label', group_col], as_index=False)["amount"].sum()
             
             # 指定の順番を保つため、全体の合計額順でカテゴリーをソートする
@@ -1236,8 +1260,8 @@ def show_dashboard():
             )
             st.plotly_chart(fig, use_container_width=True)
             
-            # 当月の合計金額はそのまま表示
-            current_month_total = df['amount'].sum() if not df.empty else 0
+            # 当月の合計金額はそのまま表示（内税除外）
+            current_month_total = df_agg['amount'].sum() if not df_agg.empty else 0
             st.metric("当月総支出額", f"￥{int(current_month_total):,}")
 
         st.markdown("---")
@@ -1270,6 +1294,10 @@ def show_yearly_dashboard():
     if df.empty:
         st.info(f"※{selected_year}年のデータはまだありません。")
         return
+
+    # 集計用のデータ（内税を除外）
+    df_agg = df[df["category"] != "消費税（内税）"] if "category" in df.columns else df
+    df_prev_agg = df_prev[df_prev["category"] != "消費税（内税）"] if "category" in df_prev.columns else df_prev
 
     # --- グラフ表示選択 (月次と同様に2カラムのドロップダウン) ---
     col_a, col_b = st.columns(2)
@@ -1308,16 +1336,19 @@ def show_yearly_dashboard():
         title_label = "店舗別"
 
     if graph_type == "前年対比":
-        # 当年データの月別集計
-        df['month'] = df['date'].dt.month
-        monthly_summary = df.groupby('month', as_index=False)['amount'].sum()
+        # 当年データの月別集計 (年次グラフでは内税を含めて内訳を提示)
+        # ※分析軸が店舗別の場合は意図により内税を除外するか検討の余地ありだが、月次は内税込みで傾向を見る
+        df_for_yearly = df_agg if analysis_axis == "店舗別" else df
+        df_for_yearly['month'] = df_for_yearly['date'].dt.month
+        monthly_summary = df_for_yearly.groupby('month', as_index=False)['amount'].sum()
         full_months = pd.DataFrame({'month': range(1, 13)})
         monthly_summary = pd.merge(full_months, monthly_summary, on='month', how='left').fillna(0)
         monthly_summary['month_label'] = monthly_summary['month'].apply(lambda x: f"{x}月")
 
         # 前年データの月別集計
-        df_prev['month'] = df_prev['date'].dt.month
-        prev_summary = df_prev.groupby('month', as_index=False)['amount'].sum()
+        df_prev_for_yearly = df_prev_agg if analysis_axis == "店舗別" else df_prev
+        df_prev_for_yearly['month'] = df_prev_for_yearly['date'].dt.month
+        prev_summary = df_prev_for_yearly.groupby('month', as_index=False)['amount'].sum()
         prev_summary = pd.merge(full_months, prev_summary, on='month', how='left').fillna(0)
         
         comparison_data = pd.DataFrame({
@@ -1333,11 +1364,12 @@ def show_yearly_dashboard():
 
     elif graph_type == "棒グラフ":
         # 当年の月別推移 (積上げ棒グラフ)
-        df['month'] = df['date'].dt.month
-        df['month_label'] = df['month'].apply(lambda x: f"{x}月")
+        df_for_bar = df_agg.copy() if analysis_axis == "店舗別" else df.copy()
+        df_for_bar['month'] = df_for_bar['date'].dt.month
+        df_for_bar['month_label'] = df_for_bar['month'].apply(lambda x: f"{x}月")
         
-        if group_col and group_col in df.columns:
-            yearly_grouped = df.groupby(['month', 'month_label', group_col], as_index=False)["amount"].sum()
+        if group_col and group_col in df_for_bar.columns:
+            yearly_grouped = df_for_bar.groupby(['month', 'month_label', group_col], as_index=False)["amount"].sum()
             cat_sum = yearly_grouped.groupby(group_col)["amount"].sum().sort_values(ascending=False).index.tolist()
             
             fig = px.bar(
@@ -1351,14 +1383,15 @@ def show_yearly_dashboard():
             )
             st.plotly_chart(fig, use_container_width=True)
             
-            year_total = df["amount"].sum()
+            # 年間合計は内税除外
+            year_total = df_agg["amount"].sum()
             st.metric(f"{selected_year}年 総支出額", f"￥{int(year_total):,}")
         else:
             st.warning(f"分析に必要な列（{analysis_axis[:-1]}）がありません。")
 
     else: # 円グラフ
-        if group_col and group_col in df.columns:
-            cat_grouped = df.groupby(group_col, as_index=False)["amount"].sum()
+        if group_col and group_col in df_agg.columns:
+            cat_grouped = df_agg.groupby(group_col, as_index=False)["amount"].sum()
             cat_grouped = cat_grouped.sort_values(by="amount", ascending=False)
             
             fig_pie = px.pie(cat_grouped, values='amount', names=group_col, hole=0.4,
@@ -1387,9 +1420,10 @@ def handle_menu_change():
     target_menu = st.session_state.get("menu_selection")
     # 仕様：カレンダー、レシート取込、レシート修正を選択した際、ダッシュボード選択状態をリセット
     if target_menu in ["カレンダー", "レシート取込", "レシート修正"]:
-        st.session_state["menu_selection_reset_flag"] = True # フラグを立てておき、後でリセットを促すか、直接書き換える
-        # 直接書き換えると無限ループの恐れがあるが、ラジオボタンの値を操作するには st.session_state.key をいじる
-        # ただし on_change 中に自身をいじるのは制限があるため、main側で処理する方が安全な場合もある
+        st.session_state["menu_selection_reset_flag"] = True
+    
+    # サイドバーを閉じるフラグ
+    st.session_state["collapse_sidebar_flag"] = True
 
 def main():
     # URLパラメータの同期（セッション維持のため冒頭で行う）
@@ -1451,7 +1485,7 @@ def main():
 
         # サイドバーメニューの実装
         with st.sidebar:
-            st.subheader("マイニー [Ver 3.1.0]")
+            st.subheader("マイニー [Ver 3.1.1]")
             st.write(f"🔑 ユーザー: **{st.session_state['username']}**")
             st.markdown("---")
             if 'menu_selection' not in st.session_state:
@@ -1484,6 +1518,25 @@ def main():
                 on_change=handle_menu_change
             )
             st.session_state.last_menu_selection = menu_selection
+
+            # サイドバー自動折りたたみJS
+            if st.session_state.get("collapse_sidebar_flag"):
+                st.session_state["collapse_sidebar_flag"] = False
+                st.components.v1.html(
+                    """
+                    <script>
+                    var windowParent = window.parent;
+                    var buttons = windowParent.document.querySelectorAll('button');
+                    for (var i = 0; i < buttons.length; i++) {
+                        if (buttons[i].getAttribute('aria-label') === 'Collapse sidebar') {
+                            buttons[i].click();
+                            break;
+                        }
+                    }
+                    </script>
+                    """,
+                    height=0
+                )
             
             st.markdown("---")
             if st.button("ログアウト", use_container_width=True):
@@ -1506,7 +1559,9 @@ def main():
             daily_totals = {}
             if not df.empty and "date" in df.columns and "amount" in df.columns:
                 df['day'] = df['date'].dt.day
-                daily_totals = df.groupby('day')["amount"].sum().to_dict()
+                # 合計用のデータ（内税を除去）
+                df_for_calc = df[df["category"] != "消費税（内税）"].copy() if "category" in df.columns else df
+                daily_totals = df_for_calc.groupby('day')["amount"].sum().to_dict()
                 
             year = st.session_state['current_month'].year
             month = st.session_state['current_month'].month
@@ -1649,10 +1704,9 @@ def main():
                 if not df.empty and 'date' in df.columns:
                     day_df = df[df['date'].dt.day == day_val].copy()
                 
-                # 合計額の計算
-                day_total = int(day_df['amount'].sum()) if (not day_df.empty and 'amount' in day_df.columns) else 0
-                # 合計額の計算
-                day_total = int(day_df['amount'].sum()) if not day_df.empty else 0
+                # 合計額の計算（内税を除去）
+                df_for_calc = day_df[day_df["category"] != "消費税（内税）"] if "category" in day_df.columns else day_df
+                day_total = int(df_for_calc['amount'].sum()) if not df_for_calc.empty else 0
                 # デザインより翻訳回避を優先し、ネイティブなマークダウンで表示
                 st.markdown(f"##### 📋 {display_day}日の支出詳細 (合計: ￥{day_total:,})")
                 
@@ -1752,7 +1806,12 @@ def main():
                         preview_date = ""
                         preview_store = ""
                         
-                    total_amount = sum(int(item.get("amount", 0)) for item in results)
+                    # 支出合計の計算 (内税は二重計上防止のため除外)
+                    def is_internal_tax(item):
+                        cat = item.get("major_category", "その他")
+                        return "内税" in cat or cat == "消費税（内税）"
+
+                    total_amount = sum(int(item.get("amount", 0)) for item in results if not is_internal_tax(item))
                     
                     # 大分類別の内訳を集計
                     category_totals = {}
@@ -1767,7 +1826,11 @@ def main():
                                 break
                         
                         amt = int(item.get("amount", 0))
-                        category_totals[final_major] = category_totals.get(final_major, 0) + amt
+                        if final_major == "消費税（内税）":
+                            # 内税は合計に加算しないが、内訳には実際の税額を表示する
+                            category_totals[final_major] = category_totals.get(final_major, 0) + amt
+                        else:
+                            category_totals[final_major] = category_totals.get(final_major, 0) + amt
                     
                     st.markdown("#### 📋 解析結果の確認")
                     st.write(f"**日付**: {preview_date}")
@@ -1823,9 +1886,20 @@ def main():
                                     store_name = str(item.get("store_name", ""))
                                     item_name = str(item.get("item_name", ""))
                                     
+                                    # 日付を yyyy-mm-dd に整形
+                                    raw_date = item.get("date", "")
+                                    formatted_date = ""
+                                    try:
+                                        if isinstance(raw_date, datetime):
+                                            formatted_date = raw_date.strftime("%Y-%m-%d")
+                                        else:
+                                            formatted_date = pd.to_datetime(raw_date).strftime("%Y-%m-%d")
+                                    except:
+                                        formatted_date = str(raw_date)
+
                                     row_data = [
                                         str(st.session_state['username']),
-                                        str(item.get("date", "")),
+                                        formatted_date,
                                         str(store_name),
                                         str(item_name),
                                         str(final_major),
@@ -2050,8 +2124,12 @@ def main():
                 if not store_col:
                     st.warning("スプレッドシートに店舗名（'store_name' または 'store'）の列が見つかりません。")
                 else:
-                    # レシート単位に集約（日付と店舗名が同じものを同一レシートとみなす）
-                    receipts_df = df.groupby(["date", store_col], as_index=False).agg(
+                    # レシート単位に集約（内税を金額から除外して集計）
+                    df_agg = df.copy()
+                    if "category" in df_agg.columns:
+                        df_agg.loc[df_agg["category"] == "消費税（内税）", "amount"] = 0
+                    
+                    receipts_df = df_agg.groupby(["date", store_col], as_index=False).agg(
                         amount=("amount", "sum"),
                         明細数=("amount", "count")
                     )
@@ -2090,251 +2168,241 @@ def main():
                             # 該当レシートの明細を取得
                             details = df[(df["date"] == target_date) & (df[store_col] == target_store)].copy()
                             
-                            # session_state 上の変更状態を初期化（対象が変わった場合用）
                             receipt_key = f"{selected_receipt['日付']}_{target_store}"
-                            if st.session_state.get('current_receipt_key') != receipt_key:
+                            if st.session_state.get('current_receipt_key') != receipt_key or st.session_state.get('edit_data') is None:
                                 st.session_state['current_receipt_key'] = receipt_key
                                 st.session_state['edit_data'] = {}
-                                # ヘッダー情報（日付・店舗名）もここで確実に初期化
                                 st.session_state['edit_header'] = {
                                     "date": target_date.date(),
                                     "store": target_store
                                 }
+                                st.session_state['editing_gs_idx'] = None
+                                st.session_state['new_row_count'] = 0
+                                if "item_list_version" not in st.session_state:
+                                    st.session_state.item_list_version = 0
                             
                             for idx, row in details.iterrows():
                                 row_index_gs = row["_row_index"]
-                                
                                 if row_index_gs not in st.session_state['edit_data']:
                                     major = row.get("category", "その他")
-                                    # subcategoryカラムの特定
                                     sub_cols = [c for c in ["subcategory", "sub_category", "小分類"] if c in df.columns]
                                     sub = row.get(sub_cols[0], "❓その他") if sub_cols else "❓その他"
-                                    
                                     st.session_state['edit_data'][row_index_gs] = {
                                         "name": row.get(item_col, "不明な商品") if item_col else "不明な商品",
                                         "amount": int(row.get("amount", 0)),
                                         "major": major,
                                         "minor": sub
                                     }
-                                    
-                            st.write("##### 明細一覧")
+
+                            # --- レシートヘッダー（日付・店舗名）の修正エリア ---
+                            st.write("##### レシート情報の修正")
+                            with st.container(border=True):
+                                h_col1, h_col2 = st.columns(2)
+                                with h_col1:
+                                    new_date = st.date_input("日付", value=st.session_state['edit_header']['date'], key="edit_header_date")
+                                with h_col2:
+                                    new_store = st.text_input("店舗名", value=st.session_state['edit_header']['store'], key="edit_header_store")
+                                
+                                # ヘッダー情報を更新
+                                st.session_state['edit_header']['date'] = new_date
+                                st.session_state['edit_header']['store'] = new_store
+
+                            # --- アクションボタンエリア（上部） ---
+                            action_col1, action_col2 = st.columns(2)
                             
-                            # 閲覧モードと修正モードを管理するState
-                            # レシートが切り替わった時に状態をリセットするためのキー制御
-                            mode_key = f"mode_{receipt_key}"
-                            if mode_key not in st.session_state:
-                                st.session_state[mode_key] = False # 初期設定は閲覧モード(False)
-                                
-                            edit_mode = st.session_state[mode_key]
+                            with action_col1:
+                                if st.button("日付・店舗名更新", use_container_width=True, type="primary"):
+                                    try:
+                                        with st.spinner("一括更新中..."):
+                                            sheet = get_sheet(TRANSACTIONS_WORKSHEET_NAME)
+                                            target_date_str = st.session_state['edit_header']['date'].strftime("%Y-%m-%d")
+                                            target_store = st.session_state['edit_header']['store']
+                                            
+                                            # 既存の全明細行をループして日付と店舗を更新
+                                            existing_indices = [int(k) for k in st.session_state['edit_data'].keys() if not str(k).startswith("new_")]
+                                            for r_idx in existing_indices:
+                                                sheet.update_cell(r_idx, 2, target_date_str)
+                                                sheet.update_cell(r_idx, 3, target_store)
+                                                
+                                            st.success("✅ レシート情報を一括更新しました")
+                                            st.session_state.receipt_list_version += 1
+                                            time.sleep(1)
+                                            st.rerun()
+                                    except Exception as e:
+                                        st.error(f"更新エラー: {e}")
                             
-                            if edit_mode:
-                                # 【修正モード】のレイアウト
-                                
-                                # 明細行を1行のインラインテキストのように表示させるためのCSS
-                                st.markdown("""
-                                <style>
-                                    /* ウィジェット下マージンを消去して余白を完全削除 */
-                                    div[data-testid="stVerticalBlock"]:has(span#receipt-table-target):not(:has(div[data-testid="stVerticalBlock"] span#receipt-table-target)) div.stMarkdown,
-                                    div[data-testid="stVerticalBlock"]:has(span#receipt-table-target):not(:has(div[data-testid="stVerticalBlock"] span#receipt-table-target)) div.stPopover {
-                                        margin-bottom: 0 !important;
-                                    }
-                                    
-                                    /* ポップオーバー（大分類・小分類ボタン）の表示を極力コンパクトに */
-                                    div[data-testid="stPopover"] > button {
-                                        padding: 0px 4px !important;
-                                        font-size: 0.8em !important;
-                                        min-height: 24px !important;
-                                        width: 100% !important;
-                                    }
-                                    /* 商品名などの長いテキストがボタン内で省略されないように調整 */
-                                    div[data-testid="stPopover"] > button div[data-testid="stMarkdownContainer"] p {
-                                        white-space: normal !important;
-                                        word-break: break-all !important;
-                                        line-height: 1.2 !important;
-                                    }
-                                </style>
-                                """, unsafe_allow_html=True)
-                                
-                                with st.container():
-                                    st.markdown('<span id="receipt-table-target"></span>', unsafe_allow_html=True)
-                                    
-                                    # レシートヘッダー（日付・店舗名）の修正用フィールド
-                                    col_h1, col_h2 = st.columns(2)
-                                    with col_h1:
-                                        new_header_date = st.date_input("レシート日付", value=st.session_state['edit_header']['date'], key="edit_header_date")
-                                    with col_h2:
-                                        new_header_store = st.text_input("店舗名", value=st.session_state['edit_header']['store'], key="edit_header_store")
-                                    
-                                    st.write("---")
-                                    
-                                    modified = False
-                                    if new_header_date != st.session_state['edit_header']['date'] or new_header_store != st.session_state['edit_header']['store']:
-                                        st.session_state['edit_header']['date'] = new_header_date
-                                        st.session_state['edit_header']['store'] = new_header_store
-                                        modified = True
-                                    
-                                    for i, (idx, row) in enumerate(details.iterrows(), 1):
-                                        row_index_gs = row["_row_index"]
-                                        item_name = row.get(item_col, "不明な商品") if item_col else "不明な商品"
-                                        # 詳細画面では文字制限をかけない
-                                        
-                                        edit_vals = st.session_state['edit_data'].get(row_index_gs)
-                                        if not edit_vals:
-                                            continue
-                                        
-                                        disp_name = edit_vals['name']
-                                        disp_amount = edit_vals['amount']
-                                        disp_major = edit_vals['major']
-                                        disp_minor = edit_vals['minor']
-                                        
-                                        row_col0, row_col1, row_col2, row_col3, row_col4 = st.columns([0.4, 2, 1, 1, 1])
-                                        
-                                        with row_col0:
-                                            st.markdown(f"<div style='font-size: 0.85em; padding-top: 5px;'>{i}.</div>", unsafe_allow_html=True)
-                                        with row_col1:
-                                            with st.popover(disp_name):
-                                                new_name = st.text_input("商品名", value=disp_name, key=f"nm_{row_index_gs}", label_visibility="collapsed")
-                                        with row_col2:
-                                            with st.popover(f"¥{disp_amount:,}"):
-                                                new_amount = st.number_input("金額", value=int(disp_amount), step=1, key=f"amt_{row_index_gs}", label_visibility="collapsed")
-                                        with row_col3:
-                                            majors = list(EXPENSE_CATEGORIES.keys())
-                                            default_major_idx = majors.index(disp_major) if disp_major in majors else majors.index("その他")
-                                            with st.popover(disp_major):
-                                                new_major = st.radio("大分類", majors, index=default_major_idx, key=f"maj_{r_idx_gs}" if 'r_idx_gs' in locals() else f"maj_{row_index_gs}", label_visibility="collapsed")
-                                        with row_col4:
-                                            minors = EXPENSE_CATEGORIES.get(new_major, EXPENSE_CATEGORIES["その他"])
-                                            default_minor_idx = minors.index(disp_minor) if disp_minor in minors else len(minors)-1
-                                            with st.popover(disp_minor):
-                                                new_minor = st.radio("小分類", minors, index=default_minor_idx, key=f"min_{r_idx_gs}" if 'r_idx_gs' in locals() else f"min_{row_index_gs}", label_visibility="collapsed")
-                                        
-                                        if new_name != disp_name or new_amount != disp_amount or new_major != disp_major or new_minor != disp_minor:
-                                            st.session_state['edit_data'][row_index_gs]["name"] = new_name
-                                            st.session_state['edit_data'][row_index_gs]["amount"] = new_amount
-                                            st.session_state['edit_data'][row_index_gs]["major"] = new_major
-                                            st.session_state['edit_data'][row_index_gs]["minor"] = new_minor
-                                            modified = True
-                                        
-                                if modified:
-                                    st.rerun()
-                                    
-                                st.markdown("---")
-                                
-                                # 修正用ボタン（登録 / キャンセル）
-                                col1, col2 = st.columns(2)
-                                with col1:
-                                    if st.button("登録", use_container_width=True, key="save_receipt"):
+                            with action_col2:
+                                with st.popover("このレシートを全削除", use_container_width=True):
+                                    st.warning("このレシート（全明細）を完全に削除します。")
+                                    if st.button("レシート削除を実行", use_container_width=True, type="primary"):
                                         try:
-                                            with st.spinner("保存中..."):
+                                            with st.spinner("削除中..."):
                                                 sheet = get_sheet(TRANSACTIONS_WORKSHEET_NAME)
-                                                headers = sheet.row_values(1)
-                                                amount_col_idx = headers.index("amount") + 1 if "amount" in headers else None
-                                                category_col_idx = headers.index("category") + 1 if "category" in headers else None
-                                                
-                                                sub_col_idx = None
-                                                for c in ["subcategory", "sub_category", "小分類"]:
-                                                    if c in headers:
-                                                        sub_col_idx = headers.index(c) + 1
-                                                        break
-                                                
-                                                updates = []
-                                                item_col_idx = headers.index(item_col) + 1 if item_col in headers else None
-                                                date_col_idx = headers.index("date") + 1 if "date" in headers else None
-                                                store_col_idx = headers.index(store_col) + 1 if store_col in headers else None
-                                                
-                                                # ヘッダー情報の取得
-                                                new_date_str = st.session_state['edit_header']['date'].strftime('%Y-%m-%d')
-                                                new_store_str = str(st.session_state['edit_header']['store']).strip()
-                                                
-                                                for r_idx_gs, vals in st.session_state['edit_data'].items():
-                                                    if item_col_idx: updates.append(gspread.Cell(row=r_idx_gs, col=item_col_idx, value=str(vals["name"])))
-                                                    if amount_col_idx: updates.append(gspread.Cell(row=r_idx_gs, col=amount_col_idx, value=int(vals["amount"])))
-                                                    if category_col_idx: updates.append(gspread.Cell(row=r_idx_gs, col=category_col_idx, value=str(vals["major"])))
-                                                    if sub_col_idx: updates.append(gspread.Cell(row=r_idx_gs, col=sub_col_idx, value=str(vals["minor"])))
-                                                    
-                                                    # 日付と店舗名は全行に対して更新
-                                                    if date_col_idx: updates.append(gspread.Cell(row=r_idx_gs, col=date_col_idx, value=new_date_str))
-                                                    if store_col_idx: updates.append(gspread.Cell(row=r_idx_gs, col=store_col_idx, value=new_store_str))
-                                                    
-                                                if updates:
-                                                    sheet.update_cells(updates)
-                                                    
-                                                st.success("✅ レシート明細を更新しました")
-                                                st.session_state['edit_data'] = {} # リセット
-                                                st.session_state[mode_key] = False # 閲覧モードに戻す
-                                                st.session_state.receipt_list_version += 1 # 一覧の選択をリセット
+                                                existing_indices = [int(k) for k in st.session_state['edit_data'].keys() if not str(k).startswith("new_")]
+                                                for r_idx in sorted(existing_indices, reverse=True):
+                                                    sheet.delete_rows(r_idx)
+                                                st.success("✅ レシートを削除しました")
+                                                st.session_state.receipt_list_version += 1
+                                                st.session_state['edit_data'] = None
                                                 time.sleep(1)
                                                 st.rerun()
                                         except Exception as e:
-                                            st.error(f"エラー: {e}")
-                                            
-                                with col2:
-                                    if st.button("キャンセル", use_container_width=True, key="cancel_receipt_edit"):
-                                        # 状態をリセットし閲覧モードに戻る
-                                        st.session_state['current_receipt_key'] = "" # キーを空にして初期化処理を無理やり再実行させる
-                                        st.session_state[mode_key] = False
-                                        st.session_state.receipt_list_version += 1 # 一覧の選択をリセット
-                                        st.rerun()
-                                
-                            else:
-                                # 【閲覧モード】のレイアウト
-                                
-                                st.markdown("")
-                                total_amount = 0
-                                
-                                # Markdownのテーブルヘッダー構築
-                                table_md = "| No | 商品名 | 金額 | 大分類 | 小分類 |\n"
-                                table_md += "|---|---|---:|---|---|\n"
-                                
-                                for i, (idx, row) in enumerate(details.iterrows(), 1):
-                                    item_name = row.get(item_col, "不明な商品") if item_col else "不明な商品"
-                                    # 商品名を全角10文字までに切り詰め
-                                    display_item_name = item_name[:10] + "…" if len(item_name) > 10 else item_name
-                                    
-                                    major = row.get("category", "その他")
-                                    sub_cols = [c for c in ["subcategory", "sub_category", "小分類"] if c in df.columns]
-                                    sub = row.get(sub_cols[0], "❓その他") if sub_cols else "❓その他"
-                                    amount = int(row.get("amount", 0))
-                                    total_amount += amount
-                                    
-                                    # 各行のデータを追加 (金額の円表示は不要)
-                                    table_md += f"| {i} | {display_item_name} | {amount:,} | {major} | {sub} |\n"
-                                
-                                # 合計行の追加
-                                table_md += f"| | **合計** | **{total_amount:,}** | | |\n"
-                                
-                                # テーブルの描画
-                                st.markdown(table_md)
+                                            st.error(f"削除エラー: {e}")
+
+                            st.markdown("<br>", unsafe_allow_html=True)
+
+                            # --- 修正用のDataFrameを作成 (閲覧・選択用) ---
+                            edit_items_list = []
+                            for row_id, data in st.session_state['edit_data'].items():
+                                edit_items_list.append({
+                                    "商品名": data["name"],
+                                    "金額": data["amount"],
+                                    "大分類": data["major"],
+                                    "小分類": data["minor"],
+                                    "_id": row_id
+                                })
+                            edit_df_display = pd.DataFrame(edit_items_list)
+
+                            # --- 明細一覧表の表示 (選択用) ---
+                            st.write("##### 明細一覧（修正行を選択して下さい）")
+                            item_event = st.dataframe(
+                                edit_df_display.drop(columns=["_id"]),
+                                use_container_width=True,
+                                hide_index=True,
+                                selection_mode="single-row",
+                                column_config={
+                                    "商品名": st.column_config.TextColumn(width="medium"),
+                                    "金額": st.column_config.NumberColumn(width="small", format="￥%d"),
+                                    "大分類": st.column_config.TextColumn(width="small"),
+                                    "小分類": st.column_config.TextColumn(width="small")
+                                },
+                                on_select="rerun",
+                                key=f"item_edit_df_{st.session_state.item_list_version}"
+                            )
+
+                            # 選択された行のIDを特定
+                            current_editing_id = st.session_state.get('editing_gs_idx')
+                            
+                            # データフレームでの選択を優先
+                            if len(item_event.selection.rows) > 0:
+                                row_idx = item_event.selection.rows[0]
+                                current_editing_id = edit_df_display.iloc[row_idx]["_id"]
+                                st.session_state['editing_gs_idx'] = current_editing_id
+
+                            # 削除済みIDのチェック
+                            if current_editing_id and current_editing_id not in st.session_state['edit_data']:
+                                current_editing_id = None
+                                st.session_state['editing_gs_idx'] = None
+
+                            st.markdown("<br>", unsafe_allow_html=True)
+                            
+                            # --- 行追加ボタン ---
+                            if st.button("➕ 明細を追加する", use_container_width=True):
+                                st.session_state['new_row_count'] += 1
+                                new_id = f"new_{st.session_state['new_row_count']}"
+                                st.session_state['edit_data'][new_id] = {
+                                    "name": "",
+                                    "amount": 0,
+                                    "major": "その他",
+                                    "minor": "❓その他"
+                                }
+                                st.session_state['editing_gs_idx'] = new_id
+                                st.session_state.item_list_version += 1
+                                st.rerun()
+
+                            # --- 個別修正フォーム (選択されている場合のみ表示) ---
+                            if current_editing_id:
                                 st.markdown("---")
+                                st.write("##### 選択中の明細を修正")
+                                target_item = st.session_state['edit_data'][current_editing_id]
                                 
-                                # 閲覧用アクションボタン（修正 / 削除）
-                                col1, col2 = st.columns(2)
-                                with col1:
-                                    if st.button("修正", use_container_width=True, key="edit_receipt"):
-                                        st.session_state[mode_key] = True
-                                        st.rerun()
-                                        
-                                with col2:
-                                    with st.popover("削除", use_container_width=True):
-                                        st.write("本当にこのレシートを削除しますか？")
-                                        if st.button("はい、削除します", use_container_width=True, key="delete_receipt_confirm"):
-                                            try:
-                                                with st.spinner("削除中..."):
-                                                    sheet = get_sheet(TRANSACTIONS_WORKSHEET_NAME)
-                                                    # 下から順に削除する（インデックスがずれないように）
-                                                    rows_to_delete = sorted(list(st.session_state['edit_data'].keys()), reverse=True)
-                                                    for r_idx in rows_to_delete:
-                                                        sheet.delete_rows(r_idx)
+                                with st.container(border=True):
+                                    categories = get_categories()
+                                    major_cats = list(categories.keys())
+                                    
+                                    edit_name = st.text_input("商品名", value=target_item["name"], key=f"edit_name_{current_editing_id}")
+                                    edit_amount = st.number_input("金額", value=int(target_item["amount"]), step=1, key=f"edit_amount_{current_editing_id}")
+                                    
+                                    # 大分類
+                                    current_major = target_item["major"]
+                                    if current_major not in major_cats: current_major = "その他"
+                                    edit_major = st.selectbox("大分類", options=major_cats, index=major_cats.index(current_major), key=f"edit_major_{current_editing_id}")
+                                    
+                                    # 小分類
+                                    minor_cats = categories.get(edit_major, ["❓その他"])
+                                    current_minor = target_item["minor"]
+                                    if current_minor not in minor_cats: current_minor = minor_cats[0]
+                                    edit_minor = st.selectbox("小分類", options=minor_cats, index=minor_cats.index(current_minor), key=f"edit_minor_{current_editing_id}")
+                                    
+                                    st.markdown("<br>", unsafe_allow_html=True)
+                                    
+                                    b_col1, b_col2, b_col3 = st.columns(3)
+                                    with b_col1:
+                                        if st.button("登録実行", use_container_width=True, type="primary", key=f"save_btn_{current_editing_id}"):
+                                            if not edit_name.strip():
+                                                st.warning("⚠️ 商品名を入力してください。")
+                                            elif edit_amount == 0:
+                                                st.warning("⚠️ 金額を入力してください。")
+                                            else:
+                                                try:
+                                                    with st.spinner("保存中..."):
+                                                        sheet = get_sheet(TRANSACTIONS_WORKSHEET_NAME)
+                                                        user_name = st.session_state['username']
+                                                        # 修正されたヘッダー情報を使用
+                                                        target_date_str = st.session_state['edit_header']['date'].strftime("%Y-%m-%d")
+                                                        target_store = st.session_state['edit_header']['store']
                                                         
-                                                    st.success("✅ レシートを削除しました")
-                                                    st.session_state['edit_data'] = {}
-                                                    st.session_state[mode_key] = False
-                                                    st.session_state.receipt_list_version += 1 # 一覧の選択をリセット
+                                                        if str(current_editing_id).startswith("new_"):
+                                                            # 新規追加
+                                                            new_row = [user_name, target_date_str, target_store, edit_name, edit_major, edit_minor, edit_amount]
+                                                            sheet.append_row(new_row)
+                                                        else:
+                                                            # 既存更新
+                                                            r_idx = int(current_editing_id)
+                                                            # 日付と店舗名も修正後の値で更新
+                                                            sheet.update_cell(r_idx, 2, target_date_str)
+                                                            sheet.update_cell(r_idx, 3, target_store)
+                                                            sheet.update_cell(r_idx, 5, edit_major)
+                                                            sheet.update_cell(r_idx, 6, edit_minor)
+                                                            sheet.update_cell(r_idx, 4, edit_name)
+                                                            sheet.update_cell(r_idx, 7, edit_amount)
+                                                        
+                                                        st.success("✅ 修正を登録しました")
+                                                        st.session_state['editing_gs_idx'] = None
+                                                        st.session_state['edit_data'] = None
+                                                        st.session_state.item_list_version += 1
+                                                        st.session_state.receipt_list_version += 1
+                                                        time.sleep(1)
+                                                        st.rerun()
+                                                except Exception as e:
+                                                    st.error(f"エラー: {e}")
+                                    
+                                    with b_col2:
+                                        with st.popover("明細を削除", use_container_width=True):
+                                            st.warning("この明細を完全に削除します。よろしいですか？")
+                                            if st.button("削除を実行する", use_container_width=True, type="primary", key=f"del_item_{current_editing_id}"):
+                                                try:
+                                                    if not str(current_editing_id).startswith("new_"):
+                                                        sheet = get_sheet(TRANSACTIONS_WORKSHEET_NAME)
+                                                        sheet.delete_rows(int(current_editing_id))
+                                                    
+                                                    del st.session_state['edit_data'][current_editing_id]
+                                                    st.success("🗑️ 明細を削除しました")
+                                                    st.session_state['editing_gs_idx'] = None
+                                                    st.session_state['edit_data'] = None
+                                                    st.session_state.item_list_version += 1
+                                                    st.session_state.receipt_list_version += 1
                                                     time.sleep(1)
                                                     st.rerun()
-                                            except Exception as e:
-                                                st.error(f"エラー: {e}")
-                            
+                                                except Exception as e:
+                                                    st.error(f"削除エラー: {e}")
+                                    
+                                    with b_col3:
+                                        if st.button("キャンセル", use_container_width=True, key=f"cancel_btn_{current_editing_id}"):
+                                            st.session_state['editing_gs_idx'] = None
+                                            st.session_state.item_list_version += 1
+                                            st.rerun()
+
                             # CSSの代わりにJSを使ってより確実にボタンの色を変更
                             components.html("""
                             <script>
@@ -2618,7 +2686,9 @@ def main():
 
 【5. レシート修正・履歴】
 ・操作：「レシート修正」メニューから、過去に登録した全てのデータを表形式で確認できます。
-・編集：内容を書き換えて「更新」ボタンを押すだけで修正完了です。
+・UI：明細一覧の指示が「（修正する行を選択して下さい）」となり、直感的に操作できます。
+・編集：内容（日付・店舗名、個別明細）を書き換えて「更新」または「登録実行」ボタンを押すだけで修正完了です。
+・リロード機能：個別明細の修正・削除後は、レシート全体の合計金額などが即座に自動更新されます。
 ・安全な削除：削除ボタンを押すと再確認（ポップオーバー）が表示されるため、誤操作を防げます。
 
 【6. AI相談（専属FP）】
@@ -2712,7 +2782,9 @@ def main():
                 st.markdown("""
                 **概要**: 過去に登録した全てのデータを一覧・検索・編集できます。
                 - **一括管理**: 全ての支出データが時系列で表示されます。
-                - **かんたん修正**: 修正したい項目を書き換えて「更新」を押すだけ。
+                - **かんたん修正**: 修正内容を入力して「更新」または「登録実行」を押すだけ。
+                - **自動リロード**: 個別明細の操作後、一覧の合計表示などが自動的に最新の状態に更新されます。
+                - **UI改善**: 「日付・店舗名更新」ボタンの名称変更や、選択指示の明確化（「選択して下さい」）により、使いやすさが向上しました。
                 - **安全な削除**: 削除時は再確認が出るため、誤操作を防げます。
                 """)
 
@@ -2729,7 +2801,7 @@ def main():
                 """)
 
             st.markdown("---")
-            st.caption(f"マイニー Ver 3.1.0 - ユーザー: {st.session_state['username']}")
+            st.caption(f"マイニー Ver 3.1.1 - ユーザー: {st.session_state['username']}")
             
     # 未ログインの状態 (ログイン・登録画面)
     else:
