@@ -1106,12 +1106,18 @@ def render_voice_input_button(key_prefix):
             micContainer.style.position = 'absolute';
             micContainer.style.top = '6px';
             micContainer.style.right = '52px';
-            micContainer.style.zIndex = '1000';
+            micContainer.style.zIndex = '999999';
             micContainer.style.display = 'flex';
             micContainer.style.alignItems = 'center';
             micContainer.style.pointerEvents = 'auto';
             
             micContainer.innerHTML = `
+                <style>
+                    #mic-btn-{key_prefix}:active {{
+                        transform: scale(0.9);
+                        background-color: #e8eaed !important;
+                    }}
+                </style>
                 <button id="mic-btn-{key_prefix}" style="
                     background-color: #f8f9fa;
                     border: 1px solid #dadce0;
@@ -1120,13 +1126,16 @@ def render_voice_input_button(key_prefix):
                     height: 38px;
                     cursor: pointer;
                     font-size: 22px;
+                    padding: 0;
+                    margin: 0;
                     display: flex;
                     justify-content: center;
                     align-items: center;
                     box-shadow: 0 1px 3px rgba(60,64,67,0.3);
-                    transition: all 0.2s;
+                    transition: all 0.1s;
+                    -webkit-tap-highlight-color: transparent;
                 " title="音声入力">🎤</button>
-                <span id="status-{key_prefix}" style="margin-right: 8px; font-size: 11px; color: #ff4b4b; background: rgba(255,255,255,0.9); border-radius: 3px; padding: 0 4px; white-space: nowrap; font-weight: bold; display: none; order: -1;">認識中...</span>
+                <span id="status-{key_prefix}" style="margin-right: 8px; font-size: 11px; color: #ff4b4b; background: rgba(255,255,255,0.9); border-radius: 3px; padding: 0 4px; white-space: nowrap; font-weight: bold; display: none; order: -1; pointer-events: none;">認識中...</span>
             `;
             
             chatInputContainer.appendChild(micContainer);
@@ -1546,7 +1555,7 @@ def main():
 
         # サイドバーメニューの実装
         with st.sidebar:
-            st.subheader("マイニー [Ver 3.2.6]")
+            st.subheader("マイニー [Ver 3.2.7]")
             st.write(f"🔑 ユーザー: **{st.session_state['username']}**")
             st.markdown("---")
             if 'menu_selection' not in st.session_state:
@@ -2921,7 +2930,7 @@ def main():
                 """)
 
             st.markdown("---")
-            st.caption(f"マイニー Ver 3.2.6 - ユーザー: {st.session_state['username']}")
+            st.caption(f"マイニー Ver 3.2.7 - ユーザー: {st.session_state['username']}")
             
     # 未ログインの状態 (ログイン・登録画面)
     else:
