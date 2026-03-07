@@ -15,6 +15,7 @@ from google import genai
 from google.genai import types
 import streamlit.components.v1 as components
 import time
+import re
 
 # ---------- 構成設定 ----------
 SPREADSHEET_NAME = "Kakeibo_Data" # 実際のGoogleスプレッドシート名に合わせて変更してください
@@ -1025,14 +1026,34 @@ def render_transaction_breakdown(df, key_prefix):
             st.warning("カテゴリ情報がありません。")
 
 # ---------- 音声機能関連のユーティリティ ----------
+def clean_text_for_speech(text):
+    """音声読み上げ用にマークダウン記号などをクリーンアップする"""
+    if not text:
+        return ""
+    
+    # 1. 太字や斜体のアスタリスクを削除
+    clean_text = text.replace("**", "").replace("*", "")
+    
+    # 2. 見出し記号（#）を削除
+    clean_text = re.sub(r'#+\s?', '', clean_text)
+    
+    # 3. 箇条書き記号（行頭の - または *）を「項目、」に置換、または削除して読点に
+    #    行頭の「- 」や「* 」を「項目、」に変える正規表現
+    clean_text = re.sub(r'^[ \t]*[-*][ \t]+', '項目、', clean_text, flags=re.MULTILINE)
+    
+    return clean_text
+
 def render_speech_synthesis_button(text, key):
     """テキストを読み上げるスピーカーボタンを表示する"""
     if not text:
         return
     
     # JavaScriptによる読み上げロジック
-    # クリーンアップ（改行などの除去）
-    clean_text = text.replace("'", "\\'").replace("\n", " ")
+    # マークダウン記号のクリーンアップ
+    target_text = clean_text_for_speech(text)
+    
+    # JS用にエスケープと改行の除去
+    js_text = target_text.replace("'", "\\'").replace("\n", " ")
     
     html_code = f"""
     <button id="btn-{key}" style="
@@ -1062,7 +1083,7 @@ def render_speech_synthesis_button(text, key):
         
         // 少し遅延を入れてから発話させる（iOS対策）
         setTimeout(() => {{
-            const uttr = new SpeechSynthesisUtterance('{clean_text}');
+            const uttr = new SpeechSynthesisUtterance('{js_text}');
             uttr.lang = 'ja-JP';
             uttr.rate = 1.1;
             
