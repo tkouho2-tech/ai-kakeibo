@@ -1104,8 +1104,8 @@ def render_voice_input_button(key_prefix):
             const micContainer = parentDoc.createElement('div');
             micContainer.id = 'mic-container-{key_prefix}';
             micContainer.style.position = 'absolute';
-            micContainer.style.top = '8px';
-            micContainer.style.left = '12px';
+            micContainer.style.top = '6px';
+            micContainer.style.right = '52px';
             micContainer.style.zIndex = '1000';
             micContainer.style.display = 'flex';
             micContainer.style.alignItems = 'center';
@@ -1113,20 +1113,20 @@ def render_voice_input_button(key_prefix):
             
             micContainer.innerHTML = `
                 <button id="mic-btn-{key_prefix}" style="
-                    background-color: #f0f2f6;
-                    border: 1px solid #dcdfe6;
+                    background-color: #f8f9fa;
+                    border: 1px solid #dadce0;
                     border-radius: 50%;
-                    width: 26px;
-                    height: 26px;
+                    width: 38px;
+                    height: 38px;
                     cursor: pointer;
-                    font-size: 14px;
+                    font-size: 22px;
                     display: flex;
                     justify-content: center;
                     align-items: center;
-                    box-shadow: 0 1px 2px rgba(0,0,0,0.1);
+                    box-shadow: 0 1px 3px rgba(60,64,67,0.3);
                     transition: all 0.2s;
                 " title="音声入力">🎤</button>
-                <span id="status-{key_prefix}" style="margin-left: 8px; font-size: 11px; color: #ff4b4b; background: rgba(255,255,255,0.9); border-radius: 3px; padding: 0 4px; white-space: nowrap; font-weight: bold; display: none;">音声を認識中...</span>
+                <span id="status-{key_prefix}" style="margin-right: 8px; font-size: 11px; color: #ff4b4b; background: rgba(255,255,255,0.9); border-radius: 3px; padding: 0 4px; white-space: nowrap; font-weight: bold; display: none; order: -1;">認識中...</span>
             `;
             
             chatInputContainer.appendChild(micContainer);
@@ -1546,7 +1546,7 @@ def main():
 
         # サイドバーメニューの実装
         with st.sidebar:
-            st.subheader("マイニー [Ver 3.2.5]")
+            st.subheader("マイニー [Ver 3.2.6]")
             st.write(f"🔑 ユーザー: **{st.session_state['username']}**")
             st.markdown("---")
             if 'menu_selection' not in st.session_state:
@@ -2921,7 +2921,7 @@ def main():
                 """)
 
             st.markdown("---")
-            st.caption(f"マイニー Ver 3.2.5 - ユーザー: {st.session_state['username']}")
+            st.caption(f"マイニー Ver 3.2.6 - ユーザー: {st.session_state['username']}")
             
     # 未ログインの状態 (ログイン・登録画面)
     else:
