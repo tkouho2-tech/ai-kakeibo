@@ -1087,21 +1087,23 @@ def render_voice_input_button(key_prefix):
     input_key = f"{key_prefix}_voice_input_result"
     
     html_code = f"""
-    <div style="display: flex; align-items: center; margin-bottom: 10px;">
+    <div style="position: fixed; bottom: 44px; left: 50%; transform: translateX(-48%); width: 100%; max-width: 700px; z-index: 999999; pointer-events: none; display: flex; justify-content: flex-start; padding-left: 15px;">
         <button id="mic-btn-{key_prefix}" style="
             background-color: #f0f2f6;
             border: 1px solid #dcdfe6;
             border-radius: 50%;
-            width: 40px;
-            height: 40px;
+            width: 32px;
+            height: 32px;
             cursor: pointer;
-            font-size: 20px;
+            font-size: 16px;
             display: flex;
             justify-content: center;
             align-items: center;
             transition: all 0.3s;
+            pointer-events: auto;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
         " onclick="startRecognition()">🎤</button>
-        <span id="status-{key_prefix}" style="margin-left: 10px; font-size: 14px; color: #666;"></span>
+        <span id="status-{key_prefix}" style="margin-left: 10px; font-size: 12px; color: #666; background: rgba(255,255,255,0.8); border-radius: 3px; padding: 0 4px; pointer-events: none; white-space: nowrap; line-height: 32px;"></span>
     </div>
 
     <script>
@@ -1172,7 +1174,7 @@ def render_voice_input_button(key_prefix):
     # ここでは、認識されたテキストを一時的に表示し、ユーザーが確認して送信できるスタイルにするか、
     # あるいは直接セッションに書き込むための「隠しボタン」的なアプローチをとる。
     
-    components.html(html_code, height=60)
+    components.html(html_code, height=0)
     
     # 結果を受け取るための実験的な仕組み
     # (実際には st.chat_input に自動で流し込むのはJSのセキュリティ制約上難しいため、
@@ -1525,7 +1527,7 @@ def main():
 
         # サイドバーメニューの実装
         with st.sidebar:
-            st.subheader("マイニー [Ver 3.2.3]")
+            st.subheader("マイニー [Ver 3.2.4]")
             st.write(f"🔑 ユーザー: **{st.session_state['username']}**")
             st.markdown("---")
             if 'menu_selection' not in st.session_state:
@@ -2900,7 +2902,7 @@ def main():
                 """)
 
             st.markdown("---")
-            st.caption(f"マイニー Ver 3.2.3 - ユーザー: {st.session_state['username']}")
+            st.caption(f"マイニー Ver 3.2.4 - ユーザー: {st.session_state['username']}")
             
     # 未ログインの状態 (ログイン・登録画面)
     else:
