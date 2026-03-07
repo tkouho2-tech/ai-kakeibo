@@ -1525,7 +1525,7 @@ def main():
 
         # サイドバーメニューの実装
         with st.sidebar:
-            st.subheader("マイニー [Ver 3.2.0]")
+            st.subheader("マイニー [Ver 3.2.1]")
             st.write(f"🔑 ユーザー: **{st.session_state['username']}**")
             st.markdown("---")
             if 'menu_selection' not in st.session_state:
@@ -2198,10 +2198,28 @@ def main():
                     
                     if len(event.selection.rows) > 0:
                         selected_idx = event.selection.rows[0]
-                        selected_receipt = receipts_df.iloc[selected_idx]
+                        sel_rec = receipts_df.iloc[selected_idx]
+                        if sel_rec["日付"] != "総合計":
+                            # 選択されたレシート情報をセッションに保存して永続化
+                            st.session_state['selected_receipt_info'] = {
+                                "date": sel_rec["日付"],
+                                "store": sel_rec["店舗名"]
+                            }
+                    
+                    # セッションに保存された情報に基づいて詳細を表示（表の選択が消えても維持）
+                    receipt_info = st.session_state.get('selected_receipt_info')
+                    if receipt_info:
+                        # 表示中のリストにまだ存在するか確認（削除対策）
+                        target_date_str = receipt_info["date"]
+                        target_store = receipt_info["store"]
                         
-                        # 総合計行が選択された場合は詳細表示しない
-                        if selected_receipt["日付"] != "総合計":
+                        selected_receipt_matches = receipts_df[
+                            (receipts_df["日付"] == target_date_str) & 
+                            (receipts_df["店舗名"] == target_store)
+                        ]
+                        
+                        if not selected_receipt_matches.empty:
+                            selected_receipt = selected_receipt_matches.iloc[0]
                             target_date = pd.to_datetime(selected_receipt["日付"])
                             target_store = selected_receipt["店舗名"]
                             
@@ -2295,6 +2313,8 @@ def main():
                                                 st.success("✅ レシートを削除しました")
                                                 st.session_state.receipt_list_version += 1
                                                 st.session_state['edit_data'] = None
+                                                st.session_state['selected_receipt_info'] = None # レシートごと消えたのでクリア
+                                                st.session_state['editing_gs_idx'] = None
                                                 time.sleep(1)
                                                 st.rerun()
                                         except Exception as e:
@@ -2441,7 +2461,7 @@ def main():
                                     with b_col2:
                                         with st.popover("明細を削除", use_container_width=True):
                                             st.warning("この明細を完全に削除します。よろしいですか？")
-                                            if st.button("削除を実行する", use_container_width=True, type="primary", key=f"del_item_{current_editing_id}"):
+                                            if st.button("明細を削除", use_container_width=True, type="primary", key=f"del_item_{current_editing_id}"):
                                                 try:
                                                     if not str(current_editing_id).startswith("new_"):
                                                         sheet = get_sheet(TRANSACTIONS_WORKSHEET_NAME)
@@ -2872,7 +2892,7 @@ def main():
                 """)
 
             st.markdown("---")
-            st.caption(f"マイニー Ver 3.2.0 - ユーザー: {st.session_state['username']}")
+            st.caption(f"マイニー Ver 3.2.1 - ユーザー: {st.session_state['username']}")
             
     # 未ログインの状態 (ログイン・登録画面)
     else:
