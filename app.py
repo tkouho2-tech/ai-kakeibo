@@ -2270,6 +2270,8 @@ def main():
                                     "_id": row_id
                                 })
                             edit_df_display = pd.DataFrame(edit_items_list)
+                            # 指定された順序でソート（大分類、小分類、商品名）
+                            edit_df_display = edit_df_display.sort_values(by=["大分類", "小分類", "商品名"]).reset_index(drop=True)
 
                             # --- 明細一覧表の表示 (選択用) ---
                             st.write("##### 明細一覧（修正行を選択して下さい）")
