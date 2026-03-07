@@ -10,7 +10,7 @@ import io
 import calendar
 from datetime import datetime
 from dateutil.relativedelta import relativedelta
-from PIL import Image
+from PIL import Image, ImageOps
 from google import genai
 from google.genai import types
 import streamlit.components.v1 as components
@@ -712,6 +712,7 @@ def render_month_navigation():
 def parse_receipt_with_gemini(image_file):
     try:
         img = Image.open(image_file)
+        img = ImageOps.exif_transpose(img) # 向きを自動補正
         # リサイズ（短辺・長辺ともに適切に圧縮。最大800px程度にしてAPIを高速化）
         img.thumbnail((800, 800))
         if img.mode != 'RGB':
@@ -1485,7 +1486,7 @@ def main():
 
         # サイドバーメニューの実装
         with st.sidebar:
-            st.subheader("マイニー [Ver 3.1.3]")
+            st.subheader("マイニー [Ver 3.1.4]")
             st.write(f"🔑 ユーザー: **{st.session_state['username']}**")
             st.markdown("---")
             if 'menu_selection' not in st.session_state:
@@ -1738,7 +1739,10 @@ def main():
                 uploaded_file = file_img
             
             if uploaded_file is not None:
-                st.image(uploaded_file, caption="取得したレシート画像", width=300)
+                # 表示用の向き補正
+                display_img = Image.open(uploaded_file)
+                display_img = ImageOps.exif_transpose(display_img)
+                st.image(display_img, caption="取得したレシート画像", use_container_width=True)
                 
                 # Streamlitのボタンに色をつける（このページのみに適用される）
                 st.markdown("""
@@ -2829,7 +2833,7 @@ def main():
                 """)
 
             st.markdown("---")
-            st.caption(f"マイニー Ver 3.1.3 - ユーザー: {st.session_state['username']}")
+            st.caption(f"マイニー Ver 3.1.4 - ユーザー: {st.session_state['username']}")
             
     # 未ログインの状態 (ログイン・登録画面)
     else:
