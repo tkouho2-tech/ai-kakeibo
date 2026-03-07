@@ -1087,84 +1087,103 @@ def render_voice_input_button(key_prefix):
     input_key = f"{key_prefix}_voice_input_result"
     
     html_code = f"""
-    <div style="position: fixed; bottom: 44px; left: 50%; transform: translateX(-48%); width: 100%; max-width: 700px; z-index: 999999; pointer-events: none; display: flex; justify-content: flex-start; padding-left: 15px;">
-        <button id="mic-btn-{key_prefix}" style="
-            background-color: #f0f2f6;
-            border: 1px solid #dcdfe6;
-            border-radius: 50%;
-            width: 32px;
-            height: 32px;
-            cursor: pointer;
-            font-size: 16px;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            transition: all 0.3s;
-            pointer-events: auto;
-            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
-        " onclick="startRecognition()">🎤</button>
-        <span id="status-{key_prefix}" style="margin-left: 10px; font-size: 12px; color: #666; background: rgba(255,255,255,0.8); border-radius: 3px; padding: 0 4px; pointer-events: none; white-space: nowrap; line-height: 32px;"></span>
-    </div>
-
     <script>
-    function startRecognition() {{
-        const btn = document.getElementById('mic-btn-{key_prefix}');
-        const status = document.getElementById('status-{key_prefix}');
-        const recognition = new (window.SpeechRecognition || window.webkitSpeechRecognition)();
+    (function() {{
+        const parentDoc = window.parent.document;
+        function injectMic() {{
+            // stChatInput コンテナを探す
+            const chatInputContainer = parentDoc.querySelector('div[data-testid="stChatInput"]');
+            if (!chatInputContainer) return;
+            
+            // 既に存在するかチェック
+            if (parentDoc.getElementById('mic-container-{key_prefix}')) return;
+
+            // コンテナ自体のスタイルを調整（絶対配置の基準にするため）
+            chatInputContainer.style.position = 'relative';
+
+            const micContainer = parentDoc.createElement('div');
+            micContainer.id = 'mic-container-{key_prefix}';
+            micContainer.style.position = 'absolute';
+            micContainer.style.top = '8px';
+            micContainer.style.left = '12px';
+            micContainer.style.zIndex = '1000';
+            micContainer.style.display = 'flex';
+            micContainer.style.alignItems = 'center';
+            micContainer.style.pointerEvents = 'auto';
+            
+            micContainer.innerHTML = `
+                <button id="mic-btn-{key_prefix}" style="
+                    background-color: #f0f2f6;
+                    border: 1px solid #dcdfe6;
+                    border-radius: 50%;
+                    width: 26px;
+                    height: 26px;
+                    cursor: pointer;
+                    font-size: 14px;
+                    display: flex;
+                    justify-content: center;
+                    align-items: center;
+                    box-shadow: 0 1px 2px rgba(0,0,0,0.1);
+                    transition: all 0.2s;
+                " title="音声入力">🎤</button>
+                <span id="status-{key_prefix}" style="margin-left: 8px; font-size: 11px; color: #ff4b4b; background: rgba(255,255,255,0.9); border-radius: 3px; padding: 0 4px; white-space: nowrap; font-weight: bold; display: none;">音声を認識中...</span>
+            `;
+            
+            chatInputContainer.appendChild(micContainer);
+
+            const btn = micContainer.querySelector('#mic-btn-{key_prefix}');
+            const status = micContainer.querySelector('#status-{key_prefix}');
+
+            btn.onclick = () => {{
+                const recognition = new (window.parent.SpeechRecognition || window.parent.webkitSpeechRecognition)();
+                recognition.lang = 'ja-JP';
+                recognition.interimResults = false;
+                recognition.maxAlternatives = 1;
+
+                recognition.onstart = () => {{
+                    btn.style.backgroundColor = '#ff4b4b';
+                    btn.style.color = 'white';
+                    status.style.display = 'inline';
+                }};
+
+                recognition.onresult = (event) => {{
+                    const result = event.results[0][0].transcript;
+                    
+                    // 親ウィンドウのテキストエリアを探す
+                    const input = parentDoc.querySelector('textarea[data-testid="stChatInputTextArea"]');
+                    if (input) {{
+                        const nativeInputValueSetter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, "value").set;
+                        nativeInputValueSetter.call(input, result);
+                        input.dispatchEvent(new Event('input', {{ bubbles: true }}));
+                        
+                        // 送信
+                        setTimeout(() => {{
+                            const submitBtn = parentDoc.querySelector('button[data-testid="stChatInputSubmitButton"]');
+                             if (submitBtn && !submitBtn.disabled) submitBtn.click();
+                        }}, 300);
+                    }}
+                }};
+
+                recognition.onerror = () => {{
+                    btn.style.backgroundColor = '#f0f2f6';
+                    btn.style.color = 'black';
+                    status.style.display = 'none';
+                }};
+
+                recognition.onend = () => {{
+                    btn.style.backgroundColor = '#f0f2f6';
+                    btn.style.color = 'black';
+                    status.style.display = 'none';
+                }};
+
+                recognition.start();
+            }};
+        }}
         
-        recognition.lang = 'ja-JP';
-        recognition.interimResults = false;
-        recognition.maxAlternatives = 1;
-
-        recognition.onstart = () => {{
-            btn.style.backgroundColor = '#ff4b4b';
-            btn.style.color = 'white';
-            status.innerText = '音声を認識中... 話してください';
-        }};
-
-        recognition.onspeechend = () => {{
-            recognition.stop();
-        }};
-
-        recognition.onresult = (event) => {{
-            const result = event.results[0][0].transcript;
-            status.innerText = '認識完了: ' + result;
-            
-            // 親ウィンドウ（Streamlit）の隠し入力フィールドに値をセットして送信
-            // ただしStreamlitの仕様上、直接セットしても反応しない場合があるため、
-            // カスタムイベントや特定のDOM操作が必要
-            window.parent.postMessage({{
-                type: 'streamlit:set_component_value',
-                value: result,
-                key: '{input_key}'
-            }}, '*');
-            
-            // 簡易的な方法として、ブラウザのプロンプト等で値を渡すことも可能だが、
-            // ここではStreamlitのセッション更新を待つ
-            setTimeout(() => {{
-                // ページ全体にメッセージを送る
-                const event = new CustomEvent('voiceInput', {{ detail: result }});
-                window.parent.document.dispatchEvent(event);
-            }}, 500);
-        }};
-
-        recognition.onerror = (event) => {{
-            if (event.error === 'not-allowed') {{
-                status.innerText = 'マイク権限エラー: 設定で許可するか、AndroidはHTTPS通信が必要です';
-            }} else {{
-                status.innerText = 'エラーが発生しました: ' + event.error;
-            }}
-            btn.style.backgroundColor = '#f0f2f6';
-            btn.style.color = 'black';
-        }};
-
-        recognition.onend = () => {{
-            btn.style.backgroundColor = '#f0f2f6';
-            btn.style.color = 'black';
-        }};
-
-        recognition.start();
-    }}
+        // 定期的にチェックして再挿入（Streamlitの再レンダリング対策）
+        setInterval(injectMic, 1500);
+        injectMic();
+    }})();
     </script>
     """
     
@@ -1527,7 +1546,7 @@ def main():
 
         # サイドバーメニューの実装
         with st.sidebar:
-            st.subheader("マイニー [Ver 3.2.4]")
+            st.subheader("マイニー [Ver 3.2.5]")
             st.write(f"🔑 ユーザー: **{st.session_state['username']}**")
             st.markdown("---")
             if 'menu_selection' not in st.session_state:
@@ -2902,7 +2921,7 @@ def main():
                 """)
 
             st.markdown("---")
-            st.caption(f"マイニー Ver 3.2.4 - ユーザー: {st.session_state['username']}")
+            st.caption(f"マイニー Ver 3.2.5 - ユーザー: {st.session_state['username']}")
             
     # 未ログインの状態 (ログイン・登録画面)
     else:
