@@ -1525,7 +1525,7 @@ def main():
 
         # サイドバーメニューの実装
         with st.sidebar:
-            st.subheader("マイニー [Ver 3.2.2]")
+            st.subheader("マイニー [Ver 3.2.3]")
             st.write(f"🔑 ユーザー: **{st.session_state['username']}**")
             st.markdown("---")
             if 'menu_selection' not in st.session_state:
@@ -2240,6 +2240,8 @@ def main():
                                 st.session_state['editing_gs_idx'] = None
                                 st.session_state['new_row_count'] = 0
                                 # 追加: レシート切り替え時に個別項目の編集状態もリセット
+                                if "item_list_version" not in st.session_state:
+                                    st.session_state.item_list_version = 0
                                 st.session_state.item_list_version += 1
                             
                             for idx, row in details.iterrows():
@@ -2898,7 +2900,7 @@ def main():
                 """)
 
             st.markdown("---")
-            st.caption(f"マイニー Ver 3.2.2 - ユーザー: {st.session_state['username']}")
+            st.caption(f"マイニー Ver 3.2.3 - ユーザー: {st.session_state['username']}")
             
     # 未ログインの状態 (ログイン・登録画面)
     else:
