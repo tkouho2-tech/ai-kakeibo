@@ -1485,7 +1485,7 @@ def main():
 
         # サイドバーメニューの実装
         with st.sidebar:
-            st.subheader("マイニー [Ver 3.1.1]")
+            st.subheader("マイニー [Ver 3.1.2]")
             st.write(f"🔑 ユーザー: **{st.session_state['username']}**")
             st.markdown("---")
             if 'menu_selection' not in st.session_state:
@@ -2238,8 +2238,16 @@ def main():
                                         try:
                                             with st.spinner("削除中..."):
                                                 sheet = get_sheet(TRANSACTIONS_WORKSHEET_NAME)
+                                                user_name = st.session_state['username']
                                                 existing_indices = [int(k) for k in st.session_state['edit_data'].keys() if not str(k).startswith("new_")]
+                                                
+                                                # 削除実行
                                                 for r_idx in sorted(existing_indices, reverse=True):
+                                                    # 削除直前の安全チェック
+                                                    current_row_values = sheet.row_values(r_idx)
+                                                    if len(current_row_values) < 1 or current_row_values[0].lower() != user_name.lower():
+                                                        st.error(f"🚨 エラー: 行 {r_idx} の削除中に不整合を検知しました。処理を中断します。リロードしてください。")
+                                                        st.stop()
                                                     sheet.delete_rows(r_idx)
                                                 st.success("✅ レシートを削除しました")
                                                 st.session_state.receipt_list_version += 1
@@ -2357,15 +2365,23 @@ def main():
                                                             new_row = [user_name, target_date_str, target_store, edit_name, edit_major, edit_minor, edit_amount]
                                                             sheet.append_row(new_row)
                                                         else:
-                                                            # 既存更新
+                                                            # 既存更新: 安全装置（行データの検証）
                                                             r_idx = int(current_editing_id)
-                                                            # 日付と店舗名も修正後の値で更新
-                                                            sheet.update_cell(r_idx, 2, target_date_str)
-                                                            sheet.update_cell(r_idx, 3, target_store)
-                                                            sheet.update_cell(r_idx, 5, edit_major)
-                                                            sheet.update_cell(r_idx, 6, edit_minor)
-                                                            sheet.update_cell(r_idx, 4, edit_name)
-                                                            sheet.update_cell(r_idx, 7, edit_amount)
+                                                            
+                                                            # 書き込み直前に、その行が本当に正しいか確認する
+                                                            # (スプレッドシートの行がずれている可能性があるため)
+                                                            current_row_values = sheet.row_values(r_idx)
+                                                            # ヘッダーを除いたデータ行(2行目以降)であることを確認しつつ、ユーザー名が一致するかチェック
+                                                            if len(current_row_values) < 1 or current_row_values[0].lower() != user_name.lower():
+                                                                st.error("🚨 エラー: スプレッドシートの行が同期されていません。一度画面をリロードしてやり直してください。")
+                                                                st.stop()
+                                                            
+                                                            # バッチ更新（1回のAPI呼び出しで範囲を更新）
+                                                            # A:username, B:date, C:store, D:item, E:major, F:minor, G:amount
+                                                            # 更新範囲: B (Col 2) から G (Col 7)
+                                                            update_range = f"B{r_idx}:G{r_idx}"
+                                                            update_values = [[target_date_str, target_store, edit_name, edit_major, edit_minor, edit_amount]]
+                                                            sheet.update(range_name=update_range, values=update_values)
                                                         
                                                         st.success("✅ 修正を登録しました")
                                                         st.session_state['editing_gs_idx'] = None
@@ -2384,7 +2400,16 @@ def main():
                                                 try:
                                                     if not str(current_editing_id).startswith("new_"):
                                                         sheet = get_sheet(TRANSACTIONS_WORKSHEET_NAME)
-                                                        sheet.delete_rows(int(current_editing_id))
+                                                        user_name = st.session_state['username']
+                                                        r_idx = int(current_editing_id)
+                                                        
+                                                        # 削除直前の安全チェック
+                                                        current_row_values = sheet.row_values(r_idx)
+                                                        if len(current_row_values) < 1 or current_row_values[0].lower() != user_name.lower():
+                                                            st.error("🚨 エラー: 削除対象の行を特定できませんでした。データが移動している可能性があります。リロード後に再度お試しください。")
+                                                            st.stop()
+                                                        
+                                                        sheet.delete_rows(r_idx)
                                                     
                                                     del st.session_state['edit_data'][current_editing_id]
                                                     st.success("🗑️ 明細を削除しました")
@@ -2688,6 +2713,7 @@ def main():
 ・操作：「レシート修正」メニューから、過去に登録した全てのデータを表形式で確認できます。
 ・UI：明細一覧の指示が「（修正する行を選択して下さい）」となり、直感的に操作できます。
 ・編集：内容（日付・店舗名、個別明細）を書き換えて「更新」または「登録実行」ボタンを押すだけで修正完了です。
+・安全性（データ保護）：書き込み直前にデータの不整合（行のずれなど）を検知する安全装置が搭載されました。不整合時はエラーを出して停止するため、間違ったデータを消すことはありません。
 ・リロード機能：個別明細の修正・削除後は、レシート全体の合計金額などが即座に自動更新されます。
 ・安全な削除：削除ボタンを押すと再確認（ポップオーバー）が表示されるため、誤操作を防げます。
 
@@ -2801,7 +2827,7 @@ def main():
                 """)
 
             st.markdown("---")
-            st.caption(f"マイニー Ver 3.1.1 - ユーザー: {st.session_state['username']}")
+            st.caption(f"マイニー Ver 3.1.2 - ユーザー: {st.session_state['username']}")
             
     # 未ログインの状態 (ログイン・登録画面)
     else:
