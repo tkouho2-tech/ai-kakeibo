@@ -1525,7 +1525,7 @@ def main():
 
         # サイドバーメニューの実装
         with st.sidebar:
-            st.subheader("マイニー [Ver 3.2.1]")
+            st.subheader("マイニー [Ver 3.2.2]")
             st.write(f"🔑 ユーザー: **{st.session_state['username']}**")
             st.markdown("---")
             if 'menu_selection' not in st.session_state:
@@ -2239,8 +2239,8 @@ def main():
                                 }
                                 st.session_state['editing_gs_idx'] = None
                                 st.session_state['new_row_count'] = 0
-                                if "item_list_version" not in st.session_state:
-                                    st.session_state.item_list_version = 0
+                                # 追加: レシート切り替え時に個別項目の編集状態もリセット
+                                st.session_state.item_list_version += 1
                             
                             for idx, row in details.iterrows():
                                 row_index_gs = row["_row_index"]
@@ -2260,9 +2260,9 @@ def main():
                             with st.container(border=True):
                                 h_col1, h_col2 = st.columns(2)
                                 with h_col1:
-                                    new_date = st.date_input("日付", value=st.session_state['edit_header']['date'], key="edit_header_date")
+                                    new_date = st.date_input("日付", value=st.session_state['edit_header']['date'], key=f"edit_header_date_{receipt_key}")
                                 with h_col2:
-                                    new_store = st.text_input("店舗名", value=st.session_state['edit_header']['store'], key="edit_header_store")
+                                    new_store = st.text_input("店舗名", value=st.session_state['edit_header']['store'], key=f"edit_header_store_{receipt_key}")
                                 
                                 # ヘッダー情報を更新
                                 st.session_state['edit_header']['date'] = new_date
@@ -2393,19 +2393,19 @@ def main():
                                     categories = get_categories()
                                     major_cats = list(categories.keys())
                                     
-                                    edit_name = st.text_input("商品名", value=target_item["name"], key=f"edit_name_{current_editing_id}")
-                                    edit_amount = st.number_input("金額", value=int(target_item["amount"]), step=1, key=f"edit_amount_{current_editing_id}")
+                                    edit_name = st.text_input("商品名", value=target_item["name"], key=f"edit_name_{receipt_key}_{current_editing_id}")
+                                    edit_amount = st.number_input("金額", value=int(target_item["amount"]), step=1, key=f"edit_amount_{receipt_key}_{current_editing_id}")
                                     
                                     # 大分類
                                     current_major = target_item["major"]
                                     if current_major not in major_cats: current_major = "その他"
-                                    edit_major = st.selectbox("大分類", options=major_cats, index=major_cats.index(current_major), key=f"edit_major_{current_editing_id}")
+                                    edit_major = st.selectbox("大分類", options=major_cats, index=major_cats.index(current_major), key=f"edit_major_{receipt_key}_{current_editing_id}")
                                     
                                     # 小分類
                                     minor_cats = categories.get(edit_major, ["❓その他"])
                                     current_minor = target_item["minor"]
                                     if current_minor not in minor_cats: current_minor = minor_cats[0]
-                                    edit_minor = st.selectbox("小分類", options=minor_cats, index=minor_cats.index(current_minor), key=f"edit_minor_{current_editing_id}")
+                                    edit_minor = st.selectbox("小分類", options=minor_cats, index=minor_cats.index(current_minor), key=f"edit_minor_{receipt_key}_{current_editing_id}")
                                     
                                     st.markdown("<br>", unsafe_allow_html=True)
                                     
@@ -2898,7 +2898,7 @@ def main():
                 """)
 
             st.markdown("---")
-            st.caption(f"マイニー Ver 3.2.1 - ユーザー: {st.session_state['username']}")
+            st.caption(f"マイニー Ver 3.2.2 - ユーザー: {st.session_state['username']}")
             
     # 未ログインの状態 (ログイン・登録画面)
     else:
