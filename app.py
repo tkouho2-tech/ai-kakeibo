@@ -1117,6 +1117,17 @@ def render_voice_input_button(key_prefix):
                         transform: scale(0.9);
                         background-color: #e8eaed !important;
                     }}
+                    @keyframes pulse-red {{
+                        0% {{ box-shadow: 0 0 0 0 rgba(255, 75, 75, 0.7); }}
+                        70% {{ box-shadow: 0 0 0 10px rgba(255, 75, 75, 0); }}
+                        100% {{ box-shadow: 0 0 0 0 rgba(255, 75, 75, 0); }}
+                    }}
+                    .pulsing {{
+                        animation: pulse-red 1.5s infinite;
+                        background-color: #ff4b4b !important;
+                        color: white !important;
+                        border-color: #ff4b4b !important;
+                    }}
                 </style>
                 <button id="mic-btn-{key_prefix}" style="
                     background-color: #f8f9fa;
@@ -1150,8 +1161,7 @@ def render_voice_input_button(key_prefix):
                 recognition.maxAlternatives = 1;
 
                 recognition.onstart = () => {{
-                    btn.style.backgroundColor = '#ff4b4b';
-                    btn.style.color = 'white';
+                    btn.classList.add('pulsing');
                     status.style.display = 'inline';
                 }};
 
@@ -1174,14 +1184,12 @@ def render_voice_input_button(key_prefix):
                 }};
 
                 recognition.onerror = () => {{
-                    btn.style.backgroundColor = '#f0f2f6';
-                    btn.style.color = 'black';
+                    btn.classList.remove('pulsing');
                     status.style.display = 'none';
                 }};
 
                 recognition.onend = () => {{
-                    btn.style.backgroundColor = '#f0f2f6';
-                    btn.style.color = 'black';
+                    btn.classList.remove('pulsing');
                     status.style.display = 'none';
                 }};
 
@@ -1555,7 +1563,7 @@ def main():
 
         # サイドバーメニューの実装
         with st.sidebar:
-            st.subheader("マイニー [Ver 3.2.7]")
+            st.subheader("マイニー [Ver 3.2.8]")
             st.write(f"🔑 ユーザー: **{st.session_state['username']}**")
             st.markdown("---")
             if 'menu_selection' not in st.session_state:
@@ -2930,7 +2938,7 @@ def main():
                 """)
 
             st.markdown("---")
-            st.caption(f"マイニー Ver 3.2.7 - ユーザー: {st.session_state['username']}")
+            st.caption(f"マイニー Ver 3.2.8 - ユーザー: {st.session_state['username']}")
             
     # 未ログインの状態 (ログイン・登録画面)
     else:
