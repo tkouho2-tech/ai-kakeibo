@@ -1217,6 +1217,8 @@ def show_dashboard():
             # 選択された軸が店舗別なら内税を除外し、大分類・小分類なら含めて表示する（二重計上防止だが内訳は正しく出す）
             df_for_chart = df_agg if analysis_axis == "店舗別" else df
             grouped_df = df_for_chart.groupby(group_col, as_index=False)["amount"].sum()
+            # 金額が0以下のデータ（マイナス値や0円）を除外
+            grouped_df = grouped_df[grouped_df["amount"] > 0]
             grouped_df = grouped_df.sort_values(by="amount", ascending=False)
             
             fig = px.pie(
@@ -1394,6 +1396,8 @@ def show_yearly_dashboard():
     else: # 円グラフ
         if group_col and group_col in df_agg.columns:
             cat_grouped = df_agg.groupby(group_col, as_index=False)["amount"].sum()
+            # 金額が0以下のデータ（マイナス値や0円）を除外
+            cat_grouped = cat_grouped[cat_grouped["amount"] > 0]
             cat_grouped = cat_grouped.sort_values(by="amount", ascending=False)
             
             fig_pie = px.pie(cat_grouped, values='amount', names=group_col, hole=0.4,
@@ -1488,7 +1492,7 @@ def main():
 
         # サイドバーメニューの実装
         with st.sidebar:
-            st.subheader("マイニー [Ver 3.1.6]")
+            st.subheader("マイニー [Ver 3.1.7]")
             st.write(f"🔑 ユーザー: **{st.session_state['username']}**")
             st.markdown("---")
             if 'menu_selection' not in st.session_state:
@@ -2835,7 +2839,7 @@ def main():
                 """)
 
             st.markdown("---")
-            st.caption(f"マイニー Ver 3.1.6 - ユーザー: {st.session_state['username']}")
+            st.caption(f"マイニー Ver 3.1.7 - ユーザー: {st.session_state['username']}")
             
     # 未ログインの状態 (ログイン・登録画面)
     else:
