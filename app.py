@@ -44,6 +44,29 @@ EXPENSE_CATEGORIES = {
     "その他": ["📁未分類"]
 }
 
+# グラフ用配色定義 (大分類)
+# 棒グラフと円グラフの色を統一するためのマスターマップ
+CATEGORY_COLOR_MAP = {
+    "食材費": "#00008B",   # 濃い青
+    "ペット用品": "#87CEEB", # 水色
+    "交通費": "#DC3545",   # 赤
+    "外食費": "#FF8C00",   # ダークオレンジ
+    "日用品": "#9370DB",   # ミディアムパープル
+    "美容": "#FF69B4",     # ホットピンク
+    "衣類": "#20B2AA",     # ライトシーグリーン
+    "家電": "#708090",     # スレートグレー
+    "書籍": "#8B4513",     # サドルブラウン
+    "住居": "#556B2F",     # ダークオリーブグリーン
+    "娯楽": "#FFD700",     # ゴールド
+    "手数料": "#A9A9A9",   # ダークグレー
+    "医療": "#228B22",     # フォレストグリーン
+    "園芸・植物": "#32CD32", # ライムグリーン
+    "その他": "#778899",   # ライトスレートグレー
+    "消費税（外税）": "#BC8F8F", # ロージーブラウン
+    "消費税（内税）": "#D2B48C", # タン
+    "割引・ポイント利用": "#000000" # 黒
+}
+
 def get_categories():
     return EXPENSE_CATEGORIES
 
@@ -1228,7 +1251,8 @@ def show_dashboard():
                 hole=0.4, 
                 title=title_label,
                 category_orders={group_col: grouped_df[group_col].tolist()},
-                color_discrete_sequence=px.colors.qualitative.Pastel
+                color=group_col,
+                color_discrete_map=CATEGORY_COLOR_MAP
             )
             fig.update_traces(
                 textposition='inside', 
@@ -1266,7 +1290,8 @@ def show_dashboard():
                 color=group_col,
                 title=f"{selected_year}年{selected_month}月 {title_label}日次推移 (積上げ棒グラフ)",
                 labels={"amount": "金額", "day_label": "日", group_col: analysis_axis[:-1]},
-                category_orders={"day_label": all_days, group_col: cat_sum}
+                category_orders={"day_label": all_days, group_col: cat_sum},
+                color_discrete_map=CATEGORY_COLOR_MAP
             )
             st.plotly_chart(fig, use_container_width=True)
             
@@ -1389,7 +1414,8 @@ def show_yearly_dashboard():
                 color=group_col,
                 title=f"{selected_year}年 {title_label}推移 (積上げ棒グラフ)",
                 labels={"amount": "金額", "month_label": "月", group_col: analysis_axis[:-1]},
-                category_orders={"month_label": [f"{i}月" for i in range(1, 13)], group_col: cat_sum}
+                category_orders={"month_label": [f"{i}月" for i in range(1, 13)], group_col: cat_sum},
+                color_discrete_map=CATEGORY_COLOR_MAP
             )
             st.plotly_chart(fig, use_container_width=True)
             
@@ -1409,7 +1435,8 @@ def show_yearly_dashboard():
             fig_pie = px.pie(cat_grouped, values='amount', names=group_col, hole=0.4,
                              title=f'{selected_year}年 {title_label}支出シェア',
                              category_orders={group_col: cat_grouped[group_col].tolist()},
-                             color_discrete_sequence=px.colors.qualitative.Pastel)
+                             color=group_col,
+                             color_discrete_map=CATEGORY_COLOR_MAP)
             fig_pie.update_traces(
                 textposition='inside', 
                 textinfo='percent+label', 
@@ -1504,7 +1531,7 @@ def main():
 
         # サイドバーメニューの実装
         with st.sidebar:
-            st.subheader("マイニー [Ver 3.1.8]")
+            st.subheader("マイニー [Ver 3.1.9]")
             st.write(f"🔑 ユーザー: **{st.session_state['username']}**")
             st.markdown("---")
             if 'menu_selection' not in st.session_state:
@@ -2851,7 +2878,7 @@ def main():
                 """)
 
             st.markdown("---")
-            st.caption(f"マイニー Ver 3.1.8 - ユーザー: {st.session_state['username']}")
+            st.caption(f"マイニー Ver 3.1.9 - ユーザー: {st.session_state['username']}")
             
     # 未ログインの状態 (ログイン・登録画面)
     else:
