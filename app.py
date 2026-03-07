@@ -1230,7 +1230,13 @@ def show_dashboard():
                 category_orders={group_col: grouped_df[group_col].tolist()},
                 color_discrete_sequence=px.colors.qualitative.Pastel
             )
-            fig.update_traces(textposition='inside', textinfo='percent+label', sort=False, rotation=90, direction='clockwise')
+            fig.update_traces(
+                textposition='inside', 
+                textinfo='percent+label', 
+                sort=False, 
+                rotation=90, 
+                direction='clockwise'
+            )
             st.plotly_chart(fig, use_container_width=True)
             
             total_amount = df_agg["amount"].sum() if not df_agg.empty else 0
@@ -1404,7 +1410,13 @@ def show_yearly_dashboard():
                              title=f'{selected_year}年 {title_label}支出シェア',
                              category_orders={group_col: cat_grouped[group_col].tolist()},
                              color_discrete_sequence=px.colors.qualitative.Pastel)
-            fig_pie.update_traces(textposition='inside', textinfo='percent+label', sort=False, rotation=90, direction='clockwise')
+            fig_pie.update_traces(
+                textposition='inside', 
+                textinfo='percent+label', 
+                sort=False, 
+                rotation=90, 
+                direction='clockwise'
+            )
             st.plotly_chart(fig_pie, use_container_width=True)
             
             year_total = cat_grouped["amount"].sum()
@@ -1492,7 +1504,7 @@ def main():
 
         # サイドバーメニューの実装
         with st.sidebar:
-            st.subheader("マイニー [Ver 3.1.7]")
+            st.subheader("マイニー [Ver 3.1.8]")
             st.write(f"🔑 ユーザー: **{st.session_state['username']}**")
             st.markdown("---")
             if 'menu_selection' not in st.session_state:
@@ -2839,7 +2851,7 @@ def main():
                 """)
 
             st.markdown("---")
-            st.caption(f"マイニー Ver 3.1.7 - ユーザー: {st.session_state['username']}")
+            st.caption(f"マイニー Ver 3.1.8 - ユーザー: {st.session_state['username']}")
             
     # 未ログインの状態 (ログイン・登録画面)
     else:
