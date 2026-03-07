@@ -2263,10 +2263,10 @@ def main():
                             edit_items_list = []
                             for row_id, data in st.session_state['edit_data'].items():
                                 edit_items_list.append({
-                                    "商品名": data["name"],
-                                    "金額": data["amount"],
                                     "大分類": data["major"],
                                     "小分類": data["minor"],
+                                    "商品名": data["name"],
+                                    "金額": data["amount"],
                                     "_id": row_id
                                 })
                             edit_df_display = pd.DataFrame(edit_items_list)
@@ -2279,10 +2279,10 @@ def main():
                                 hide_index=True,
                                 selection_mode="single-row",
                                 column_config={
-                                    "商品名": st.column_config.TextColumn(width="medium"),
-                                    "金額": st.column_config.NumberColumn(width="small", format="￥%d"),
                                     "大分類": st.column_config.TextColumn(width="small"),
-                                    "小分類": st.column_config.TextColumn(width="small")
+                                    "小分類": st.column_config.TextColumn(width="small"),
+                                    "商品名": st.column_config.TextColumn(width="medium"),
+                                    "金額": st.column_config.NumberColumn(width="small", format="￥%d")
                                 },
                                 on_select="rerun",
                                 key=f"item_edit_df_{st.session_state.item_list_version}"
