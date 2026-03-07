@@ -1154,46 +1154,78 @@ def render_voice_input_button(key_prefix):
             const btn = micContainer.querySelector('#mic-btn-{key_prefix}');
             const status = micContainer.querySelector('#status-{key_prefix}');
 
-            btn.onclick = () => {{
-                const recognition = new (window.parent.SpeechRecognition || window.parent.webkitSpeechRecognition)();
-                recognition.lang = 'ja-JP';
-                recognition.interimResults = false;
-                recognition.maxAlternatives = 1;
-
-                recognition.onstart = () => {{
-                    btn.classList.add('pulsing');
-                    status.style.display = 'inline';
-                }};
-
-                recognition.onresult = (event) => {{
-                    const result = event.results[0][0].transcript;
-                    
-                    // 親ウィンドウのテキストエリアを探す
-                    const input = parentDoc.querySelector('textarea[data-testid="stChatInputTextArea"]');
-                    if (input) {{
-                        const nativeInputValueSetter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, "value").set;
-                        nativeInputValueSetter.call(input, result);
-                        input.dispatchEvent(new Event('input', {{ bubbles: true }}));
-                        
-                        // 送信
-                        setTimeout(() => {{
-                            const submitBtn = parentDoc.querySelector('button[data-testid="stChatInputSubmitButton"]');
-                             if (submitBtn && !submitBtn.disabled) submitBtn.click();
-                        }}, 300);
+            const startRecognition = () => {{
+                try {{
+                    // HTTPS または localhost チェック
+                    if (window.parent.location.protocol !== 'https:' && window.parent.location.hostname !== 'localhost') {{
+                        alert('音声入力にはHTTPS通信（またはlocalhost）が必要です。現在の接続（' + window.parent.location.protocol + '）では動作しません。');
+                        return;
                     }}
-                }};
 
-                recognition.onerror = () => {{
-                    btn.classList.remove('pulsing');
-                    status.style.display = 'none';
-                }};
+                    const SpeechRecognition = window.parent.SpeechRecognition || window.parent.webkitSpeechRecognition;
+                    if (!SpeechRecognition) {{
+                        alert('お使いのブラウザは音声認識に対応していません。ChromeやSafariの最新版をお試しください。');
+                        return;
+                    }}
 
-                recognition.onend = () => {{
-                    btn.classList.remove('pulsing');
-                    status.style.display = 'none';
-                }};
+                    const recognition = new SpeechRecognition();
+                    recognition.lang = 'ja-JP';
+                    recognition.interimResults = false;
+                    recognition.maxAlternatives = 1;
 
-                recognition.start();
+                    recognition.onstart = () => {{
+                        btn.classList.add('pulsing');
+                        status.style.display = 'inline';
+                    }};
+
+                    recognition.onresult = (event) => {{
+                        const result = event.results[0][0].transcript;
+                        
+                        // 親ウィンドウのテキストエリアを探す
+                        const input = parentDoc.querySelector('textarea[data-testid="stChatInputTextArea"]');
+                        if (input) {{
+                            const nativeInputValueSetter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, "value").set;
+                            nativeInputValueSetter.call(input, result);
+                            input.dispatchEvent(new Event('input', {{ bubbles: true }}));
+                            
+                            // 送信
+                            setTimeout(() => {{
+                                const submitBtn = parentDoc.querySelector('button[data-testid="stChatInputSubmitButton"]');
+                                if (submitBtn && !submitBtn.disabled) submitBtn.click();
+                            }}, 300);
+                        }}
+                    }};
+
+                    recognition.onerror = (event) => {{
+                        btn.classList.remove('pulsing');
+                        status.style.display = 'none';
+                        if (event.error === 'not-allowed') {{
+                            alert('マイクの使用が許可されていません。ブラウザの設定でマイクを許可してください。');
+                        }} else {{
+                            console.error('Speech recognition error:', event.error);
+                        }}
+                    }};
+
+                    recognition.onend = () => {{
+                        btn.classList.remove('pulsing');
+                        status.style.display = 'none';
+                    }};
+
+                    recognition.start();
+                }} catch (e) {{
+                    alert('エラーが発生しました: ' + e.message);
+                }}
+            }};
+
+            btn.onclick = (e) => {{
+                e.preventDefault();
+                startRecognition();
+            }};
+            
+            // スマホ向けのタッチイベント追加
+            btn.ontouchstart = (e) => {{
+                e.preventDefault(); // クリックイベントとの重複防止
+                startRecognition();
             }};
         }}
         
@@ -1563,7 +1595,7 @@ def main():
 
         # サイドバーメニューの実装
         with st.sidebar:
-            st.subheader("マイニー [Ver 3.2.8]")
+            st.subheader("マイニー [Ver 3.2.9]")
             st.write(f"🔑 ユーザー: **{st.session_state['username']}**")
             st.markdown("---")
             if 'menu_selection' not in st.session_state:
@@ -2938,7 +2970,7 @@ def main():
                 """)
 
             st.markdown("---")
-            st.caption(f"マイニー Ver 3.2.8 - ユーザー: {st.session_state['username']}")
+            st.caption(f"マイニー Ver 3.2.9 - ユーザー: {st.session_state['username']}")
             
     # 未ログインの状態 (ログイン・登録画面)
     else:
