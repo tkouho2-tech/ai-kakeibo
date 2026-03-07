@@ -1256,10 +1256,7 @@ def show_dashboard():
             )
             fig.update_traces(
                 textposition='inside', 
-                textinfo='percent+label', 
-                sort=False, 
-                rotation=90, 
-                direction='clockwise'
+                textinfo='percent+label'
             )
             st.plotly_chart(fig, use_container_width=True)
             
@@ -1439,10 +1436,7 @@ def show_yearly_dashboard():
                              color_discrete_map=CATEGORY_COLOR_MAP)
             fig_pie.update_traces(
                 textposition='inside', 
-                textinfo='percent+label', 
-                sort=False, 
-                rotation=90, 
-                direction='clockwise'
+                textinfo='percent+label'
             )
             st.plotly_chart(fig_pie, use_container_width=True)
             
@@ -1531,7 +1525,7 @@ def main():
 
         # サイドバーメニューの実装
         with st.sidebar:
-            st.subheader("マイニー [Ver 3.1.9]")
+            st.subheader("マイニー [Ver 3.2.0]")
             st.write(f"🔑 ユーザー: **{st.session_state['username']}**")
             st.markdown("---")
             if 'menu_selection' not in st.session_state:
@@ -2878,7 +2872,7 @@ def main():
                 """)
 
             st.markdown("---")
-            st.caption(f"マイニー Ver 3.1.9 - ユーザー: {st.session_state['username']}")
+            st.caption(f"マイニー Ver 3.2.0 - ユーザー: {st.session_state['username']}")
             
     # 未ログインの状態 (ログイン・登録画面)
     else:
