@@ -688,6 +688,7 @@ def get_transaction_range(username):
         if st.session_state['date_range']: # 空でないことを確認
             return st.session_state['date_range']
     
+    sheet = get_sheet(TRANSACTIONS_WORKSHEET_NAME)
     values = safe_gspread_call(sheet.get_all_values)
     if not values or len(values) < 2:
         return []
@@ -1904,7 +1905,7 @@ def main():
 
         # サイドバーメニューの実装
         with st.sidebar:
-            st.subheader("マイニー [Ver 3.7.3]")
+            st.subheader("マイニー [Ver 3.7.4]")
             st.write(f"🔑 ユーザー: **{st.session_state['username']}**")
             st.markdown("---")
             if 'menu_selection' not in st.session_state:
@@ -3279,7 +3280,7 @@ def main():
                 """)
 
             st.markdown("---")
-            st.caption("マイニー Ver 3.7.3 - ユーザー: %s" % st.session_state['username'])
+            st.caption("マイニー Ver 3.7.4 - ユーザー: %s" % st.session_state['username'])
             
     # 未ログインの状態 (ログイン・登録画面)
     else:
