@@ -552,7 +552,8 @@ def render_profile_settings():
         )
     )
     st.session_state['webauthn_registration_options'] = reg_options
-    js_reg_options = options_to_json(reg_options)
+    # JavaScriptに渡す際に "publicKey" キーで包む
+    js_reg_options = json.dumps({"publicKey": json.loads(options_to_json(reg_options))})
     
     # 手動抽出（確実な受け渡しのため）
     challenge_b64 = base64.b64encode(reg_options.challenge).decode('utf-8')
@@ -2017,7 +2018,7 @@ def main():
 
         # サイドバーメニューの実装
         with st.sidebar:
-            st.subheader("マイニー [Ver 3.4.7]")
+            st.subheader("マイニー [Ver 3.4.8]")
             st.write(f"🔑 ユーザー: **{st.session_state['username']}**")
             st.markdown("---")
             if 'menu_selection' not in st.session_state:
@@ -3393,7 +3394,7 @@ def main():
                 """)
 
             st.markdown("---")
-            st.caption(f"マイニー Ver 3.4.7 - ユーザー: {st.session_state['username']}")
+            st.caption(f"マイニー Ver 3.4.8 - ユーザー: {st.session_state['username']}")
             
         elif menu_selection == "👤プロフィール・設定":
             render_profile_settings()
@@ -3521,7 +3522,8 @@ def main():
                             )
                             st.session_state['webauthn_auth_options'] = auth_options
                             st.session_state['webauthn_auth_username'] = username_for_auth
-                            js_auth_options = options_to_json(auth_options)
+                            # JavaScriptに渡す際に "publicKey" キーで包む
+                            js_auth_options = json.dumps({"publicKey": json.loads(options_to_json(auth_options))})
                             challenge_login_b64 = base64.b64encode(auth_options.challenge).decode('utf-8')
                             
                             # カスタムボタンの描画
