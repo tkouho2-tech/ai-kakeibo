@@ -18,39 +18,12 @@ import time
 import re
 import base64
 import pickle
-from webauthn import (
-    generate_registration_options,
-    verify_registration_response,
-    generate_authentication_options,
-    verify_authentication_response,
-    options_to_json,
-    base64url_to_bytes,
-)
-from webauthn.helpers.structs import (
-    RegistrationCredential,
-    AuthenticationCredential,
-    AuthenticatorSelectionCriteria,
-    UserVerificationRequirement,
-    AuthenticatorAttachment,
-    ResidentKeyRequirement,
-)
 
 # ---------- 構成設定 ----------
 from urllib.parse import urlparse
 
 SPREADSHEET_NAME = "Kakeibo_Data"
 WORKSHEET_NAME = "users"
-TRANSACTIONS_WORKSHEET_NAME = "transactions"
-WEBAUTHN_WORKSHEET_NAME = "webauthn_credentials"
-RP_NAME = "AI家計簿アプリ"
-
-def get_rp_host():
-    """現在のアクセスドメインをRP IDとして取得する"""
-    # 黄金律: RP_ID を一字一句違わず固定する
-    host = st.context.headers.get("host", "")
-    if "streamlit.app" in host:
-        return "ai-kakeibo-6abmxvbgknbwser7n2ykb4.streamlit.app"
-    return "localhost"
 
 # ---------- カテゴリ定義 ----------
 # AI判別やセレクトボックスで利用するための大分類・小分類の親子関係定義
@@ -556,91 +529,6 @@ def render_profile_settings():
     """プロフィール・設定画面の表示"""
     st.markdown("### 👤 プロフィール・設定")
     st.write("現在のユーザー: **%s**" % st.session_state['username'])
-    
-    st.markdown("---")
-    st.subheader("🔑 生体認証（パスキー）の設定")
-    st.write("このデバイスを登録すると、次回からFaceIDや指紋認証でログインできるようになります。")
-
-    if st.session_state.get('webauthn_last_error'):
-        st.error(st.session_state['webauthn_last_error'])
-        if st.button("エラー表示を消す"):
-            del st.session_state['webauthn_last_error']
-            st.rerun()
-    
-    # 登録オプションの事前生成
-    user_id_str = st.session_state['username']
-    user_id_bytes = user_id_str.encode('utf-8')
-    reg_options = generate_registration_options(
-        rp_id="ai-kakeibo-6abmxvbgknbwser7n2ykb4.streamlit.app",
-        rp_name=RP_NAME,
-        user_id=user_id_bytes,
-        user_name=user_id_str,
-        user_display_name=user_id_str,
-        authenticator_selection=AuthenticatorSelectionCriteria(
-            authenticator_attachment=AuthenticatorAttachment.PLATFORM,
-            resident_key=ResidentKeyRequirement.PREFERRED,
-            user_verification=UserVerificationRequirement.PREFERRED,
-        )
-    )
-    st.session_state['webauthn_registration_options'] = reg_options
-    
-    # 型変換の徹底 (challenge と user.id)
-    challenge_b64 = base64.b64encode(reg_options.challenge).decode('utf-8')
-    user_id_b64 = base64.b64encode(user_id_bytes).decode('utf-8')
-    
-    # JSに渡すための JSON (publicKey 部分のみ)
-    js_reg_options_dict = json.loads(options_to_json(reg_options))
-    # 手動で変換した値を確実にセット
-    js_reg_options_dict["challenge"] = challenge_b64
-    js_reg_options_dict["user"]["id"] = user_id_b64
-    
-    js_reg_options = json.dumps({"publicKey": js_reg_options_dict})
-    
-    from streamlit.components.v1 import declare_component
-    if 'webauthn_reg_comp' not in st.session_state:
-        # 完全コピペ方式: ユーザー指定のテンプレートを 1mm も変えずに使用
-        reg_template = """
-<script>
-  // JavaScriptのカッコはそのまま。Pythonはこれを解析しません。
-  const options = {
-    publicKey: {
-      challenge: Uint8Array.from(atob('__CHALLENGE__'), c => c.charCodeAt(0)),
-      rp: { id: '__RP_ID__', name: 'Household App' },
-      user: { id: new TextEncoder().encode('__USER_ID__'), name: 'User' },
-      pubKeyCredParams: [{ alg: -7, type: 'public-key' }],
-      timeout: 60000
-    }
-  };
-  navigator.credentials.create(options)
-    .then(res => { 
-      window.parent.postMessage({
-          isStreamlitMessage: true,
-          type: "streamlit:setComponentValue",
-          value: res
-      }, "*"); 
-    })
-    .catch(err => { console.error(err); });
-</script>
-"""
-        st.session_state['webauthn_reg_comp'] = declare_component(
-            "webauthn_reg", 
-            content=reg_template.replace('__CHALLENGE__', challenge_b64)
-                               .replace('__RP_ID__', "ai-kakeibo-6abmxvbgknbwser7n2ykb4.streamlit.app")
-                               .replace('__USER_ID__', user_id_b64)
-        )
-    reg_response = st.session_state['webauthn_reg_comp'](key="biometric_reg")
-    if reg_response:
-        if "error" in reg_response:
-            st.error("登録エラー: %s" % reg_response['error'])
-        else:
-            handle_webauthn_registration(reg_response)
-    
-    # 登録済みデバイスの表示
-    creds = get_user_credentials(st.session_state['username'])
-    if creds:
-        st.write("✅ 登録済みデバイス: %d 台" % len(creds))
-    else:
-        st.write("❌ 未登録")
 
     st.markdown("---")
     if st.button("ログアウト", type="secondary"):
@@ -1999,7 +1887,7 @@ def main():
 
         # サイドバーメニューの実装
         with st.sidebar:
-            st.subheader("マイニー [Ver 3.6.1]")
+            st.subheader("マイニー [Ver 3.7.0]")
             st.write(f"🔑 ユーザー: **{st.session_state['username']}**")
             st.markdown("---")
             if 'menu_selection' not in st.session_state:
@@ -3375,7 +3263,7 @@ def main():
                 """)
 
             st.markdown("---")
-            st.caption("マイニー Ver 3.6.1 - ユーザー: %s" % st.session_state['username'])
+            st.caption("マイニー Ver 3.7.0 - ユーザー: %s" % st.session_state['username'])
             
         elif menu_selection == "👤プロフィール・設定":
             render_profile_settings()
@@ -3486,125 +3374,7 @@ def main():
                 login_password = st.text_input("パスワード", type="password", key="login_password_input")
                 remember_me = st.checkbox("ログイン状態を保持する (FaceID)", value=True)
                 
-                col_l1, col_l2 = st.columns([1, 1])
-                with col_l1:
-                    submitted = st.form_submit_button("ログイン", use_container_width=True)
-                with col_l2:
-                    # 生体認証ボタン（直接クリック反応用）
-                    username_for_auth = st.session_state.get('login_username_input', '').strip().lower()
-                    if username_for_auth:
-                        creds = get_user_credentials(username_for_auth)
-                        if creds:
-                            rp_id_login = get_rp_host()
-                            auth_options = generate_authentication_options(
-                                rp_id=rp_id_login,
-                                allow_credentials=[{"id": c['id'], "type": "public-key"} for c in creds],
-                                user_verification=UserVerificationRequirement.PREFERRED
-                            )
-                            st.session_state['webauthn_auth_options'] = auth_options
-                            st.session_state['webauthn_auth_username'] = username_for_auth
-                            # JavaScriptに渡す際に "publicKey" キーで包む
-                            js_auth_options = json.dumps({"publicKey": json.loads(options_to_json(auth_options))})
-                            challenge_login_b64 = base64.b64encode(auth_options.challenge).decode('utf-8')
-                            
-                            # カスタムボタンの描画
-                            components.html(f"""
-                                <style>
-                                .bio-btn {{
-                                    background-color: white;
-                                    color: #333;
-                                    border: 1px solid #ccc;
-                                    padding: 10px;
-                                    border-radius: 4px;
-                                    cursor: pointer;
-                                    width: 100%;
-                                    font-size: 14px;
-                                    height: 38px;
-                                    display: flex;
-                                    align-items: center;
-                                    justify-content: center;
-                                }}
-                                .bio-btn:hover {{
-                                    background-color: #f8f9fa;
-                                }}
-                                #error-display-login {{
-                                    color: #dc3545;
-                                    background-color: #f8d7da;
-                                    padding: 5px;
-                                    border-radius: 4px;
-                                    margin-bottom: 5px;
-                                    display: none;
-                                    font-size: 12px;
-                                }}
-                                </style>
-                                <div id="error-display-login"></div>
-                                <button id="bio-login-button" class="bio-btn">👤 生体認証でログイン</button>
-                                <script>
-                                document.getElementById('bio-login-button').onclick = async function() {{
-                                    const errDiv = document.getElementById('error-display-login');
-                                    errDiv.style.display = 'none';
-                                    
-                                    try {{
-                                        const options = JSON.parse('{js_auth_options}');
-                                        const manualChallenge = '{challenge_login_b64}';
-
-                                        if (!options || !options.publicKey) {{
-                                            throw new Error("認証オプションが生成されていません。再試行してください。");
-                                        }}
-                                        
-                                        function b64ToBuf(b64) {{
-                                            const bin = window.atob(b64.replace(/-/g, '+').replace(/_/g, '/'));
-                                            return Uint8Array.from(bin, c => c.charCodeAt(0)).buffer;
-                                        }}
-                                        function bufToB64(buf) {{
-                                            let s = '';
-                                            const b = new Uint8Array(buf);
-                                            for (let i = 0; i < b.byteLength; i++) s += String.fromCharCode(b[i]);
-                                            return window.btoa(s).replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
-                                        }}
-
-                                        options.publicKey.challenge = b64ToBuf(manualChallenge);
-                                        if (options.publicKey.allowCredentials) {{
-                                            options.publicKey.allowCredentials.forEach(c => c.id = b64ToBuf(c.id));
-                                        }}
-                                        
-                                        alert("生体認証を開始します。");
-                                        
-                                        const assertion = await navigator.credentials.get({{ publicKey: options.publicKey }});
-                                        
-                                        alert("認証成功！ログインします。");
-                                        
-                                        const resp = {{
-                                            id: assertion.id,
-                                            rawId: bufToB64(assertion.rawId),
-                                            type: assertion.type,
-                                            response: {{
-                                                authenticatorData: bufToB64(assertion.response.authenticatorData),
-                                                clientDataJSON: bufToB64(assertion.response.clientDataJSON),
-                                                signature: bufToB64(assertion.response.signature),
-                                                userHandle: assertion.response.userHandle ? bufToB64(assertion.response.userHandle) : null
-                                            }}
-                                        }};
-                                        const url = new URL(window.parent.location);
-                                        url.searchParams.set('webauthn_authentication_response', JSON.stringify(resp));
-                                        url.searchParams.set('webauthn_host', window.parent.location.hostname);
-                                        window.parent.location.href = url.href;
-                                    }} catch (e) {{
-                                        console.error(e);
-                                        errDiv.innerText = "エラー: " + e.message;
-                                        errDiv.style.display = 'block';
-                                        alert("エラーが発生しました： " + e.name + ": " + e.message);
-                                        const url = new URL(window.parent.location);
-                                        url.searchParams.set('webauthn_error', e.name + ': ' + e.message);
-                                        window.parent.location.href = url.href;
-                                    }}
-                                }};
-                                </script>
-                            """, height=50)
-                        else:
-                            st.info("※ 未登録です。")
-                    else:
-                        st.info("※ ユーザー名入力で有効。")
+                submitted = st.form_submit_button("ログイン", use_container_width=True)
                 
                 if submitted:
                     if login_username and login_password:
