@@ -46,10 +46,10 @@ RP_NAME = "AI家計簿アプリ"
 
 def get_rp_host():
     """現在のアクセスドメインをRP IDとして取得する"""
-    # Streamlit Cloud等では st.query_params にドメイン情報が含まれない場合があるが、
-    # JS側から hostname を渡すようにする
-    if 'webauthn_host' in st.query_params:
-        return st.query_params['webauthn_host']
+    # 実行環境に合わせて RP_ID を切り替える
+    host = st.context.headers.get("host", "")
+    if "streamlit.app" in host:
+        return "ai-kakeibo-6abmxvbgknbwser7n2ykb4.streamlit.app"
     return "localhost"
 
 # ---------- カテゴリ定義 ----------
@@ -405,6 +405,8 @@ def handle_webauthn_registration(response_json):
             return
 
         st.success("生体認証デバイスの登録が完了しました！")
+        # スプレッドシートへの反映と、ユーザーへの成功メッセージ表示を確実にするため少し待機
+        time.sleep(2)
         st.query_params.clear()
         st.rerun()
     except Exception as e:
@@ -471,7 +473,25 @@ def handle_biometric_login_request():
     st.session_state['webauthn_auth_options'] = options
     st.session_state['webauthn_auth_username'] = username
     
-    js_options = options_to_json(options)
+    # 型変換の徹底 (challenge と allowCredentials の id)
+    challenge_b64 = base64.b64encode(options.challenge).decode('utf-8')
+    allow_creds = []
+    if options.allow_credentials:
+        for c in options.allow_credentials:
+            allow_creds.append({
+                "type": "public-key",
+                "id": base64.b64encode(c.id).decode('utf-8')
+            })
+    
+    # JSに渡すための JSON (publicKey 部分のみ)
+    js_options_dict = json.loads(options_to_json(options))
+    # 手動で変換した値を確実にセット
+    js_options_dict["challenge"] = challenge_b64
+    if "allowCredentials" in js_options_dict:
+        for i, c in enumerate(js_options_dict["allowCredentials"]):
+            c["id"] = allow_creds[i]["id"]
+
+    js_options = json.dumps({"publicKey": js_options_dict})
     components.html(f"""
         <script>
         (async function() {{
@@ -552,13 +572,19 @@ def render_profile_settings():
         )
     )
     st.session_state['webauthn_registration_options'] = reg_options
-    # JavaScriptに渡す際に "publicKey" キーで包む
-    js_reg_options = json.dumps({"publicKey": json.loads(options_to_json(reg_options))})
     
-    # 手動抽出（確実な受け渡しのため）
+    # 型変換の徹底 (challenge と user.id)
     challenge_b64 = base64.b64encode(reg_options.challenge).decode('utf-8')
     user_id_b64 = base64.b64encode(user_id_bytes).decode('utf-8')
-
+    
+    # JSに渡すための JSON (publicKey 部分のみ)
+    js_reg_options_dict = json.loads(options_to_json(reg_options))
+    # 手動で変換した値を確実にセット
+    js_reg_options_dict["challenge"] = challenge_b64
+    js_reg_options_dict["user"]["id"] = user_id_b64
+    
+    js_reg_options = json.dumps({"publicKey": js_reg_options_dict})
+    
     # 直接クリックに反応するHTMLボタンをレンダリング
     components.html(f"""
         <style>
@@ -2018,7 +2044,7 @@ def main():
 
         # サイドバーメニューの実装
         with st.sidebar:
-            st.subheader("マイニー [Ver 3.4.8]")
+            st.subheader("マイニー [Ver 3.4.9]")
             st.write(f"🔑 ユーザー: **{st.session_state['username']}**")
             st.markdown("---")
             if 'menu_selection' not in st.session_state:
@@ -3394,7 +3420,7 @@ def main():
                 """)
 
             st.markdown("---")
-            st.caption(f"マイニー Ver 3.4.8 - ユーザー: {st.session_state['username']}")
+            st.caption(f"マイニー Ver 3.4.9 - ユーザー: {st.session_state['username']}")
             
         elif menu_selection == "👤プロフィール・設定":
             render_profile_settings()
