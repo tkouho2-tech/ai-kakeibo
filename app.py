@@ -46,7 +46,7 @@ RP_NAME = "AI家計簿アプリ"
 
 def get_rp_host():
     """現在のアクセスドメインをRP IDとして取得する"""
-    # 実行環境に合わせて RP_ID を完全に固定する
+    # 実行環境に合わせて RP_ID を一字一句違わず固定する
     host = st.context.headers.get("host", "")
     if "streamlit.app" in host:
         return "ai-kakeibo-6abmxvbgknbwser7n2ykb4.streamlit.app"
@@ -491,7 +491,6 @@ def handle_biometric_login_request():
             <script>
             function sendToStreamlit(value) {{
                 window.parent.postMessage({{
-                    isStreamlitMessage: true,
                     type: "streamlit:setComponentValue",
                     value: value
                 }}, "*");
@@ -620,7 +619,6 @@ def render_profile_settings():
             <script>
             function sendToStreamlit(value) {{
                 window.parent.postMessage({{
-                    isStreamlitMessage: true,
                     type: "streamlit:setComponentValue",
                     value: value
                 }}, "*");
@@ -640,7 +638,7 @@ def render_profile_settings():
                     
                     function b64ToBuf(b64) {{
                         const bin = window.atob(b64.replace(/-/g, '+').replace(/_/g, '/'));
-                        return Uint8Array.from(bin, c => c.charCodeAt(0)).buffer;
+                        return Uint8Array.from(bin, c => {{ return c.charCodeAt(0); }}).buffer;
                     }}
                     function bufToB64(buf) {{
                         let s = '';
@@ -2046,7 +2044,7 @@ def main():
 
         # サイドバーメニューの実装
         with st.sidebar:
-            st.subheader("マイニー [Ver 3.5.2]")
+            st.subheader("マイニー [Ver 3.5.3]")
             st.write(f"🔑 ユーザー: **{st.session_state['username']}**")
             st.markdown("---")
             if 'menu_selection' not in st.session_state:
@@ -3422,7 +3420,7 @@ def main():
                 """)
 
             st.markdown("---")
-            st.caption(f"マイニー Ver 3.5.2 - ユーザー: {st.session_state['username']}")
+            st.caption(f"マイニー Ver 3.5.3 - ユーザー: {st.session_state['username']}")
             
         elif menu_selection == "👤プロフィール・設定":
             render_profile_settings()
