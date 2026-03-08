@@ -25,6 +25,7 @@ from urllib.parse import urlparse
 SPREADSHEET_NAME = "Kakeibo_Data"
 WORKSHEET_NAME = "users"
 TRANSACTIONS_WORKSHEET_NAME = "transactions"
+USER_MASTER_WORKSHEET_NAME = "User_Master"
 
 # ---------- カテゴリ定義 ----------
 # AI判別やセレクトボックスで利用するための大分類・小分類の親子関係定義
@@ -217,7 +218,7 @@ def safe_gemini_call(func, *args, max_retries=5, initial_delay=2, **kwargs):
                 raise e
     raise last_error
 
-def get_sheet(worksheet_name):
+def get_sheet(worksheet_name, create_if_not_found=False):
     client = get_gspread_client()
     if client is None:
         st.stop()
@@ -232,8 +233,18 @@ def get_sheet(worksheet_name):
         st.error(f"エラー: スプレッドシート '{SPREADSHEET_NAME}' が見つかりません。クレデンシャルのメールアドレス ({client.auth.signer_email}) とスプレッドシートを共有してください。")
         st.stop()
     except gspread.exceptions.WorksheetNotFound:
-        st.error(f"エラー: スプレッドシート内に '{worksheet_name}' シートが見つかりません。シートを新規作成してください。")
-        st.stop()
+        if create_if_not_found:
+            try:
+                def _create_sheet():
+                    ss = client.open(SPREADSHEET_NAME)
+                    return ss.add_worksheet(title=worksheet_name, rows="1000", cols="20")
+                return safe_gspread_call(_create_sheet)
+            except Exception as e:
+                st.error(f"エラー: シート '{worksheet_name}' の自動作成に失敗しました: {e}")
+                st.stop()
+        else:
+            st.error(f"エラー: スプレッドシート内に '{worksheet_name}' シートが見つかりません。シートを新規作成してください。")
+            st.stop()
     except Exception as e:
         st.error(f"Google Sheets接続エラー: {e}")
         st.stop()
@@ -253,10 +264,19 @@ def init_transactions_sheet(sheet):
     try:
         headers = sheet.row_values(1)
         if not headers or headers[0] != "username":
-            sheet.insert_row(["username", "date", "store_name", "item_name", "category", "subcategory", "amount"], 1)
-        # 既存シートで subcategory 列がない場合でも、順次追加で対応可能とする
+            sheet.insert_row(["username", "date", "store_name", "item_name", "category", "subcategory", "amount", "update"], 1)
+        # 既存シートで subcategory 列や update 列がない場合でも、順次追加で対応可能とする
     except Exception:
-        sheet.insert_row(["username", "date", "store_name", "item_name", "category", "subcategory", "amount"], 1)
+        sheet.insert_row(["username", "date", "store_name", "item_name", "category", "subcategory", "amount", "update"], 1)
+
+def init_user_master_sheet(sheet):
+    """初期セットアップ：User_Masterシートのヘッダーがない場合に作成する"""
+    try:
+        headers = safe_gspread_call(sheet.row_values, 1)
+        if not headers or headers[0] != "username":
+            safe_gspread_call(sheet.insert_row, ["username", "name", "gender", "birthdate", "mbti", "occupation", "hobbies", "life_stance"], 1)
+    except Exception:
+        safe_gspread_call(sheet.insert_row, ["username", "name", "gender", "birthdate", "mbti", "occupation", "hobbies", "life_stance"], 1)
 
 def init_webauthn_sheet(sheet):
     """初期セットアップ：WebAuthn認証情報シートのヘッダーがない場合に作成する"""
@@ -307,6 +327,57 @@ def authenticate_user(username, password):
             if bcrypt.checkpw(password.encode('utf-8'), stored_hash.encode('utf-8')):
                 return True
     return False
+
+@st.cache_data(ttl=300)
+def get_user_master_data(username):
+    """ログインユーザーのプロフィール情報を取得する"""
+    try:
+        sheet = get_sheet(USER_MASTER_WORKSHEET_NAME, create_if_not_found=True)
+        init_user_master_sheet(sheet)
+        records = safe_gspread_call(sheet.get_all_records)
+        
+        if not records:
+            return None
+            
+        for row in records:
+            if str(row.get("username", "")).lower() == username.lower():
+                return row
+        return None
+    except Exception as e:
+        st.error(f"プロフィール取得エラー: {e}")
+        return None
+
+def save_user_master_data(username, profile_data):
+    """ログインユーザーのプロフィール情報を保存（新規または上書き）する"""
+    try:
+        sheet = get_sheet(USER_MASTER_WORKSHEET_NAME, create_if_not_found=True)
+        init_user_master_sheet(sheet)
+        
+        cell = safe_gspread_call(sheet.find, username.lower(), in_column=1)
+        row_data = [
+            username.lower(),
+            profile_data.get("name", ""),
+            profile_data.get("gender", ""),
+            profile_data.get("birthdate", ""),
+            profile_data.get("mbti", ""),
+            profile_data.get("occupation", ""),
+            profile_data.get("hobbies", ""),
+            profile_data.get("life_stance", "")
+        ]
+        
+        if cell:
+            # 既存の行を更新
+            row_idx = cell.row
+            # A列(1) から H列(8) までの範囲を更新
+            update_range = f"A{row_idx}:H{row_idx}"
+            safe_gspread_call(sheet.update, range_name=update_range, values=[row_data])
+        else:
+            # 新規追加
+            safe_gspread_call(sheet.append_row, row_data)
+            
+        return True, "プロフィール設定を保存しました。"
+    except Exception as e:
+        return False, f"プロフィール保存エラー: {e}"
 
 # ---------- WebAuthn ユーティリティ ----------
 
@@ -1832,6 +1903,9 @@ def handle_menu_change():
     # 仕様：カレンダー、レシート取込、レシート修正を選択した際、ダッシュボード選択状態をリセット
     if target_menu in ["カレンダー", "レシート取込", "レシート修正"]:
         st.session_state["menu_selection_reset_flag"] = True
+        
+    if target_menu == "👁AI相談":
+        st.session_state["refresh_ai_data_flag"] = True
     
     # サイドバーを閉じるフラグ
     st.session_state["collapse_sidebar_flag"] = True
@@ -1924,7 +1998,7 @@ def main():
 
         # サイドバーメニューの実装
         with st.sidebar:
-            st.subheader("マイニー [Ver 3.7.6]")
+            st.subheader("マイニー [Ver 3.7.7]")
             st.write(f"🔑 ユーザー: **{st.session_state['username']}**")
             st.markdown("---")
             if 'menu_selection' not in st.session_state:
@@ -1939,6 +2013,7 @@ def main():
                 "レシート手入力", 
                 "レシート修正", 
                 "👁AI相談", 
+                "⚙️ プロフィール設定",
                 "ヘルプ", 
                 "📗マニュアル"
             ]
@@ -2346,7 +2421,8 @@ def main():
                                         str(item_name),
                                         str(final_major),
                                         str(final_minor),
-                                        int(item.get("amount", 0))
+                                        int(item.get("amount", 0)),
+                                        datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                                     ]
                                     sheet.append_row(row_data)
                                     written_count += 1
@@ -2535,7 +2611,8 @@ def main():
                                         str(itm["name"]),
                                         str(major),
                                         str(minor),
-                                        int(itm["amount"])
+                                        int(itm["amount"]),
+                                        datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                                     ]
                                     sheet.append_row(row_data)
                                 
@@ -2682,9 +2759,11 @@ def main():
                                             
                                             # 既存の全明細行をループして日付と店舗を更新
                                             existing_indices = [int(k) for k in st.session_state['edit_data'].keys() if not str(k).startswith("new_")]
+                                            current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                                             for r_idx in existing_indices:
                                                 sheet.update_cell(r_idx, 2, target_date_str)
                                                 sheet.update_cell(r_idx, 3, target_store)
+                                                sheet.update_cell(r_idx, 8, current_time)
                                                 
                                             st.success("✅ レシート情報を一括更新しました")
                                             st.session_state.receipt_list_version += 1
@@ -2828,7 +2907,7 @@ def main():
                                                         
                                                         if str(current_editing_id).startswith("new_"):
                                                             # 新規追加
-                                                            new_row = [user_name, target_date_str, target_store, edit_name, edit_major, edit_minor, edit_amount]
+                                                            new_row = [user_name, target_date_str, target_store, edit_name, edit_major, edit_minor, edit_amount, datetime.now().strftime("%Y-%m-%d %H:%M:%S")]
                                                             sheet.append_row(new_row)
                                                         else:
                                                             # 既存更新: 安全装置（行データの検証）
@@ -2843,10 +2922,10 @@ def main():
                                                                 st.stop()
                                                             
                                                             # バッチ更新（1回のAPI呼び出しで範囲を更新）
-                                                            # A:username, B:date, C:store, D:item, E:major, F:minor, G:amount
-                                                            # 更新範囲: B (Col 2) から G (Col 7)
-                                                            update_range = f"B{r_idx}:G{r_idx}"
-                                                            update_values = [[target_date_str, target_store, edit_name, edit_major, edit_minor, edit_amount]]
+                                                            # A:username, B:date, C:store, D:item, E:major, F:minor, G:amount, H:update
+                                                            # 更新範囲: B (Col 2) から H (Col 8)
+                                                            update_range = f"B{r_idx}:H{r_idx}"
+                                                            update_values = [[target_date_str, target_store, edit_name, edit_major, edit_minor, edit_amount, datetime.now().strftime("%Y-%m-%d %H:%M:%S")]]
                                                             sheet.update(range_name=update_range, values=update_values)
                                                         
                                                         st.success("✅ 修正を登録しました")
@@ -2966,6 +3045,11 @@ def main():
                 
                 return df_user[available_cols].to_csv(index=False)
                 
+            # メニュー切り替え直後、または手動更新時はキャッシュをクリア
+            if st.session_state.get("refresh_ai_data_flag"):
+                get_user_data_csv_for_ai.clear()
+                st.session_state["refresh_ai_data_flag"] = False
+
             csv_data_string = get_user_data_csv_for_ai(st.session_state['username'])
             if not csv_data_string:
                 csv_data_string = "現在、参照できる家計簿データはありません。"
@@ -3037,8 +3121,37 @@ def main():
                         message_placeholder.markdown("分析中...")
                         
                         try:
+                            # ユーザーマスターからプロファイルを取得
+                            user_profile = get_user_master_data(st.session_state['username'])
+                            profile_prompt = ""
+                            if user_profile:
+                                name = user_profile.get("name", "ユーザー")
+                                gender = user_profile.get("gender", "未設定")
+                                birthdate = user_profile.get("birthdate", "未設定")
+                                mbti = user_profile.get("mbti", "未設定")
+                                occupation = user_profile.get("occupation", "未設定")
+                                hobbies = user_profile.get("hobbies", "未設定")
+                                life_stance = user_profile.get("life_stance", "未設定")
+                                
+                                profile_prompt = f"""
+【ユーザーのプロフィール情報】
+名前: {name}
+性別: {gender}
+生年月日: {birthdate}
+MBTI: {mbti}
+職業: {occupation}
+趣味: {hobbies}
+ライフスタンス（大切にしていること）: {life_stance}
+
+あなたは、ユーザー（{name}さん）の属性や趣味、職業的背景を理解した上で、単なる数字の増減だけでなく、その人の人生の質を上げるための家計アドバイスを行う親身なコンサルタントです。
+"""
+                            else:
+                                profile_prompt = f"""
+あなたはユーザー専属の優秀なファイナンシャルプランナーです。
+"""
+
                             # システムプロンプトを都度構築（最新データを反映させるため）
-                            system_prompt = f"""あなたはユーザー専属の優秀なファイナンシャルプランナーです。
+                            system_prompt = f"""{profile_prompt}
 以下のCSVデータは、このユーザー（{st.session_state['username']}）個人の家計簿データです。
 このデータには「商品名」も含まれており、いつ、どこで、何を買ったかを詳細に把握できます。
 ユーザーからの「特定の商品の購入時期（例：鶏肉ナンコツはいつ買った？）」や「商品の価格推移」などの質問に対し、正確かつ親身に答えてください。
@@ -3082,6 +3195,73 @@ def main():
 
                         except Exception as e:
                             st.error(f"予期せぬエラーが発生しました: {e}")
+
+        elif menu_selection == "⚙️ プロフィール設定":
+            st.markdown("#### ⚙️ プロフィール設定")
+            st.info("AI相談でよりパーソナライズされたアドバイスを受けるための基本情報を設定します。")
+            
+            # 既存データの取得
+            user_profile = get_user_master_data(st.session_state['username'])
+            if user_profile is None:
+                user_profile = {}
+                
+            with st.form("profile_settings_form"):
+                st.write("各項目を入力・編集して「保存する」ボタンを押してください。")
+                
+                col1, col2 = st.columns(2)
+                with col1:
+                    name_input = st.text_input("氏名", value=user_profile.get("name", ""))
+                    
+                    gender_options = ["未設定", "男性", "女性", "その他"]
+                    current_gender = user_profile.get("gender", "未設定")
+                    if current_gender not in gender_options: current_gender = "未設定"
+                    gender_idx = gender_options.index(current_gender)
+                    gender_input = st.selectbox("性別", options=gender_options, index=gender_idx)
+                    
+                    mbti_options = ["未設定", "INTJ", "INTP", "ENTJ", "ENTP", "INFJ", "INFP", "ENFJ", "ENFP", "ISTJ", "ISFJ", "ESTJ", "ESFJ", "ISTP", "ISFP", "ESTP", "ESFP"]
+                    current_mbti = user_profile.get("mbti", "未設定")
+                    if current_mbti not in mbti_options: current_mbti = "未設定"
+                    mbti_idx = mbti_options.index(current_mbti)
+                    mbti_input = st.selectbox("MBTI", options=mbti_options, index=mbti_idx)
+                
+                with col2:
+                    try:
+                        if user_profile.get("birthdate"):
+                            birthdate_val = datetime.strptime(user_profile.get("birthdate", "1990-01-01"), "%Y-%m-%d").date()
+                        else:
+                            birthdate_val = datetime(1990, 1, 1).date()
+                    except:
+                        birthdate_val = datetime(1990, 1, 1).date()
+                        
+                    birthdate_input = st.date_input("生年月日", value=birthdate_val, min_value=datetime(1900, 1, 1), max_value=datetime.today())
+                    occupation_input = st.text_input("職業", value=user_profile.get("occupation", ""))
+                
+                st.markdown("---")
+                hobbies_input = st.text_area("趣味リスト", value=user_profile.get("hobbies", ""), placeholder="例：映画鑑賞、ドライブ、カフェ巡り...")
+                life_stance_input = st.text_area("ライフスタンス（大切にしていること）", value=user_profile.get("life_stance", ""), placeholder="例：自己投資を惜しまない、健康第一、家族との時間を大切にする...")
+                
+                submit_button = st.form_submit_button("保存する", type="primary")
+                
+                if submit_button:
+                    with st.spinner("保存中..."):
+                        profile_data_to_save = {
+                            "name": name_input,
+                            "gender": gender_input,
+                            "birthdate": birthdate_input.strftime("%Y-%m-%d") if birthdate_input else "",
+                            "mbti": mbti_input,
+                            "occupation": occupation_input,
+                            "hobbies": hobbies_input,
+                            "life_stance": life_stance_input
+                        }
+                        
+                        success, message = save_user_master_data(st.session_state['username'], profile_data_to_save)
+                        
+                        if success:
+                            # AIが新しいプロフィールを使うようキャッシュクリア
+                            get_user_master_data.clear()
+                            st.success(message)
+                        else:
+                            st.error(message)
 
         elif menu_selection == "ヘルプ":
             st.markdown("#### 💡 ヘルプ・サポート")
@@ -3188,6 +3368,10 @@ def main():
 
 【6. AI相談（専属FP）】
 ・概要：あなたの実際の支出データを元に、AIがプロのファイナンシャルプランナーとして分析や節約のアドバイスを行います。
+
+【7. プロフィール設定】
+・概要：AI相談をよりパーソナライズするための基本情報（氏名、性別、生年月日、MBTI、職業、趣味、ライフスタンス）を設定できます。
+・効果：ここで設定した情報をAIが読み込み、あなた個人の価値観やライフスタイルに沿った、より質の高いアドバイスを提供します。
 
 回答のコツ：
 ・各機能への移動は、画面左側の「サイドバー（メニュー）」から行えることを案内してください。
@@ -3298,8 +3482,14 @@ def main():
                 - **操作相談**: 「レシートの修正はどうやるの？」など、操作に関する疑問を解決します。
                 """)
 
+            with st.expander("⚙️ プロフィール設定"):
+                st.markdown("""
+                **概要**: AI相談のアドバイスをよりパーソナライズするための情報を登録・管理します。
+                - **パーソナライズ**: 入力した情報（職業、趣味、大切にしていること等）をAIが事前に把握し、一般的なアドバイスではなく「あなたのため」の親身なコンサルティングを実現します。
+                """)
+
             st.markdown("---")
-            st.caption("マイニー Ver 3.7.6 - ユーザー: %s" % st.session_state['username'])
+            st.caption("マイニー Ver 3.7.7 - ユーザー: %s" % st.session_state['username'])
             
     # 未ログインの状態 (ログイン・登録画面)
     else:
