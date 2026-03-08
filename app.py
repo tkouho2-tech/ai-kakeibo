@@ -490,11 +490,11 @@ def handle_biometric_login_request():
          st.session_state['webauthn_auth_comp'] = declare_component("webauthn_auth", content=f"""
             <script>
             function sendToStreamlit(value) {{
-                window.parent.postMessage({
+                window.parent.postMessage({{
                     isStreamlitMessage: true,
                     type: "streamlit:setComponentValue",
                     value: value
-                }, "*");
+                }}, "*");
             }}
             (async function() {{
                 try {{
@@ -509,7 +509,7 @@ def handle_biometric_login_request():
                         let s = '';
                         const b = new Uint8Array(buf);
                         for (let i = 0; i < b.byteLength; i++) s += String.fromCharCode(b[i]);
-                        return window.btoa(s).replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
+                        return window.btoa(s).replace(/\\+/g, '-').replace(/\\//g, '_').replace(/=/g, '');
                     }}
 
                     options.publicKey.challenge = b64ToBuf(options.publicKey.challenge);
@@ -530,7 +530,6 @@ def handle_biometric_login_request():
                             userHandle: assert.response.userHandle ? bufToB64(assert.response.userHandle) : null
                         }}
                     }};
-                    // リダイレクトではなく setComponentValue (postMessage) を使用
                     sendToStreamlit(resp);
                 }} catch (e) {{
                     sendToStreamlit({{ error: e.name + ': ' + e.message }});
@@ -620,11 +619,11 @@ def render_profile_settings():
             <button id="reg-button" class="reg-btn">生体認証デバイスを登録する</button>
             <script>
             function sendToStreamlit(value) {{
-                window.parent.postMessage({
+                window.parent.postMessage({{
                     isStreamlitMessage: true,
                     type: "streamlit:setComponentValue",
                     value: value
-                }, "*");
+                }}, "*");
             }}
             document.getElementById('reg-button').onclick = async function() {{
                 const errDiv = document.getElementById('error-display');
@@ -647,7 +646,7 @@ def render_profile_settings():
                         let s = '';
                         const b = new Uint8Array(buf);
                         for (let i = 0; i < b.byteLength; i++) s += String.fromCharCode(b[i]);
-                        return window.btoa(s).replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
+                        return window.btoa(s).replace(/\\+/g, '-').replace(/\\//g, '_').replace(/=/g, '');
                     }}
 
                     options.publicKey.challenge = b64ToBuf(manualChallenge);
@@ -666,7 +665,6 @@ def render_profile_settings():
                             clientDataJSON: bufToB64(cred.response.clientDataJSON)
                         }}
                     }};
-                    // リダイレクトではなく setComponentValue (postMessage) を使用
                     sendToStreamlit(resp);
                 }} catch (e) {{
                     console.error(e);
@@ -677,7 +675,6 @@ def render_profile_settings():
             }};
             </script>
         """)
-    
     reg_response = st.session_state['webauthn_reg_comp'](key="biometric_reg")
     if reg_response:
         if "error" in reg_response:
@@ -2049,7 +2046,7 @@ def main():
 
         # サイドバーメニューの実装
         with st.sidebar:
-            st.subheader("マイニー [Ver 3.5.0]")
+            st.subheader("マイニー [Ver 3.5.1]")
             st.write(f"🔑 ユーザー: **{st.session_state['username']}**")
             st.markdown("---")
             if 'menu_selection' not in st.session_state:
@@ -3425,7 +3422,7 @@ def main():
                 """)
 
             st.markdown("---")
-            st.caption(f"マイニー Ver 3.5.0 - ユーザー: {st.session_state['username']}")
+            st.caption(f"マイニー Ver 3.5.1 - ユーザー: {st.session_state['username']}")
             
         elif menu_selection == "👤プロフィール・設定":
             render_profile_settings()
