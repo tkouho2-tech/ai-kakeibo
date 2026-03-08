@@ -1643,8 +1643,9 @@ def show_dashboard():
             )
             # マイナスのデータを黄色にする
             for trace in fig.data:
-                if hasattr(trace, 'y'):
-                    trace.marker.color = ['yellow' if v < 0 else None for v in trace.y]
+                if hasattr(trace, 'y') and trace.y is not None:
+                    orig_color = trace.marker.color
+                    trace.marker.color = ['#FFFF00' if v is not None and (isinstance(v, (int, float)) and v < 0) else orig_color for v in trace.y]
 
             fig.update_yaxes(zerolinewidth=2, zerolinecolor='black')
             st.plotly_chart(fig, use_container_width=True)
@@ -1751,8 +1752,9 @@ def show_yearly_dashboard():
         
         # マイナスのデータを黄色にする
         for trace in fig.data:
-            if hasattr(trace, 'y'):
-                trace.marker.color = ['yellow' if v < 0 else None for v in trace.y]
+            if hasattr(trace, 'y') and trace.y is not None:
+                orig_color = trace.marker.color
+                trace.marker.color = ['#FFFF00' if v is not None and (isinstance(v, (int, float)) and v < 0) else orig_color for v in trace.y]
 
         fig.update_yaxes(zerolinewidth=2, zerolinecolor='black')
         st.plotly_chart(fig, use_container_width=True)
@@ -1778,8 +1780,9 @@ def show_yearly_dashboard():
             )
             # マイナスのデータを黄色にする
             for trace in fig.data:
-                if hasattr(trace, 'y'):
-                    trace.marker.color = ['yellow' if v < 0 else None for v in trace.y]
+                if hasattr(trace, 'y') and trace.y is not None:
+                    orig_color = trace.marker.color
+                    trace.marker.color = ['#FFFF00' if v is not None and (isinstance(v, (int, float)) and v < 0) else orig_color for v in trace.y]
 
             fig.update_yaxes(zerolinewidth=2, zerolinecolor='black')
             st.plotly_chart(fig, use_container_width=True)
