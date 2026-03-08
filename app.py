@@ -602,8 +602,19 @@ def load_transactions_data(target_date, mode="monthly"):
     """
     sheet = get_sheet(TRANSACTIONS_WORKSHEET_NAME)
     init_transactions_sheet(sheet)
-    # レコード取得にリトライを適用
-    records = safe_gspread_call(sheet.get_all_records)
+    values = safe_gspread_call(sheet.get_all_values)
+    if not values or len(values) < 2:
+        return pd.DataFrame()
+    
+    # 重複・空ヘッダー対策: DataFrame化してからカラム名を付与
+    headers = [h.strip() if h.strip() else f"empty_{i}" for i, h in enumerate(values[0])]
+    # 重複がある場合はpandasが自動で .1, .2 を付けるが、明示的にハンドル
+    records_df = pd.DataFrame(values[1:])
+    # カラム数が一致しない場合のガード
+    if records_df.shape[1] > len(headers):
+        headers += [f"extra_{i}" for i in range(len(headers), records_df.shape[1])]
+    records_df.columns = headers[:records_df.shape[1]]
+    records = records_df.to_dict('records')
     
     # 共通ヘルパーでクレンジングとフィルタリング
     curr_user = st.session_state.get('username', "")
@@ -616,7 +627,7 @@ def load_transactions_data(target_date, mode="monthly"):
     # recordsのインデックスとdfのインデックスを合わせる必要があるため、クレンジング前のrecords長を使用
     # recordsは全ユーザー分あるが、dfはフィルタ済み。
     # recordsにある元の行番号を保持するためにDataFrame作成時に付与しておく
-    df_all_temp = pd.DataFrame(records)
+    df_all_temp = records_df.copy()
     df_all_temp['_row_index'] = range(2, len(records) + 2)
     
     # dfにrow_indexを結合
@@ -677,8 +688,16 @@ def get_transaction_range(username):
         if st.session_state['date_range']: # 空でないことを確認
             return st.session_state['date_range']
     
-    sheet = get_sheet(TRANSACTIONS_WORKSHEET_NAME)
-    records = safe_gspread_call(sheet.get_all_records)
+    values = safe_gspread_call(sheet.get_all_values)
+    if not values or len(values) < 2:
+        return []
+        
+    headers = [h.strip() if h.strip() else f"empty_{i}" for i, h in enumerate(values[0])]
+    records_df = pd.DataFrame(values[1:])
+    if records_df.shape[1] > len(headers):
+        headers += [f"extra_{i}" for i in range(len(headers), records_df.shape[1])]
+    records_df.columns = headers[:records_df.shape[1]]
+    records = records_df.to_dict('records')
     
     # 共通ヘルパーでクレンジングとフィルタリング
     df_user = get_clean_df(records, username)
@@ -1885,7 +1904,7 @@ def main():
 
         # サイドバーメニューの実装
         with st.sidebar:
-            st.subheader("マイニー [Ver 3.7.2]")
+            st.subheader("マイニー [Ver 3.7.3]")
             st.write(f"🔑 ユーザー: **{st.session_state['username']}**")
             st.markdown("---")
             if 'menu_selection' not in st.session_state:
@@ -3260,7 +3279,7 @@ def main():
                 """)
 
             st.markdown("---")
-            st.caption("マイニー Ver 3.7.2 - ユーザー: %s" % st.session_state['username'])
+            st.caption("マイニー Ver 3.7.3 - ユーザー: %s" % st.session_state['username'])
             
     # 未ログインの状態 (ログイン・登録画面)
     else:
@@ -3302,7 +3321,7 @@ def main():
             with st.form("login_form"):
                 login_username = st.text_input("ユーザー名", key="login_username_input")
                 login_password = st.text_input("パスワード", type="password", key="login_password_input")
-                remember_me = st.checkbox("ログイン状態を保持する (FaceID)", value=True)
+                remember_me = st.checkbox("ログイン状態を保持する", value=True)
                 
                 submitted = st.form_submit_button("ログイン", use_container_width=True)
                 
