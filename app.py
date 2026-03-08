@@ -536,72 +536,89 @@ def render_profile_settings():
             del st.session_state['webauthn_last_error']
             st.rerun()
     
-    if st.button("生体認証デバイスを登録する", type="primary"):
-        # 登録オプションの生成
-        user_id = st.session_state['username'].encode('utf-8')
-        options = generate_registration_options(
-            rp_id=get_rp_host(),
-            rp_name=RP_NAME,
-            user_id=user_id,
-            user_name=st.session_state['username'],
-            user_display_name=st.session_state['username'],
-            authenticator_selection=AuthenticatorSelectionCriteria(
-                authenticator_attachment=AuthenticatorAttachment.PLATFORM,
-                resident_key=ResidentKeyRequirement.PREFERRED,
-                user_verification=UserVerificationRequirement.PREFERRED,
-            )
+    # 登録オプションの事前生成
+    user_id_str = st.session_state['username']
+    user_id_bytes = user_id_str.encode('utf-8')
+    reg_options = generate_registration_options(
+        rp_id=get_rp_host(),
+        rp_name=RP_NAME,
+        user_id=user_id_bytes,
+        user_name=user_id_str,
+        user_display_name=user_id_str,
+        authenticator_selection=AuthenticatorSelectionCriteria(
+            authenticator_attachment=AuthenticatorAttachment.PLATFORM,
+            resident_key=ResidentKeyRequirement.PREFERRED,
+            user_verification=UserVerificationRequirement.PREFERRED,
         )
-        st.session_state['webauthn_registration_options'] = options
-        js_options = options_to_json(options)
-        
-        # 簡略化したJSブリッジ（直接 navigator.credentials.create を叩く）
-        components.html(f"""
-            <script>
-            (async function() {{
-                try {{
-                    const options = JSON.parse('{js_options}');
-                    
-                    // バイナリ変換
-                    function b64ToBuf(b64) {{
-                        const bin = window.atob(b64.replace(/-/g, '+').replace(/_/g, '/'));
-                        const buf = new Uint8Array(bin.length);
-                        for (let i = 0; i < bin.length; i++) buf[i] = bin.charCodeAt(i);
-                        return buf.buffer;
-                    }}
-                    function bufToB64(buf) {{
-                        let s = '';
-                        const b = new Uint8Array(buf);
-                        for (let i = 0; i < b.byteLength; i++) s += String.fromCharCode(b[i]);
-                        return window.btoa(s).replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
-                    }}
+    )
+    st.session_state['webauthn_registration_options'] = reg_options
+    js_reg_options = options_to_json(reg_options)
 
-                    options.publicKey.challenge = b64ToBuf(options.publicKey.challenge);
-                    options.publicKey.user.id = b64ToBuf(options.publicKey.user.id);
-                    
-                    const cred = await window.parent.navigator.credentials.create({{ publicKey: options.publicKey }});
-                    
-                    const resp = {{
-                        id: cred.id,
-                        rawId: bufToB64(cred.rawId),
-                        type: cred.type,
-                        response: {{
-                            attestationObject: bufToB64(cred.response.attestationObject),
-                            clientDataJSON: bufToB64(cred.response.clientDataJSON)
-                        }}
-                    }};
-                    
-                    const url = new URL(window.parent.location);
-                    url.searchParams.set('webauthn_registration_response', JSON.stringify(resp));
-                    url.searchParams.set('webauthn_host', window.parent.location.hostname);
-                    window.parent.location.href = url.href;
-                }} catch (e) {{
-                    const url = new URL(window.parent.location);
-                    url.searchParams.set('webauthn_error', e.name + ': ' + e.message);
-                    window.parent.location.href = url.href;
+    # 直接クリックに反応するHTMLボタンをレンダリング
+    components.html(f"""
+        <style>
+        .reg-btn {{
+            background-color: #ff0000;
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 8px;
+            font-weight: bold;
+            cursor: pointer;
+            width: 100%;
+            font-size: 16px;
+        }}
+        </style>
+        <button id="reg-button" class="reg-btn">生体認証デバイスを登録する</button>
+        <script>
+        document.getElementById('reg-button').onclick = async function() {{
+            try {{
+                const options = JSON.parse('{js_reg_options}');
+                
+                // 厳格な変換ロジック
+                function b64ToBuf(b64) {{
+                    const bin = window.atob(b64.replace(/-/g, '+').replace(/_/g, '/'));
+                    return Uint8Array.from(bin, c => c.charCodeAt(0)).buffer;
                 }}
-            }})();
-            </script>
-        """, height=0)
+                function bufToB64(buf) {{
+                    let s = '';
+                    const b = new Uint8Array(buf);
+                    for (let i = 0; i < b.byteLength; i++) s += String.fromCharCode(b[i]);
+                    return window.btoa(s).replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
+                }}
+
+                options.publicKey.challenge = b64ToBuf(options.publicKey.challenge);
+                options.publicKey.user.id = b64ToBuf(options.publicKey.user.id);
+                
+                alert("生体認証（パスキー）を開始します。画面の指示に従ってください。");
+                
+                const cred = await navigator.credentials.create({{ publicKey: options.publicKey }});
+                
+                alert("認証成功！データを保存します。");
+                
+                const resp = {{
+                    id: cred.id,
+                    rawId: bufToB64(cred.rawId),
+                    type: cred.type,
+                    response: {{
+                        attestationObject: bufToB64(cred.response.attestationObject),
+                        clientDataJSON: bufToB64(cred.response.clientDataJSON)
+                    }}
+                }};
+                
+                const url = new URL(window.parent.location);
+                url.searchParams.set('webauthn_registration_response', JSON.stringify(resp));
+                url.searchParams.set('webauthn_host', window.parent.location.hostname);
+                window.parent.location.href = url.href;
+            }} catch (e) {{
+                alert("エラーが発生しました： " + e.name + ": " + e.message);
+                const url = new URL(window.parent.location);
+                url.searchParams.set('webauthn_error', e.name + ': ' + e.message);
+                window.parent.location.href = url.href;
+            }}
+        }};
+        </script>
+    """, height=60)
     
     # 登録済みデバイスの表示
     creds = get_user_credentials(st.session_state['username'])
@@ -1971,7 +1988,7 @@ def main():
 
         # サイドバーメニューの実装
         with st.sidebar:
-            st.subheader("マイニー [Ver 3.4.5]")
+            st.subheader("マイニー [Ver 3.4.6]")
             st.write(f"🔑 ユーザー: **{st.session_state['username']}**")
             st.markdown("---")
             if 'menu_selection' not in st.session_state:
@@ -3347,7 +3364,7 @@ def main():
                 """)
 
             st.markdown("---")
-            st.caption(f"マイニー Ver 3.4.5 - ユーザー: {st.session_state['username']}")
+            st.caption(f"マイニー Ver 3.4.6 - ユーザー: {st.session_state['username']}")
             
         elif menu_selection == "👤プロフィール・設定":
             render_profile_settings()
@@ -3401,86 +3418,6 @@ def main():
                 url.searchParams.set('webauthn_error', errorMsg);
                 window.parent.location.href = url.href;
             }}
-
-            window.parent.startWebAuthnRegistration = async function(optionsJson) {{
-                // セキュアコンテキストのチェック
-                if (!window.isSecureContext) {{
-                    sendErrorToStreamlit('HTTPS環境（またはlocalhost）が必要です。生体認証は非セキュアな接続では利用できません。');
-                    return;
-                }}
-
-                try {{
-                    const options = JSON.parse(optionsJson);
-                    options.publicKey.challenge = base64ToBuffer(options.publicKey.challenge);
-                    options.publicKey.user.id = base64ToBuffer(options.publicKey.user.id);
-                    
-                    const credential = await navigator.credentials.create({{
-                        publicKey: options.publicKey
-                    }});
-
-                    const response = {{
-                        id: credential.id,
-                        rawId: bufferToBase64(credential.rawId),
-                        type: credential.type,
-                        response: {{
-                            attestationObject: bufferToBase64(credential.response.attestationObject),
-                            clientDataJSON: bufferToBase64(credential.response.clientDataJSON)
-                        }}
-                    }};
-
-                    const url = new URL(window.parent.location);
-                    url.searchParams.set('webauthn_registration_response', JSON.stringify(response));
-                    window.parent.location.href = url.href;
-                }} catch (err) {{
-                    console.error('Registration failed:', err);
-                    if (err.name === 'NotAllowedError') {{
-                        // ユーザーによるキャンセル
-                        return; 
-                    }}
-                    sendErrorToStreamlit('登録に失敗しました: ' + err.message);
-                }}
-            }};
-
-            window.parent.startWebAuthnAuthentication = async function(optionsJson) {{
-                if (!window.isSecureContext) {{
-                    sendErrorToStreamlit('HTTPS環境が必要です。');
-                    return;
-                }}
-
-                try {{
-                    const options = JSON.parse(optionsJson);
-                    options.publicKey.challenge = base64ToBuffer(options.publicKey.challenge);
-                    if (options.publicKey.allowCredentials) {{
-                        options.publicKey.allowCredentials.forEach(cred => {{
-                            cred.id = base64ToBuffer(cred.id);
-                        }});
-                    }}
-                    
-                    const assertion = await navigator.credentials.get({{
-                        publicKey: options.publicKey
-                    }});
-
-                    const response = {{
-                        id: assertion.id,
-                        rawId: bufferToBase64(assertion.rawId),
-                        type: assertion.type,
-                        response: {{
-                            authenticatorData: bufferToBase64(assertion.response.authenticatorData),
-                            clientDataJSON: bufferToBase64(assertion.response.clientDataJSON),
-                            signature: bufferToBase64(assertion.response.signature),
-                            userHandle: assertion.response.userHandle ? bufferToBase64(assertion.response.userHandle) : null
-                        }}
-                    }};
-
-                    const url = new URL(window.parent.location);
-                    url.searchParams.set('webauthn_authentication_response', JSON.stringify(response));
-                    window.parent.location.href = url.href;
-                }} catch (err) {{
-                    console.error('Authentication failed:', err);
-                    if (err.name === 'NotAllowedError') return;
-                    sendErrorToStreamlit('生体認証に失敗しました: ' + err.message);
-                }}
-            }};
 
             function enforceAlphanumeric() {{
                 const inputs = window.parent.document.querySelectorAll('input[type="text"], input[type="password"]');
@@ -3538,14 +3475,102 @@ def main():
                 login_password = st.text_input("パスワード", type="password", key="login_password_input")
                 remember_me = st.checkbox("ログイン状態を保持する (FaceID)", value=True)
                 
-                col_btn1, col_btn2 = st.columns([1, 1])
-                with col_btn1:
+                col_l1, col_l2 = st.columns([1, 1])
+                with col_l1:
                     submitted = st.form_submit_button("ログイン", use_container_width=True)
-                with col_btn2:
-                    biometric_login = st.form_submit_button("生体認証でログイン", use_container_width=True)
-                
-                if biometric_login:
-                    handle_biometric_login_request()
+                with col_l2:
+                    # 生体認証ボタン（直接クリック反応用）
+                    username_for_auth = st.session_state.get('login_username_input', '').strip().lower()
+                    if username_for_auth:
+                        creds = get_user_credentials(username_for_auth)
+                        if creds:
+                            rp_id_login = get_rp_host()
+                            auth_options = generate_authentication_options(
+                                rp_id=rp_id_login,
+                                allow_credentials=[{"id": c['id'], "type": "public-key"} for c in creds],
+                                user_verification=UserVerificationRequirement.PREFERRED
+                            )
+                            st.session_state['webauthn_auth_options'] = auth_options
+                            st.session_state['webauthn_auth_username'] = username_for_auth
+                            js_auth_options = options_to_json(auth_options)
+                            
+                            # カスタムボタンの描画
+                            components.html(f"""
+                                <style>
+                                .bio-btn {{
+                                    background-color: white;
+                                    color: #333;
+                                    border: 1px solid #ccc;
+                                    padding: 10px;
+                                    border-radius: 4px;
+                                    cursor: pointer;
+                                    width: 100%;
+                                    font-size: 14px;
+                                    height: 38px;
+                                    display: flex;
+                                    align-items: center;
+                                    justify-content: center;
+                                }}
+                                .bio-btn:hover {{
+                                    background-color: #f8f9fa;
+                                }}
+                                </style>
+                                <button id="bio-login-button" class="bio-btn">👤 生体認証でログイン</button>
+                                <script>
+                                document.getElementById('bio-login-button').onclick = async function() {{
+                                    try {{
+                                        const options = JSON.parse('{js_auth_options}');
+                                        
+                                        function b64ToBuf(b64) {{
+                                            const bin = window.atob(b64.replace(/-/g, '+').replace(/_/g, '/'));
+                                            return Uint8Array.from(bin, c => c.charCodeAt(0)).buffer;
+                                        }}
+                                        function bufToB64(buf) {{
+                                            let s = '';
+                                            const b = new Uint8Array(buf);
+                                            for (let i = 0; i < b.byteLength; i++) s += String.fromCharCode(b[i]);
+                                            return window.btoa(s).replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
+                                        }}
+
+                                        options.publicKey.challenge = b64ToBuf(options.publicKey.challenge);
+                                        if (options.publicKey.allowCredentials) {{
+                                            options.publicKey.allowCredentials.forEach(c => c.id = b64ToBuf(c.id));
+                                        }}
+                                        
+                                        alert("生体認証（FaceID/指紋など）を開始します。");
+                                        
+                                        const assertion = await navigator.credentials.get({{ publicKey: options.publicKey }});
+                                        
+                                        alert("認証成功！ログインします。");
+                                        
+                                        const resp = {{
+                                            id: assertion.id,
+                                            rawId: bufToB64(assertion.rawId),
+                                            type: assertion.type,
+                                            response: {{
+                                                authenticatorData: bufToB64(assertion.response.authenticatorData),
+                                                clientDataJSON: bufToB64(assertion.response.clientDataJSON),
+                                                signature: bufToB64(assertion.response.signature),
+                                                userHandle: assertion.response.userHandle ? bufToB64(assertion.response.userHandle) : null
+                                            }}
+                                        }};
+                                        const url = new URL(window.parent.location);
+                                        url.searchParams.set('webauthn_authentication_response', JSON.stringify(resp));
+                                        url.searchParams.set('webauthn_host', window.parent.location.hostname);
+                                        window.parent.location.href = url.href;
+                                    }} catch (e) {{
+                                        alert("エラーが発生しました： " + e.name + ": " + e.message);
+                                        const url = new URL(window.parent.location);
+                                        url.searchParams.set('webauthn_error', e.name + ': ' + e.message);
+                                        window.parent.location.href = url.href;
+                                    }}
+                                }};
+                                </script>
+                            """, height=50)
+                        else:
+                            st.info("※ 未登録です。")
+                    else:
+                        st.info("※ ユーザー名入力で有効。")
                 
                 if submitted:
                     if login_username and login_password:
