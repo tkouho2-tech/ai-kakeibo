@@ -46,7 +46,7 @@ RP_NAME = "AI家計簿アプリ"
 
 def get_rp_host():
     """現在のアクセスドメインをRP IDとして取得する"""
-    # 実行環境に合わせて RP_ID を一字一句違わず固定する
+    # 黄金律: RP_ID を一字一句違わず固定する
     host = st.context.headers.get("host", "")
     if "streamlit.app" in host:
         return "ai-kakeibo-6abmxvbgknbwser7n2ykb4.streamlit.app"
@@ -449,7 +449,8 @@ def handle_biometric_login_request():
         st.error("このユーザーには登録済みのデバイスがありません。まずはパスワードでログインしてデバイスを登録してください。")
         return
 
-    rp_id = get_rp_host()
+    # 黄金律: RP_ID を一字一句違わず直接指定する
+    rp_id = "ai-kakeibo-6abmxvbgknbwser7n2ykb4.streamlit.app"
     options = generate_authentication_options(
         rp_id=rp_id,
         allow_credentials=[{"id": c['id'], "type": "public-key"} for c in credentials],
@@ -501,19 +502,25 @@ def handle_biometric_login_request():
                     function b64ToBuf(b64) {{
                         const bin = window.atob(b64.replace(/-/g, '+').replace(/_/g, '/'));
                         const buf = new Uint8Array(bin.length);
-                        for (let i = 0; i < bin.length; i++) buf[i] = bin.charCodeAt(i);
+                        for (let i = 0; i < bin.length; i++) {{
+                            buf[i] = bin.charCodeAt(i);
+                        }}
                         return buf.buffer;
                     }}
                     function bufToB64(buf) {{
                         let s = '';
                         const b = new Uint8Array(buf);
-                        for (let i = 0; i < b.byteLength; i++) s += String.fromCharCode(b[i]);
+                        for (let i = 0; i < b.byteLength; i++) {{
+                            s += String.fromCharCode(b[i]);
+                        }}
                         return window.btoa(s).replace(/\\+/g, '-').replace(/\\//g, '_').replace(/=/g, '');
                     }}
 
                     options.publicKey.challenge = b64ToBuf(options.publicKey.challenge);
                     if (options.publicKey.allowCredentials) {{
-                        options.publicKey.allowCredentials.forEach(c => {{ c.id = b64ToBuf(c.id); }});
+                        options.publicKey.allowCredentials.forEach(c => {{ 
+                            c.id = b64ToBuf(c.id); 
+                        }});
                     }}
                     
                     const assert = await window.parent.navigator.credentials.get({{ publicKey: options.publicKey }});
@@ -541,6 +548,7 @@ def handle_biometric_login_request():
     if auth_response:
         if "error" in auth_response:
             st.error(f"認証エラー: {auth_response['error']}")
+            st.rerun()
         else:
             handle_webauthn_authentication(auth_response)
 
@@ -563,7 +571,7 @@ def render_profile_settings():
     user_id_str = st.session_state['username']
     user_id_bytes = user_id_str.encode('utf-8')
     reg_options = generate_registration_options(
-        rp_id=get_rp_host(),
+        rp_id="ai-kakeibo-6abmxvbgknbwser7n2ykb4.streamlit.app",
         rp_name=RP_NAME,
         user_id=user_id_bytes,
         user_name=user_id_str,
@@ -643,7 +651,9 @@ def render_profile_settings():
                     function bufToB64(buf) {{
                         let s = '';
                         const b = new Uint8Array(buf);
-                        for (let i = 0; i < b.byteLength; i++) s += String.fromCharCode(b[i]);
+                        for (let i = 0; i < b.byteLength; i++) {{
+                            s += String.fromCharCode(b[i]);
+                        }}
                         return window.btoa(s).replace(/\\+/g, '-').replace(/\\//g, '_').replace(/=/g, '');
                     }}
 
@@ -2044,7 +2054,7 @@ def main():
 
         # サイドバーメニューの実装
         with st.sidebar:
-            st.subheader("マイニー [Ver 3.5.3]")
+            st.subheader("マイニー [Ver 3.5.4]")
             st.write(f"🔑 ユーザー: **{st.session_state['username']}**")
             st.markdown("---")
             if 'menu_selection' not in st.session_state:
@@ -3420,7 +3430,7 @@ def main():
                 """)
 
             st.markdown("---")
-            st.caption(f"マイニー Ver 3.5.3 - ユーザー: {st.session_state['username']}")
+            st.caption(f"マイニー Ver 3.5.4 - ユーザー: {st.session_state['username']}")
             
         elif menu_selection == "👤プロフィール・設定":
             render_profile_settings()
