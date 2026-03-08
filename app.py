@@ -278,11 +278,11 @@ def init_transactions_sheet(sheet):
 def init_webauthn_sheet(sheet):
     """初期セットアップ：WebAuthn認証情報シートのヘッダーがない場合に作成する"""
     try:
-        headers = sheet.row_values(1)
+        headers = safe_gspread_call(sheet.row_values, 1)
         if not headers or headers[0] != "username":
-            sheet.insert_row(["username", "credential_id", "public_key", "sign_count"], 1)
+            safe_gspread_call(sheet.insert_row, ["username", "credential_id", "public_key", "sign_count"], 1)
     except Exception:
-        sheet.insert_row(["username", "credential_id", "public_key", "sign_count"], 1)
+        safe_gspread_call(sheet.insert_row, ["username", "credential_id", "public_key", "sign_count"], 1)
 
 # ---------- 認証機能 ----------
 def register_user(username, password):
@@ -344,16 +344,22 @@ def get_user_credentials(username):
 
 def save_user_credential(username, credential_id, public_key, sign_count):
     """ユーザーのWebAuthn認証情報を保存する"""
-    sheet = get_sheet(WEBAUTHN_WORKSHEET_NAME)
-    init_webauthn_sheet(sheet)
-    # credential_id は bytes なので base64url 文字列に変換して保存
-    # public_key も bytes なので base64 文字列に変換して保存
-    sheet.append_row([
-        username.lower(),
-        credential_id,
-        base64.b64encode(public_key).decode('utf-8'),
-        sign_count
-    ])
+    try:
+        st.info("スプレッドシートに認証情報を保存しています...")
+        sheet = get_sheet(WEBAUTHN_WORKSHEET_NAME)
+        init_webauthn_sheet(sheet)
+        
+        # データの保存 (リトライ付き)
+        safe_gspread_call(sheet.append_row, [
+            username.lower(),
+            credential_id,
+            base64.b64encode(public_key).decode('utf-8'),
+            sign_count
+        ])
+        st.toast("スプレッドシートへの保存に成功しました！")
+    except Exception as e:
+        st.error(f"スプレッドシートへの保存に失敗しました: {e}")
+        raise e
 
 # --- WebAuthn ハンドラー ---
 
@@ -387,6 +393,7 @@ def handle_webauthn_registration(response_json):
         st.rerun()
     except Exception as e:
         st.error(f"デバイス登録中にエラーが発生しました: {e}")
+        st.info("ヒント: スプレッドシートの書き込み権限や、ネットワーク接続を確認してください。")
         st.query_params.clear()
 
 def handle_webauthn_authentication(response_json):
@@ -1850,7 +1857,7 @@ def main():
 
         # サイドバーメニューの実装
         with st.sidebar:
-            st.subheader("マイニー [Ver 3.4.2]")
+            st.subheader("マイニー [Ver 3.4.3]")
             st.write(f"🔑 ユーザー: **{st.session_state['username']}**")
             st.markdown("---")
             if 'menu_selection' not in st.session_state:
@@ -3226,7 +3233,7 @@ def main():
                 """)
 
             st.markdown("---")
-            st.caption(f"マイニー Ver 3.4.2 - ユーザー: {st.session_state['username']}")
+            st.caption(f"マイニー Ver 3.4.3 - ユーザー: {st.session_state['username']}")
             
         elif menu_selection == "👤プロフィール・設定":
             render_profile_settings()
