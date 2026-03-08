@@ -1998,7 +1998,7 @@ def main():
 
         # サイドバーメニューの実装
         with st.sidebar:
-            st.subheader("マイニー [Ver 3.7.8]")
+            st.subheader("マイニー [Ver 3.7.9]")
             st.write(f"🔑 ユーザー: **{st.session_state['username']}**")
             st.markdown("---")
             if 'menu_selection' not in st.session_state:
@@ -2012,10 +2012,10 @@ def main():
                 "レシート取込", 
                 "レシート手入力", 
                 "レシート修正", 
-                "AI相談", 
-                "プロフィール設定",
+                "マニュアル", 
                 "ヘルプ", 
-                "マニュアル"
+                "AI相談", 
+                "プロフィール設定"
             ]
             
             # メニューのリセット処理（別の画面から戻ってきたとき用）
@@ -2028,11 +2028,11 @@ def main():
             # サイドバーの仕切り線（カレンダーとレシート取込の間）
             st.markdown("""
                 <style>
-                /* streamlitのradioボタン（機能選択）の3番目（カレンダー）の後に線を引く */
-                div[data-testid="stSidebar"] div[role="radiogroup"] > label:nth-of-type(3) {
-                    border-bottom: 1px solid #ddd;
-                    margin-bottom: 12px;
-                    padding-bottom: 12px;
+                /* radioボタン全体の中で、3番目の項目（カレンダー）の直後に線を引く */
+                div[data-testid="stSidebar"] div[role="radiogroup"] > div:nth-of-type(3) {
+                    border-bottom: 2px solid #ddd;
+                    margin-bottom: 15px;
+                    padding-bottom: 10px;
                 }
                 </style>
             """, unsafe_allow_html=True)
@@ -3501,7 +3501,7 @@ MBTI: {mbti}
                 """)
 
             st.markdown("---")
-            st.caption("マイニー Ver 3.7.8 - ユーザー: %s" % st.session_state['username'])
+            st.caption("マイニー Ver 3.7.9 - ユーザー: %s" % st.session_state['username'])
             
     # 未ログインの状態 (ログイン・登録画面)
     else:
