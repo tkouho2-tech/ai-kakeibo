@@ -482,63 +482,67 @@ def handle_biometric_login_request():
     
     from streamlit.components.v1 import declare_component
     if 'webauthn_auth_comp' not in st.session_state:
-        # 黄金律: f-string 内の JS 波かっこはすべて {{ }} にする
-        st.session_state['webauthn_auth_comp'] = declare_component("webauthn_auth", content=f"""
+        # 置換方式: f-string を使わず .replace() で値を流し込む
+        auth_template = """
 <script>
-function sendToStreamlit(value) {{
-    window.parent.postMessage({{
+function sendToStreamlit(value) {
+    window.parent.postMessage({
         isStreamlitMessage: true,
         type: "streamlit:setComponentValue",
         value: value
-    }}, "*");
-}}
-(async function() {{
-    try {{
-        const options = JSON.parse('{js_options}');
-        function b64ToBuf(b64) {{
+    }, "*");
+}
+(async function() {
+    try {
+        const options = JSON.parse('__JS_OPTIONS__');
+        function b64ToBuf(b64) {
             const bin = window.atob(b64.replace(/-/g, '+').replace(/_/g, '/'));
             const buf = new Uint8Array(bin.length);
-            for (let i = 0; i < bin.length; i++) {{
+            for (let i = 0; i < bin.length; i++) {
                 buf[i] = bin.charCodeAt(i);
-            }}
+            }
             return buf.buffer;
-        }}
-        function bufToB64(buf) {{
+        }
+        function bufToB64(buf) {
             let s = '';
             const b = new Uint8Array(buf);
-            for (let i = 0; i < b.byteLength; i++) {{
+            for (let i = 0; i < b.byteLength; i++) {
                 s += String.fromCharCode(b[i]);
-            }}
-            return window.btoa(s).replace(/\\+/g, '-').replace(/\\//g, '_').replace(/=/g, '');
-        }}
+            }
+            return window.btoa(s).replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
+        }
 
         options.publicKey.challenge = b64ToBuf(options.publicKey.challenge);
-        if (options.publicKey.allowCredentials) {{
-            options.publicKey.allowCredentials.forEach(c => {{ 
+        if (options.publicKey.allowCredentials) {
+            options.publicKey.allowCredentials.forEach(c => { 
                 c.id = b64ToBuf(c.id); 
-            }});
-        }}
+            });
+        }
         
-        const assert = await window.parent.navigator.credentials.get({{ publicKey: options.publicKey }});
+        const assert = await window.parent.navigator.credentials.get({ publicKey: options.publicKey });
         
-        const resp = {{
+        const resp = {
             id: assert.id,
             rawId: bufToB64(assert.rawId),
             type: assert.type,
-            response: {{
+            response: {
                 authenticatorData: bufToB64(assert.response.authenticatorData),
                 clientDataJSON: bufToB64(assert.response.clientDataJSON),
                 signature: bufToB64(assert.response.signature),
                 userHandle: assert.response.userHandle ? bufToB64(assert.response.userHandle) : null
-            }}
-        }};
+            }
+        };
         sendToStreamlit(resp);
-    }} catch (e) {{
-        sendToStreamlit({{ error: e.name + ': ' + e.message }});
-    }}
-}})();
+    } catch (e) {
+        sendToStreamlit({ error: e.name + ': ' + e.message });
+    }
+})();
 </script>
-""")
+"""
+        st.session_state['webauthn_auth_comp'] = declare_component(
+            "webauthn_auth", 
+            content=auth_template.replace('__JS_OPTIONS__', js_options)
+        )
     
     auth_response = st.session_state['webauthn_auth_comp'](key="biometric_login")
     if auth_response:
@@ -594,10 +598,10 @@ def render_profile_settings():
     
     from streamlit.components.v1 import declare_component
     if 'webauthn_reg_comp' not in st.session_state:
-        # 黄金律: HTML/JS/CSS 内の波かっこはすべて二重化 ({{ }}) する
-        st.session_state['webauthn_reg_comp'] = declare_component("webauthn_reg", content=f"""
+        # 置換方式: HTML/JS/CSS 内の波かっこは通常のシングル ({ }) に戻し、replace で置換する
+        reg_template = """
 <style>
-.reg-btn {{
+.reg-btn {
     background-color: #ff0000;
     color: white;
     border: none;
@@ -607,8 +611,8 @@ def render_profile_settings():
     cursor: pointer;
     width: 100%;
     font-size: 16px;
-}}
-#error-display {{
+}
+#error-display {
     color: #dc3545;
     background-color: #f8d7da;
     padding: 10px;
@@ -616,70 +620,76 @@ def render_profile_settings():
     margin-bottom: 10px;
     display: none;
     font-size: 14px;
-}}
+}
 </style>
 <div id="error-display"></div>
 <button id="reg-button" class="reg-btn">生体認証デバイスを登録する</button>
 <script>
-function sendToStreamlit(value) {{
-    window.parent.postMessage({{
+function sendToStreamlit(value) {
+    window.parent.postMessage({
         isStreamlitMessage: true,
         type: "streamlit:setComponentValue",
         value: value
-    }}, "*");
-}}
-document.getElementById('reg-button').onclick = async function() {{
+    }, "*");
+}
+document.getElementById('reg-button').onclick = async function() {
     const errDiv = document.getElementById('error-display');
     errDiv.style.display = 'none';
     
-    try {{
-        const options = JSON.parse('{js_reg_options}');
-        const manualChallenge = '{challenge_b64}';
-        const manualUserId = '{user_id_b64}';
+    try {
+        const options = JSON.parse('__JS_REG_OPTIONS__');
+        const manualChallenge = '__CHALLENGE_B64__';
+        const manualUserId = '__USER_ID_B64__';
 
-        if (!options || !options.publicKey) {{
+        if (!options || !options.publicKey) {
             throw new Error("認証オプションが生成されていません。");
-        }}
+        }
         
-        function b64ToBuf(b64) {{
+        function b64ToBuf(b64) {
             const bin = window.atob(b64.replace(/-/g, '+').replace(/_/g, '/'));
-            return Uint8Array.from(bin, c => {{ return c.charCodeAt(0); }}).buffer;
-        }}
-        function bufToB64(buf) {{
+            return Uint8Array.from(bin, c => { return c.charCodeAt(0); }).buffer;
+        }
+        function bufToB64(buf) {
             let s = '';
             const b = new Uint8Array(buf);
-            for (let i = 0; i < b.byteLength; i++) {{
+            for (let i = 0; i < b.byteLength; i++) {
                 s += String.fromCharCode(b[i]);
-            }}
-            return window.btoa(s).replace(/\\+/g, '-').replace(/\\//g, '_').replace(/=/g, '');
-        }}
+            }
+            return window.btoa(s).replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
+        }
 
         options.publicKey.challenge = b64ToBuf(manualChallenge);
         options.publicKey.user.id = b64ToBuf(manualUserId);
         
         alert("生体認証（パスキー）を開始します。");
         
-        const cred = await window.parent.navigator.credentials.create({{ publicKey: options.publicKey }});
+        const cred = await window.parent.navigator.credentials.create({ publicKey: options.publicKey });
         
-        const resp = {{
+        const resp = {
             id: cred.id,
             rawId: bufToB64(cred.rawId),
             type: cred.type,
-            response: {{
+            response: {
                 attestationObject: bufToB64(cred.response.attestationObject),
                 clientDataJSON: bufToB64(cred.response.clientDataJSON)
-            }}
-        }};
+            }
+        };
         sendToStreamlit(resp);
-    }} catch (e) {{
+    } catch (e) {
         console.error(e);
         errDiv.innerText = "エラー: " + e.message;
         errDiv.style.display = 'block';
-        sendToStreamlit({{ error: e.name + ': ' + e.message }});
-    }}
-}};
+        sendToStreamlit({ error: e.name + ': ' + e.message });
+    }
+};
 </script>
-""")
+"""
+        st.session_state['webauthn_reg_comp'] = declare_component(
+            "webauthn_reg", 
+            content=reg_template.replace('__JS_REG_OPTIONS__', js_reg_options)
+                               .replace('__CHALLENGE_B64__', challenge_b64)
+                               .replace('__USER_ID_B64__', user_id_b64)
+        )
     reg_response = st.session_state['webauthn_reg_comp'](key="biometric_reg")
     if reg_response:
         if "error" in reg_response:
@@ -2051,7 +2061,7 @@ def main():
 
         # サイドバーメニューの実装
         with st.sidebar:
-            st.subheader("マイニー [Ver 3.5.6]")
+            st.subheader("マイニー [Ver 3.5.7]")
             st.write(f"🔑 ユーザー: **{st.session_state['username']}**")
             st.markdown("---")
             if 'menu_selection' not in st.session_state:
@@ -3427,7 +3437,7 @@ def main():
                 """)
 
             st.markdown("---")
-            st.caption(f"マイニー Ver 3.5.6 - ユーザー: {st.session_state['username']}")
+            st.caption(f"マイニー Ver 3.5.7 - ユーザー: {st.session_state['username']}")
             
         elif menu_selection == "👤プロフィール・設定":
             render_profile_settings()
