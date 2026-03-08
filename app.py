@@ -24,6 +24,7 @@ from urllib.parse import urlparse
 
 SPREADSHEET_NAME = "Kakeibo_Data"
 WORKSHEET_NAME = "users"
+TRANSACTIONS_WORKSHEET_NAME = "transactions"
 
 # ---------- カテゴリ定義 ----------
 # AI判別やセレクトボックスで利用するための大分類・小分類の親子関係定義
@@ -525,10 +526,7 @@ function sendToStreamlit(value) {
         else:
             handle_webauthn_authentication(auth_response)
 
-def render_profile_settings():
-    """プロフィール・設定画面の表示"""
-    st.markdown("### 👤 プロフィール・設定")
-    st.write("現在のユーザー: **%s**" % st.session_state['username'])
+
 
     st.markdown("---")
     if st.button("ログアウト", type="secondary"):
@@ -1887,7 +1885,7 @@ def main():
 
         # サイドバーメニューの実装
         with st.sidebar:
-            st.subheader("マイニー [Ver 3.7.1]")
+            st.subheader("マイニー [Ver 3.7.2]")
             st.write(f"🔑 ユーザー: **{st.session_state['username']}**")
             st.markdown("---")
             if 'menu_selection' not in st.session_state:
@@ -1903,8 +1901,7 @@ def main():
                 "レシート修正", 
                 "👁AI相談", 
                 "ヘルプ", 
-                "📗マニュアル",
-                "👤プロフィール・設定"
+                "📗マニュアル"
             ]
             
             # メニューのリセット処理（別の画面から戻ってきたとき用）
@@ -3263,10 +3260,7 @@ def main():
                 """)
 
             st.markdown("---")
-            st.caption("マイニー Ver 3.7.1 - ユーザー: %s" % st.session_state['username'])
-            
-        elif menu_selection == "👤プロフィール・設定":
-            render_profile_settings()
+            st.caption("マイニー Ver 3.7.2 - ユーザー: %s" % st.session_state['username'])
             
     # 未ログインの状態 (ログイン・登録画面)
     else:
