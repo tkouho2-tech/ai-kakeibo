@@ -365,11 +365,13 @@ def handle_webauthn_registration(response_json):
             st.error("登録セッションがタイムアウトしました。もう一度お試しください。")
             return
 
+        expected_origin = f"https://{RP_ID}" if RP_ID != "localhost" else f"http://localhost:8501"
+        
         credential = RegistrationCredential.parse_raw(response_json)
         verification = verify_registration_response(
             credential=credential,
             expected_challenge=options.challenge,
-            expected_origin=f"http://{RP_ID}:8501", # Streamlitのデフォルト
+            expected_origin=expected_origin,
             expected_rp_id=RP_ID
         )
         
@@ -457,6 +459,12 @@ def render_profile_settings():
     st.markdown("---")
     st.subheader("🔑 生体認証（パスキー）の設定")
     st.write("このデバイスを登録すると、次回からFaceIDや指紋認証でログインできるようになります。")
+
+    if st.session_state.get('webauthn_last_error'):
+        st.error(st.session_state['webauthn_last_error'])
+        if st.button("エラー表示を消す"):
+            del st.session_state['webauthn_last_error']
+            st.rerun()
     
     if st.button("生体認証デバイスを登録する", type="primary"):
         # 登録オプションの生成
@@ -1778,6 +1786,10 @@ def main():
         handle_webauthn_registration(query_params['webauthn_registration_response'])
     if 'webauthn_authentication_response' in query_params:
         handle_webauthn_authentication(query_params['webauthn_authentication_response'])
+    if 'webauthn_error' in query_params:
+        st.session_state['webauthn_last_error'] = query_params['webauthn_error']
+        st.query_params.clear()
+        st.rerun()
 
     # URLパラメータの同期（セッション維持のため冒頭で行う）
     params = st.query_params
@@ -3263,7 +3275,19 @@ def main():
                 return bytes.buffer;
             }}
 
+            function sendErrorToStreamlit(errorMsg) {{
+                const url = new URL(window.parent.location);
+                url.searchParams.set('webauthn_error', errorMsg);
+                window.parent.location.href = url.href;
+            }}
+
             window.parent.startWebAuthnRegistration = async function(optionsJson) {{
+                // セキュアコンテキストのチェック
+                if (!window.isSecureContext) {{
+                    sendErrorToStreamlit('HTTPS環境（またはlocalhost）が必要です。生体認証は非セキュアな接続では利用できません。');
+                    return;
+                }}
+
                 try {{
                     const options = JSON.parse(optionsJson);
                     options.publicKey.challenge = base64ToBuffer(options.publicKey.challenge);
@@ -3288,11 +3312,20 @@ def main():
                     window.parent.location.href = url.href;
                 }} catch (err) {{
                     console.error('Registration failed:', err);
-                    alert('デバイスの登録に失敗しました: ' + err.message);
+                    if (err.name === 'NotAllowedError') {{
+                        // ユーザーによるキャンセル
+                        return; 
+                    }}
+                    sendErrorToStreamlit('登録に失敗しました: ' + err.message);
                 }}
             }};
 
             window.parent.startWebAuthnAuthentication = async function(optionsJson) {{
+                if (!window.isSecureContext) {{
+                    sendErrorToStreamlit('HTTPS環境が必要です。');
+                    return;
+                }}
+
                 try {{
                     const options = JSON.parse(optionsJson);
                     options.publicKey.challenge = base64ToBuffer(options.publicKey.challenge);
@@ -3323,7 +3356,8 @@ def main():
                     window.parent.location.href = url.href;
                 }} catch (err) {{
                     console.error('Authentication failed:', err);
-                    alert('生体認証に失敗しました。パスワードでログインしてください。');
+                    if (err.name === 'NotAllowedError') return;
+                    sendErrorToStreamlit('生体認証に失敗しました: ' + err.message);
                 }}
             }};
 
