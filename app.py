@@ -482,7 +482,7 @@ def handle_biometric_login_request():
     
     from streamlit.components.v1 import declare_component
     if 'webauthn_auth_comp' not in st.session_state:
-        # 置換方式: f を完全に消去し、.replace() を使用
+        # 完全置換方式: f を完全に消去し、.replace() を使用
         auth_template = """
 <script>
 function sendToStreamlit(value) {
@@ -598,97 +598,35 @@ def render_profile_settings():
     
     from streamlit.components.v1 import declare_component
     if 'webauthn_reg_comp' not in st.session_state:
-        # テンプレート置換方式 (f を一切使わない)
+        # 完全コピペ方式: ユーザー指定のテンプレートを 1mm も変えずに使用
         reg_template = """
-<style>
-.reg-btn {
-    background-color: #ff0000;
-    color: white;
-    border: none;
-    padding: 12px 24px;
-    border-radius: 8px;
-    font-weight: bold;
-    cursor: pointer;
-    width: 100%;
-    font-size: 16px;
-}
-#error-display {
-    color: #dc3545;
-    background-color: #f8d7da;
-    padding: 10px;
-    border-radius: 4px;
-    margin-bottom: 10px;
-    display: none;
-    font-size: 14px;
-}
-</style>
-<div id="error-display"></div>
-<button id="reg-button" class="reg-btn">生体認証デバイスを登録する</button>
 <script>
-function sendToStreamlit(value) {
-    window.parent.postMessage({
-        isStreamlitMessage: true,
-        type: "streamlit:setComponentValue",
-        value: value
-    }, "*");
-}
-document.getElementById('reg-button').onclick = async function() {
-    const errDiv = document.getElementById('error-display');
-    errDiv.style.display = 'none';
-    
-    try {
-        const options = JSON.parse('__JS_REG_OPTIONS__');
-        const manualChallenge = '__CHALLENGE_B64__';
-        const manualUserId = '__USER_ID_B64__';
-
-        if (!options || !options.publicKey) {
-            throw new Error("認証オプションが生成されていません。");
-        }
-        
-        function b64ToBuf(b64) {
-            const bin = window.atob(b64.replace(/-/g, '+').replace(/_/g, '/'));
-            return Uint8Array.from(bin, c => { return c.charCodeAt(0); }).buffer;
-        }
-        function bufToB64(buf) {
-            let s = '';
-            const b = new Uint8Array(buf);
-            for (let i = 0; i < b.byteLength; i++) {
-                s += String.fromCharCode(b[i]);
-            }
-            return window.btoa(s).replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
-        }
-
-        options.publicKey.challenge = b64ToBuf(manualChallenge);
-        options.publicKey.user.id = b64ToBuf(manualUserId);
-        
-        alert("生体認証（パスキー）を開始します。");
-        
-        const cred = await window.parent.navigator.credentials.create({ publicKey: options.publicKey });
-        
-        const resp = {
-            id: cred.id,
-            rawId: bufToB64(cred.rawId),
-            type: cred.type,
-            response: {
-                attestationObject: bufToB64(cred.response.attestationObject),
-                clientDataJSON: bufToB64(cred.response.clientDataJSON)
-            }
-        };
-        sendToStreamlit(resp);
-    } catch (e) {
-        console.error(e);
-        errDiv.innerText = "エラー: " + e.message;
-        errDiv.style.display = 'block';
-        sendToStreamlit({ error: e.name + ': ' + e.message });
+  // JavaScriptのカッコはそのまま。Pythonはこれを解析しません。
+  const options = {
+    publicKey: {
+      challenge: Uint8Array.from(atob('__CHALLENGE__'), c => c.charCodeAt(0)),
+      rp: { id: '__RP_ID__', name: 'Household App' },
+      user: { id: new TextEncoder().encode('__USER_ID__'), name: 'User' },
+      pubKeyCredParams: [{ alg: -7, type: 'public-key' }],
+      timeout: 60000
     }
-};
+  };
+  navigator.credentials.create(options)
+    .then(res => { 
+      window.parent.postMessage({
+          isStreamlitMessage: true,
+          type: "streamlit:setComponentValue",
+          value: res
+      }, "*"); 
+    })
+    .catch(err => { console.error(err); });
 </script>
 """
         st.session_state['webauthn_reg_comp'] = declare_component(
             "webauthn_reg", 
-            content=reg_template.replace('__JS_REG_OPTIONS__', js_reg_options)
-                               .replace('__CHALLENGE_B64__', challenge_b64)
-                               .replace('__USER_ID_B64__', user_id_b64)
+            content=reg_template.replace('__CHALLENGE__', challenge_b64)
+                               .replace('__RP_ID__', "ai-kakeibo-6abmxvbgknbwser7n2ykb4.streamlit.app")
+                               .replace('__USER_ID__', user_id_b64)
         )
     reg_response = st.session_state['webauthn_reg_comp'](key="biometric_reg")
     if reg_response:
@@ -700,7 +638,7 @@ document.getElementById('reg-button').onclick = async function() {
     # 登録済みデバイスの表示
     creds = get_user_credentials(st.session_state['username'])
     if creds:
-        st.write(f"✅ 登録済みデバイス: {len(creds)} 台")
+        st.write("✅ 登録済みデバイス: %d 台" % len(creds))
     else:
         st.write("❌ 未登録")
 
@@ -2061,7 +1999,7 @@ def main():
 
         # サイドバーメニューの実装
         with st.sidebar:
-            st.subheader("マイニー [Ver 3.6.0]")
+            st.subheader("マイニー [Ver 3.6.1]")
             st.write(f"🔑 ユーザー: **{st.session_state['username']}**")
             st.markdown("---")
             if 'menu_selection' not in st.session_state:
@@ -3437,7 +3375,7 @@ def main():
                 """)
 
             st.markdown("---")
-            st.caption("マイニー Ver 3.6.0 - ユーザー: %s" % st.session_state['username'])
+            st.caption("マイニー Ver 3.6.1 - ユーザー: %s" % st.session_state['username'])
             
         elif menu_selection == "👤プロフィール・設定":
             render_profile_settings()
