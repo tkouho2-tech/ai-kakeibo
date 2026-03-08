@@ -482,7 +482,7 @@ def handle_biometric_login_request():
     
     from streamlit.components.v1 import declare_component
     if 'webauthn_auth_comp' not in st.session_state:
-        # 置換方式: f-string を使わず .replace() で値を流し込む
+        # 置換方式: f を完全に消去し、.replace() を使用
         auth_template = """
 <script>
 function sendToStreamlit(value) {
@@ -547,7 +547,7 @@ function sendToStreamlit(value) {
     auth_response = st.session_state['webauthn_auth_comp'](key="biometric_login")
     if auth_response:
         if "error" in auth_response:
-            st.error(f"認証エラー: {auth_response['error']}")
+            st.error("認証エラー: %s" % auth_response['error'])
             st.rerun()
         else:
             handle_webauthn_authentication(auth_response)
@@ -555,7 +555,7 @@ function sendToStreamlit(value) {
 def render_profile_settings():
     """プロフィール・設定画面の表示"""
     st.markdown("### 👤 プロフィール・設定")
-    st.write(f"現在のユーザー: **{st.session_state['username']}**")
+    st.write("現在のユーザー: **%s**" % st.session_state['username'])
     
     st.markdown("---")
     st.subheader("🔑 生体認証（パスキー）の設定")
@@ -598,7 +598,7 @@ def render_profile_settings():
     
     from streamlit.components.v1 import declare_component
     if 'webauthn_reg_comp' not in st.session_state:
-        # 置換方式: HTML/JS/CSS 内の波かっこは通常のシングル ({ }) に戻し、replace で置換する
+        # テンプレート置換方式 (f を一切使わない)
         reg_template = """
 <style>
 .reg-btn {
@@ -693,7 +693,7 @@ document.getElementById('reg-button').onclick = async function() {
     reg_response = st.session_state['webauthn_reg_comp'](key="biometric_reg")
     if reg_response:
         if "error" in reg_response:
-            st.error(f"登録エラー: {reg_response['error']}")
+            st.error("登録エラー: %s" % reg_response['error'])
         else:
             handle_webauthn_registration(reg_response)
     
@@ -2061,7 +2061,7 @@ def main():
 
         # サイドバーメニューの実装
         with st.sidebar:
-            st.subheader("マイニー [Ver 3.5.8]")
+            st.subheader("マイニー [Ver 3.6.0]")
             st.write(f"🔑 ユーザー: **{st.session_state['username']}**")
             st.markdown("---")
             if 'menu_selection' not in st.session_state:
@@ -3437,7 +3437,7 @@ def main():
                 """)
 
             st.markdown("---")
-            st.caption(f"マイニー Ver 3.5.8 - ユーザー: {st.session_state['username']}")
+            st.caption("マイニー Ver 3.6.0 - ユーザー: %s" % st.session_state['username'])
             
         elif menu_selection == "👤プロフィール・設定":
             render_profile_settings()
