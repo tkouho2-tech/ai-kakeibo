@@ -69,7 +69,7 @@ CATEGORY_COLOR_MAP = {
     "その他": "#778899",   # ライトスレートグレー
     "消費税（外税）": "#BC8F8F", # ロージーブラウン
     "消費税（内税）": "#D2B48C", # タン
-    "割引・ポイント利用": "#000000" # 黒
+    "割引・ポイント利用": "#FFFF00" # 黄色
 }
 
 def get_categories():
@@ -1639,6 +1639,7 @@ def show_dashboard():
                 if hasattr(trace, 'y'):
                     trace.marker.color = ['yellow' if v < 0 else None for v in trace.y]
 
+            fig.update_yaxes(zerolinewidth=2, zerolinecolor='black')
             st.plotly_chart(fig, use_container_width=True)
             
             # 当月の合計金額はそのまま表示（内税除外）
@@ -1746,6 +1747,7 @@ def show_yearly_dashboard():
             if hasattr(trace, 'y'):
                 trace.marker.color = ['yellow' if v < 0 else None for v in trace.y]
 
+        fig.update_yaxes(zerolinewidth=2, zerolinecolor='black')
         st.plotly_chart(fig, use_container_width=True)
 
     elif graph_type == "棒グラフ":
@@ -1765,6 +1767,7 @@ def show_yearly_dashboard():
                 if hasattr(trace, 'y'):
                     trace.marker.color = ['yellow' if v < 0 else None for v in trace.y]
 
+            fig.update_yaxes(zerolinewidth=2, zerolinecolor='black')
             st.plotly_chart(fig, use_container_width=True)
             
             # 年間合計は内税除外
