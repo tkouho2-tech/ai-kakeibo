@@ -1631,7 +1631,14 @@ def show_dashboard():
             # 当月の日数を計算 (月末までカレンダー通り表示)
             _, last_day = calendar.monthrange(selected_year, selected_month)
             all_days = [f"{i}日" for i in range(1, last_day + 1)]
-            
+            fig = px.bar(
+                daily_grouped,
+                x='day_label',
+                y='amount',
+                color=group_col,
+                title=f"{selected_year}年{selected_month}月 {title_label}日次推移 (積上げ棒グラフ)",
+                labels={"amount": "金額", "day_label": "日", group_col: analysis_axis[:-1]},
+                category_orders={"day_label": all_days, group_col: cat_sum},
                 color_discrete_map=CATEGORY_COLOR_MAP
             )
             # マイナスのデータを黄色にする
@@ -1738,7 +1745,7 @@ def show_yearly_dashboard():
             '金額': list(prev_summary['amount']) + list(monthly_summary['amount']),
             '年度': [f'{selected_year-1}年'] * 12 + [f'{selected_year}年'] * 12
         })
-        
+        fig = px.bar(comparison_data, x='月', y='金額', color='年度',
                      barmode='group',
                      title=f"{selected_year}年 vs {selected_year-1}年 支出比較 (月次展開)")
         
@@ -1759,7 +1766,14 @@ def show_yearly_dashboard():
         if group_col and group_col in df_for_bar.columns:
             yearly_grouped = df_for_bar.groupby(['month', 'month_label', group_col], as_index=False)["amount"].sum()
             cat_sum = yearly_grouped.groupby(group_col)["amount"].sum().sort_values(ascending=False).index.tolist()
-            
+            fig = px.bar(
+                yearly_grouped,
+                x='month_label',
+                y='amount',
+                color=group_col,
+                title=f"{selected_year}年 {title_label}推移 (積上げ棒グラフ)",
+                labels={"amount": "金額", "month_label": "月", group_col: analysis_axis[:-1]},
+                category_orders={"month_label": [f"{i}月" for i in range(1, 13)], group_col: cat_sum},
                 color_discrete_map=CATEGORY_COLOR_MAP
             )
             # マイナスのデータを黄色にする
