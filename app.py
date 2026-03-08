@@ -480,18 +480,13 @@ def handle_biometric_login_request():
 
     js_options = json.dumps({"publicKey": js_options_dict})
     
-    # Custom Component を使用して結果を同期的に受け取る
-    # st.components.v1.html だと setComponentValue は使えないが、コンポーネント化する
     from streamlit.components.v1 import declare_component
-    # ダミーのコンポーネントとして動作させる
     if 'webauthn_auth_comp' not in st.session_state:
-         # インラインでコンポーネントを定義（簡易版）
-         parent_dir = os.path.dirname(os.path.abspath(__file__))
-         # JSライブラリを読み込みつつ実行するスクリプト
          st.session_state['webauthn_auth_comp'] = declare_component("webauthn_auth", content=f"""
             <script>
             function sendToStreamlit(value) {{
                 window.parent.postMessage({{
+                    isStreamlitMessage: true,
                     type: "streamlit:setComponentValue",
                     value: value
                 }}, "*");
@@ -627,6 +622,7 @@ def render_profile_settings():
             <script>
             function sendToStreamlit(value) {{
                 window.parent.postMessage({{
+                    isStreamlitMessage: true,
                     type: "streamlit:setComponentValue",
                     value: value
                 }}, "*");
@@ -2054,7 +2050,7 @@ def main():
 
         # サイドバーメニューの実装
         with st.sidebar:
-            st.subheader("マイニー [Ver 3.5.4]")
+            st.subheader("マイニー [Ver 3.5.5]")
             st.write(f"🔑 ユーザー: **{st.session_state['username']}**")
             st.markdown("---")
             if 'menu_selection' not in st.session_state:
@@ -3430,7 +3426,7 @@ def main():
                 """)
 
             st.markdown("---")
-            st.caption(f"マイニー Ver 3.5.4 - ユーザー: {st.session_state['username']}")
+            st.caption(f"マイニー Ver 3.5.5 - ユーザー: {st.session_state['username']}")
             
         elif menu_selection == "👤プロフィール・設定":
             render_profile_settings()
