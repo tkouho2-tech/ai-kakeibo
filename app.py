@@ -1887,7 +1887,7 @@ def main():
 
         # サイドバーメニューの実装
         with st.sidebar:
-            st.subheader("マイニー [Ver 3.7.0]")
+            st.subheader("マイニー [Ver 3.7.1]")
             st.write(f"🔑 ユーザー: **{st.session_state['username']}**")
             st.markdown("---")
             if 'menu_selection' not in st.session_state:
@@ -3263,7 +3263,7 @@ def main():
                 """)
 
             st.markdown("---")
-            st.caption("マイニー Ver 3.7.0 - ユーザー: %s" % st.session_state['username'])
+            st.caption("マイニー Ver 3.7.1 - ユーザー: %s" % st.session_state['username'])
             
         elif menu_selection == "👤プロフィール・設定":
             render_profile_settings()
@@ -3290,70 +3290,6 @@ def main():
                     }}
                 }}
             }}
-
-            // WebAuthn ユーティリティ
-            function bufferToBase64(buffer) {{
-                let binary = '';
-                let bytes = new Uint8Array(buffer);
-                let len = bytes.byteLength;
-                for (let i = 0; i < len; i++) {{
-                    binary += String.fromCharCode(bytes[i]);
-                }}
-                return window.btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
-            }}
-
-            function base64ToBuffer(base64) {{
-                let binary = window.atob(base64.replace(/-/g, '+').replace(/_/g, '/'));
-                let len = binary.length;
-                let bytes = new Uint8Array(len);
-                for (let i = 0; i < len; i++) {{
-                    bytes[i] = binary.charCodeAt(i);
-                }}
-                return bytes.buffer;
-            }}
-
-            function sendErrorToStreamlit(errorMsg) {{
-                const url = new URL(window.parent.location);
-                url.searchParams.set('webauthn_error', errorMsg);
-                window.parent.location.href = url.href;
-            }}
-
-            function enforceAlphanumeric() {{
-                const inputs = window.parent.document.querySelectorAll('input[type="text"], input[type="password"]');
-                inputs.forEach(input => {{
-                    if (!input.dataset.alphanumericEnforced) {{
-                        input.dataset.alphanumericEnforced = 'true';
-                        // スマホ対応：英語キーボードを出しやすくする
-                        input.setAttribute('inputmode', 'email');
-                        
-                        // FaceID/パスワードマネージャー対応：autocomplete属性を設定
-                        if (input.previousElementSibling && (input.previousElementSibling.innerText.includes('ユーザー名') || input.parentElement.innerText.includes('ユーザー名'))) {{
-                            input.setAttribute('autocomplete', 'username');
-                        }} else if (input.type === 'password') {{
-                            input.setAttribute('autocomplete', 'current-password');
-                        }} else {{
-                            input.setAttribute('autocomplete', 'off');
-                        }}
-                        
-                        input.addEventListener('input', function(e) {{
-                            // 全角英数字を半角に変換
-                            let val = e.target.value.replace(/[Ａ-Ｚａ-ｚ０-９]/g, function(s) {{
-                                return String.fromCharCode(s.charCodeAt(0) - 0xFEE0);
-                            }});
-                            // 半角英数字と一部記号以外を削除
-                            val = val.replace(/[^A-Za-z0-9_.-]/g, '');
-                            
-                            if (e.target.value !== val) {{
-                                const nativeInputValueSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value").set;
-                                nativeInputValueSetter.call(e.target, val);
-                                e.target.dispatchEvent(new Event('input', {{ bubbles: true }}));
-                            }}
-                        }});
-                    }}
-                }});
-            }}
-            // 定期的にチェックして適用
-            setInterval(enforceAlphanumeric, 1000);
 
             // ログアウト時にlocalStorageをクリアするための監視
             window.parent.addEventListener('click', function(e) {{
