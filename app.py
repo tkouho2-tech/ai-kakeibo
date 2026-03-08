@@ -1998,7 +1998,7 @@ def main():
 
         # サイドバーメニューの実装
         with st.sidebar:
-            st.subheader("マイニー [Ver 3.7.7]")
+            st.subheader("マイニー [Ver 3.7.8]")
             st.write(f"🔑 ユーザー: **{st.session_state['username']}**")
             st.markdown("---")
             if 'menu_selection' not in st.session_state:
@@ -2012,10 +2012,10 @@ def main():
                 "レシート取込", 
                 "レシート手入力", 
                 "レシート修正", 
-                "👁AI相談", 
-                "⚙️ プロフィール設定",
+                "AI相談", 
+                "プロフィール設定",
                 "ヘルプ", 
-                "📗マニュアル"
+                "マニュアル"
             ]
             
             # メニューのリセット処理（別の画面から戻ってきたとき用）
@@ -2024,6 +2024,18 @@ def main():
             # 直前の値を保持しておき、遷移を検知する
             if "last_menu_selection" not in st.session_state:
                 st.session_state.last_menu_selection = st.session_state['menu_selection']
+            
+            # サイドバーの仕切り線（カレンダーとレシート取込の間）
+            st.markdown("""
+                <style>
+                /* streamlitのradioボタン（機能選択）の3番目（カレンダー）の後に線を引く */
+                div[data-testid="stSidebar"] div[role="radiogroup"] > label:nth-of-type(3) {
+                    border-bottom: 1px solid #ddd;
+                    margin-bottom: 12px;
+                    padding-bottom: 12px;
+                }
+                </style>
+            """, unsafe_allow_html=True)
             
             menu_selection = st.radio(
                 "機能を選択",
@@ -2996,7 +3008,7 @@ def main():
                             """, height=0, width=0)
 
                             
-        elif menu_selection == "👁AI相談":
+        elif menu_selection == "AI相談":
             st.markdown("#### 👁AI相談（専属ファイナンシャルプランナー）")
             st.info("あなたの家計簿データに基づいて、AIが分析やアドバイスを行います。")
             
@@ -3196,7 +3208,7 @@ MBTI: {mbti}
                         except Exception as e:
                             st.error(f"予期せぬエラーが発生しました: {e}")
 
-        elif menu_selection == "⚙️ プロフィール設定":
+        elif menu_selection == "プロフィール設定":
             st.markdown("#### ⚙️ プロフィール設定")
             st.info("AI相談でよりパーソナライズされたアドバイスを受けるための基本情報を設定します。")
             
@@ -3412,7 +3424,7 @@ MBTI: {mbti}
                         except Exception as e:
                             st.error(f"予期せぬエラーが発生しました: {e}")
             
-        elif menu_selection == "📗マニュアル":
+        elif menu_selection == "マニュアル":
             st.markdown("### 📗 マイニー公式マニュアル")
             st.info("家計簿アプリ「マイニー」の全機能と操作方法をこちらで確認できます。")
             
@@ -3489,7 +3501,7 @@ MBTI: {mbti}
                 """)
 
             st.markdown("---")
-            st.caption("マイニー Ver 3.7.7 - ユーザー: %s" % st.session_state['username'])
+            st.caption("マイニー Ver 3.7.8 - ユーザー: %s" % st.session_state['username'])
             
     # 未ログインの状態 (ログイン・登録画面)
     else:
