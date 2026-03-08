@@ -540,7 +540,7 @@ def render_profile_settings():
         # 登録オプションの生成
         user_id = st.session_state['username'].encode('utf-8')
         options = generate_registration_options(
-            rp_id=RP_ID,
+            rp_id=get_rp_host(),
             rp_name=RP_NAME,
             user_id=user_id,
             user_name=st.session_state['username'],
@@ -1971,7 +1971,7 @@ def main():
 
         # サイドバーメニューの実装
         with st.sidebar:
-            st.subheader("マイニー [Ver 3.4.4]")
+            st.subheader("マイニー [Ver 3.4.5]")
             st.write(f"🔑 ユーザー: **{st.session_state['username']}**")
             st.markdown("---")
             if 'menu_selection' not in st.session_state:
@@ -3347,7 +3347,7 @@ def main():
                 """)
 
             st.markdown("---")
-            st.caption(f"マイニー Ver 3.4.4 - ユーザー: {st.session_state['username']}")
+            st.caption(f"マイニー Ver 3.4.5 - ユーザー: {st.session_state['username']}")
             
         elif menu_selection == "👤プロフィール・設定":
             render_profile_settings()
