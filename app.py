@@ -553,6 +553,10 @@ def render_profile_settings():
     )
     st.session_state['webauthn_registration_options'] = reg_options
     js_reg_options = options_to_json(reg_options)
+    
+    # 手動抽出（確実な受け渡しのため）
+    challenge_b64 = base64.b64encode(reg_options.challenge).decode('utf-8')
+    user_id_b64 = base64.b64encode(user_id_bytes).decode('utf-8')
 
     # 直接クリックに反応するHTMLボタンをレンダリング
     components.html(f"""
@@ -568,12 +572,32 @@ def render_profile_settings():
             width: 100%;
             font-size: 16px;
         }}
+        #error-display {{
+            color: #dc3545;
+            background-color: #f8d7da;
+            padding: 10px;
+            border-radius: 4px;
+            margin-bottom: 10px;
+            display: none;
+            font-size: 14px;
+        }}
         </style>
+        <div id="error-display"></div>
         <button id="reg-button" class="reg-btn">生体認証デバイスを登録する</button>
         <script>
         document.getElementById('reg-button').onclick = async function() {{
+            const errDiv = document.getElementById('error-display');
+            errDiv.style.display = 'none';
+            
             try {{
                 const options = JSON.parse('{js_reg_options}');
+                const manualChallenge = '{challenge_b64}';
+                const manualUserId = '{user_id_b64}';
+
+                // 厳格なチェック
+                if (!options || !options.publicKey) {{
+                    throw new Error("認証オプション(options.publicKey)が生成されていません。ページを再読み込みしてください。");
+                }}
                 
                 // 厳格な変換ロジック
                 function b64ToBuf(b64) {{
@@ -587,14 +611,15 @@ def render_profile_settings():
                     return window.btoa(s).replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
                 }}
 
-                options.publicKey.challenge = b64ToBuf(options.publicKey.challenge);
-                options.publicKey.user.id = b64ToBuf(options.publicKey.user.id);
+                // 手動で渡されたチャレンジとユーザーIDを優先的にセット
+                options.publicKey.challenge = b64ToBuf(manualChallenge);
+                options.publicKey.user.id = b64ToBuf(manualUserId);
                 
-                alert("生体認証（パスキー）を開始します。画面の指示に従ってください。");
+                alert("生体認証（パスキー）を開始します。FaceIDや指紋認証の画面が出たら認証してください。");
                 
                 const cred = await navigator.credentials.create({{ publicKey: options.publicKey }});
                 
-                alert("認証成功！データを保存します。");
+                alert("認証成功！サーバーに保存します。");
                 
                 const resp = {{
                     id: cred.id,
@@ -611,14 +636,18 @@ def render_profile_settings():
                 url.searchParams.set('webauthn_host', window.parent.location.hostname);
                 window.parent.location.href = url.href;
             }} catch (e) {{
+                console.error(e);
+                errDiv.innerText = "エラー: " + e.message;
+                errDiv.style.display = 'block';
                 alert("エラーが発生しました： " + e.name + ": " + e.message);
+                
                 const url = new URL(window.parent.location);
                 url.searchParams.set('webauthn_error', e.name + ': ' + e.message);
                 window.parent.location.href = url.href;
             }}
         }};
         </script>
-    """, height=60)
+    """, height=100)
     
     # 登録済みデバイスの表示
     creds = get_user_credentials(st.session_state['username'])
@@ -1988,7 +2017,7 @@ def main():
 
         # サイドバーメニューの実装
         with st.sidebar:
-            st.subheader("マイニー [Ver 3.4.6]")
+            st.subheader("マイニー [Ver 3.4.7]")
             st.write(f"🔑 ユーザー: **{st.session_state['username']}**")
             st.markdown("---")
             if 'menu_selection' not in st.session_state:
@@ -3364,7 +3393,7 @@ def main():
                 """)
 
             st.markdown("---")
-            st.caption(f"マイニー Ver 3.4.6 - ユーザー: {st.session_state['username']}")
+            st.caption(f"マイニー Ver 3.4.7 - ユーザー: {st.session_state['username']}")
             
         elif menu_selection == "👤プロフィール・設定":
             render_profile_settings()
@@ -3493,6 +3522,7 @@ def main():
                             st.session_state['webauthn_auth_options'] = auth_options
                             st.session_state['webauthn_auth_username'] = username_for_auth
                             js_auth_options = options_to_json(auth_options)
+                            challenge_login_b64 = base64.b64encode(auth_options.challenge).decode('utf-8')
                             
                             # カスタムボタンの描画
                             components.html(f"""
@@ -3514,12 +3544,30 @@ def main():
                                 .bio-btn:hover {{
                                     background-color: #f8f9fa;
                                 }}
+                                #error-display-login {{
+                                    color: #dc3545;
+                                    background-color: #f8d7da;
+                                    padding: 5px;
+                                    border-radius: 4px;
+                                    margin-bottom: 5px;
+                                    display: none;
+                                    font-size: 12px;
+                                }}
                                 </style>
+                                <div id="error-display-login"></div>
                                 <button id="bio-login-button" class="bio-btn">👤 生体認証でログイン</button>
                                 <script>
                                 document.getElementById('bio-login-button').onclick = async function() {{
+                                    const errDiv = document.getElementById('error-display-login');
+                                    errDiv.style.display = 'none';
+                                    
                                     try {{
                                         const options = JSON.parse('{js_auth_options}');
+                                        const manualChallenge = '{challenge_login_b64}';
+
+                                        if (!options || !options.publicKey) {{
+                                            throw new Error("認証オプションが生成されていません。再試行してください。");
+                                        }}
                                         
                                         function b64ToBuf(b64) {{
                                             const bin = window.atob(b64.replace(/-/g, '+').replace(/_/g, '/'));
@@ -3532,12 +3580,12 @@ def main():
                                             return window.btoa(s).replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
                                         }}
 
-                                        options.publicKey.challenge = b64ToBuf(options.publicKey.challenge);
+                                        options.publicKey.challenge = b64ToBuf(manualChallenge);
                                         if (options.publicKey.allowCredentials) {{
                                             options.publicKey.allowCredentials.forEach(c => c.id = b64ToBuf(c.id));
                                         }}
                                         
-                                        alert("生体認証（FaceID/指紋など）を開始します。");
+                                        alert("生体認証を開始します。");
                                         
                                         const assertion = await navigator.credentials.get({{ publicKey: options.publicKey }});
                                         
@@ -3559,6 +3607,9 @@ def main():
                                         url.searchParams.set('webauthn_host', window.parent.location.hostname);
                                         window.parent.location.href = url.href;
                                     }} catch (e) {{
+                                        console.error(e);
+                                        errDiv.innerText = "エラー: " + e.message;
+                                        errDiv.style.display = 'block';
                                         alert("エラーが発生しました： " + e.name + ": " + e.message);
                                         const url = new URL(window.parent.location);
                                         url.searchParams.set('webauthn_error', e.name + ': ' + e.message);
