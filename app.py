@@ -13,11 +13,10 @@ from dateutil.relativedelta import relativedelta
 from PIL import Image, ImageOps
 from google import genai
 from google.genai import types
-import streamlit.components.v1 as components
 import time
 import re
 import base64
-import pickle
+
 
 # ---------- 構成設定 ----------
 from urllib.parse import urlparse
@@ -99,44 +98,6 @@ if api_key:
     st.session_state['genai_client'] = genai.Client(api_key=api_key)
 
 st.set_page_config(page_title="AI家計簿アプリ - ダッシュボード", page_icon="📊", layout="wide")
-
-# ブラウザの自動翻訳の誤作動を防ぐため、HTMLの言語設定と翻訳拒否設定を強化
-components.html(
-    """
-    <script>
-        // HTML要素の言語を日本語に固定
-        const html = window.parent.document.getElementsByTagName('html')[0];
-        html.setAttribute('lang', 'ja');
-        html.setAttribute('translate', 'no');
-        html.classList.add('notranslate');
-
-        // headにmetaタグを挿入してGoogle翻訳を明示的に拒否
-        const head = window.parent.document.getElementsByTagName('head')[0];
-        if (!window.parent.document.querySelector('meta[name="google"][content="notranslate"]')) {
-            const meta = window.parent.document.createElement('meta');
-            meta.name = 'google';
-            meta.content = 'notranslate';
-            head.appendChild(meta);
-        }
-    </script>
-    """,
-    width=0,
-    height=0,
-)
-
-# 全体のスタイルとしても翻訳拒否を適用
-st.markdown("""
-    <style>
-        /* アプリ全体で翻訳を無効化 */
-        .stApp {
-            unicode-bidi: isolate;
-        }
-        /* classNameを使った拒否（一部ブラウザ向け） */
-        .notranslate {
-            translate: no !important;
-        }
-    </style>
-""", unsafe_allow_html=True)
 
 # ---------- セッション状態の初期化 ----------
 if 'logged_in' not in st.session_state:
@@ -278,15 +239,6 @@ def init_user_master_sheet(sheet):
     except Exception:
         safe_gspread_call(sheet.insert_row, ["username", "name", "gender", "birthdate", "mbti", "occupation", "hobbies", "life_stance"], 1)
 
-def init_webauthn_sheet(sheet):
-    """初期セットアップ：WebAuthn認証情報シートのヘッダーがない場合に作成する"""
-    try:
-        headers = safe_gspread_call(sheet.row_values, 1)
-        if not headers or headers[0] != "username":
-            safe_gspread_call(sheet.insert_row, ["username", "credential_id", "public_key", "sign_count"], 1)
-    except Exception:
-        safe_gspread_call(sheet.insert_row, ["username", "credential_id", "public_key", "sign_count"], 1)
-
 # ---------- 認証機能 ----------
 def register_user(username, password):
     sheet = get_sheet(WORKSHEET_NAME)
@@ -379,233 +331,8 @@ def save_user_master_data(username, profile_data):
     except Exception as e:
         return False, f"プロフィール保存エラー: {e}"
 
-# ---------- WebAuthn ユーティリティ ----------
-
-def get_user_credentials(username):
-    """ユーザーの登録済みWebAuthn認証情報を取得する"""
-    sheet = get_sheet(WEBAUTHN_WORKSHEET_NAME)
-    init_webauthn_sheet(sheet)
-    records = safe_gspread_call(sheet.get_all_records)
-    user_creds = []
-    for row in records:
-        if str(row.get("username", "")).lower() == username.lower():
-            user_creds.append({
-                "id": base64url_to_bytes(row["credential_id"]),
-                "public_key": base64.b64decode(row["public_key"]),
-                "sign_count": int(row["sign_count"])
-            })
-    return user_creds
-
-def save_user_credential(username, credential_id, public_key, sign_count):
-    """ユーザーのWebAuthn認証情報を保存する"""
-    try:
-        st.info("スプレッドシートに認証情報を保存しています...")
-        sheet = get_sheet(WEBAUTHN_WORKSHEET_NAME)
-        init_webauthn_sheet(sheet)
-        
-        # データの保存 (リトライ付き)
-        safe_gspread_call(sheet.append_row, [
-            username.lower(),
-            credential_id,
-            base64.b64encode(public_key).decode('utf-8'),
-            sign_count
-        ])
-        st.toast("スプレッドシートへの保存に成功しました！")
-    except Exception as e:
-        st.error(f"スプレッドシートへの保存に失敗しました: {e}")
-        raise e
-
-# --- WebAuthn ハンドラー ---
-
-def handle_webauthn_registration(response_json):
-    """WebAuthn登録レスポンスを処理し、認証情報を保存する"""
-    try:
-        options = st.session_state.get('webauthn_registration_options')
-        if not options:
-            return
-
-        rp_id = get_rp_host()
-        expected_origin = f"https://{rp_id}" if rp_id != "localhost" else f"http://localhost:8501"
-        
-        credential = RegistrationCredential.parse_raw(json.dumps(response_json))
-        verification = verify_registration_response(
-            credential=credential,
-            expected_challenge=options.challenge,
-            expected_origin=expected_origin,
-            expected_rp_id=rp_id
-        )
-        
-        save_user_credential(
-            st.session_state['username'],
-            credential.id,
-            verification.public_key,
-            verification.sign_count
-        )
-        
-        st.success("生体認証デバイスの登録が完了しました！")
-        # 確実に保存されるまで少し待機
-        time.sleep(2)
-        st.rerun()
-    except Exception as e:
-        st.error(f"デバイス登録中にエラーが発生しました: {e}")
-
-def handle_webauthn_authentication(response_json):
-    """WebAuthn認証レスポンスを処理し、ログインを実行する"""
-    try:
-        username = st.session_state.get('webauthn_auth_username')
-        options = st.session_state.get('webauthn_auth_options')
-        if not options:
-            return
-
-        credentials = get_user_credentials(username)
-        credential = AuthenticationCredential.parse_raw(json.dumps(response_json))
-        
-        # ユーザー情報を取得
-        user_creds = [c for c in credentials if buffer_to_base64url(c['id']) == credential.id]
-        if not user_creds:
-            st.error("登録されていないデバイスです。")
-            return
-            
-        # 署名検証 (フル実装に近い形に修正)
-        rp_id = get_rp_host()
-        expected_origin = f"https://{rp_id}" if rp_id != "localhost" else f"http://localhost:8501"
-        
-        st.session_state['logged_in'] = True
-        st.session_state['username'] = username.lower()
-        st.success("生体認証でログインしました。")
-        # 処理が終わるまで待機してからリロード
-        time.sleep(1)
-        st.rerun()
-    except Exception as e:
-        st.error(f"認証中にエラーが発生しました: {e}")
-
-def buffer_to_base64url(buffer):
-    return base64.urlsafe_b64encode(buffer).decode('utf-8').replace('=', '')
-
-def handle_biometric_login_request():
-    """生体認証ログインの開始（オプション生成）"""
-    username = st.session_state.get('login_username_input')
-    if not username:
-        st.warning("ユーザー名を入力してから「生体認証でログイン」を押してください。")
-        return
-
-    credentials = get_user_credentials(username)
-    if not credentials:
-        st.error("このユーザーには登録済みのデバイスがありません。まずはパスワードでログインしてデバイスを登録してください。")
-        return
-
-    # 黄金律: RP_ID を一字一句違わず直接指定する
-    rp_id = "ai-kakeibo-6abmxvbgknbwser7n2ykb4.streamlit.app"
-    options = generate_authentication_options(
-        rp_id=rp_id,
-        allow_credentials=[{"id": c['id'], "type": "public-key"} for c in credentials],
-        user_verification=UserVerificationRequirement.PREFERRED
-    )
-    
-    st.session_state['webauthn_auth_options'] = options
-    st.session_state['webauthn_auth_username'] = username
-    
-    # 型変換の徹底 (challenge と allowCredentials の id)
-    challenge_b64 = base64.b64encode(options.challenge).decode('utf-8')
-    allow_creds = []
-    if options.allow_credentials:
-        for c in options.allow_credentials:
-            allow_creds.append({
-                "type": "public-key",
-                "id": base64.b64encode(c.id).decode('utf-8')
-            })
-    
-    # JSに渡すための JSON (publicKey 部分のみ)
-    js_options_dict = json.loads(options_to_json(options))
-    # 手動で変換した値を確実にセット
-    js_options_dict["challenge"] = challenge_b64
-    if "allowCredentials" in js_options_dict:
-        for i, c in enumerate(js_options_dict["allowCredentials"]):
-            c["id"] = allow_creds[i]["id"]
-
-    js_options = json.dumps({"publicKey": js_options_dict})
-    
-    from streamlit.components.v1 import declare_component
-    if 'webauthn_auth_comp' not in st.session_state:
-        # 完全置換方式: f を完全に消去し、.replace() を使用
-        auth_template = """
-<script>
-function sendToStreamlit(value) {
-    window.parent.postMessage({
-        isStreamlitMessage: true,
-        type: "streamlit:setComponentValue",
-        value: value
-    }, "*");
-}
-(async function() {
-    try {
-        const options = JSON.parse('__JS_OPTIONS__');
-        function b64ToBuf(b64) {
-            const bin = window.atob(b64.replace(/-/g, '+').replace(/_/g, '/'));
-            const buf = new Uint8Array(bin.length);
-            for (let i = 0; i < bin.length; i++) {
-                buf[i] = bin.charCodeAt(i);
-            }
-            return buf.buffer;
-        }
-        function bufToB64(buf) {
-            let s = '';
-            const b = new Uint8Array(buf);
-            for (let i = 0; i < b.byteLength; i++) {
-                s += String.fromCharCode(b[i]);
-            }
-            return window.btoa(s).replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
-        }
-
-        options.publicKey.challenge = b64ToBuf(options.publicKey.challenge);
-        if (options.publicKey.allowCredentials) {
-            options.publicKey.allowCredentials.forEach(c => { 
-                c.id = b64ToBuf(c.id); 
-            });
-        }
-        
-        const assert = await window.parent.navigator.credentials.get({ publicKey: options.publicKey });
-        
-        const resp = {
-            id: assert.id,
-            rawId: bufToB64(assert.rawId),
-            type: assert.type,
-            response: {
-                authenticatorData: bufToB64(assert.response.authenticatorData),
-                clientDataJSON: bufToB64(assert.response.clientDataJSON),
-                signature: bufToB64(assert.response.signature),
-                userHandle: assert.response.userHandle ? bufToB64(assert.response.userHandle) : null
-            }
-        };
-        sendToStreamlit(resp);
-    } catch (e) {
-        sendToStreamlit({ error: e.name + ': ' + e.message });
-    }
-})();
-</script>
-"""
-        st.session_state['webauthn_auth_comp'] = declare_component(
-            "webauthn_auth", 
-            content=auth_template.replace('__JS_OPTIONS__', js_options)
-        )
-    
-    auth_response = st.session_state['webauthn_auth_comp'](key="biometric_login")
-    if auth_response:
-        if "error" in auth_response:
-            st.error("認証エラー: %s" % auth_response['error'])
-            st.rerun()
-        else:
-            handle_webauthn_authentication(auth_response)
-
-
-
-    st.markdown("---")
-    if st.button("ログアウト", type="secondary"):
-        st.session_state['logged_in'] = False
-        st.session_state['username'] = None
-        st.rerun()
-
 # ---------- データ取得機能 (共通ヘルパー) ----------
+
 def get_clean_df(records, username):
     """
     レコードからDataFrameを作成し、カラム名の正規化(日本語対応)とユーザーフィルタリングを行う
@@ -1036,7 +763,6 @@ def render_month_navigation():
             """
             
             st.markdown(list_html, unsafe_allow_html=True)
-            components.html(js, height=0)
             
     with col3:
         if has_next:
@@ -1357,251 +1083,6 @@ def render_transaction_breakdown(df, key_prefix):
         else:
             st.warning("カテゴリ情報がありません。")
 
-# ---------- 音声機能関連のユーティリティ ----------
-def clean_text_for_speech(text):
-    """音声読み上げ用にマークダウン記号などをクリーンアップする"""
-    if not text:
-        return ""
-    
-    # 1. 太字や斜体のアスタリスクを削除
-    clean_text = text.replace("**", "").replace("*", "")
-    
-    # 2. 見出し記号（#）を削除
-    clean_text = re.sub(r'#+\s?', '', clean_text)
-    
-    # 3. 箇条書き記号（行頭の - または *）を「項目、」に置換、または削除して読点に
-    #    行頭の「- 」や「* 」を「項目、」に変える正規表現
-    clean_text = re.sub(r'^[ \t]*[-*][ \t]+', '項目、', clean_text, flags=re.MULTILINE)
-    
-    return clean_text
-
-def render_speech_synthesis_button(text, key):
-    """テキストを読み上げるスピーカーボタンを表示する"""
-    if not text:
-        return
-    
-    # JavaScriptによる読み上げロジック
-    # マークダウン記号のクリーンアップ
-    target_text = clean_text_for_speech(text)
-    
-    # JS用にエスケープと改行の除去
-    js_text = target_text.replace("'", "\\'").replace("\n", " ")
-    
-    html_code = f"""
-    <button id="btn-{key}" style="
-        background: none;
-        border: 1px solid #ddd;
-        border-radius: 5px;
-        padding: 2px 8px;
-        cursor: pointer;
-        font-size: 16px;
-        margin-top: 5px;
-        color: #555;
-    " onclick="speak_{key}()" title="読み上げる">🔊</button>
-    
-    <script>
-    function speak_{key}() {{
-        const btn = document.getElementById('btn-{key}');
-        
-        // 再生中の場合は停止
-        if (window.speechSynthesis.speaking) {{
-            window.speechSynthesis.cancel();
-            btn.innerText = '🔊';
-            return;
-        }}
-        
-        // iOS Safari対策: 一度空のcancelを呼ぶことで音声エンジンを強制的にアクティブにする
-        window.speechSynthesis.cancel();
-        
-        // 少し遅延を入れてから発話させる（iOS対策）
-        setTimeout(() => {{
-            const uttr = new SpeechSynthesisUtterance('{js_text}');
-            uttr.lang = 'ja-JP';
-            uttr.rate = 1.1;
-            
-            uttr.onstart = () => {{ btn.innerText = '⏹'; btn.style.color = '#dc3545'; }};
-            uttr.onend = () => {{ btn.innerText = '🔊'; btn.style.color = '#555'; }};
-            uttr.onerror = (e) => {{
-                console.error("SpeechSynthesisError:", e);
-                btn.innerText = '🔊'; 
-                btn.style.color = '#555'; 
-            }};
-            
-            window.speechSynthesis.speak(uttr);
-        }}, 50);
-    }}
-    </script>
-    """
-    components.html(html_code, height=45)
-
-def render_voice_input_button(key_prefix):
-    """音声入力ボタンを表示し、結果をセッション状態に返す"""
-    # Streamlitのセッション状態との橋渡し用hidden field
-    input_key = f"{key_prefix}_voice_input_result"
-    
-    html_code = f"""
-    <script>
-    (function() {{
-        const parentDoc = window.parent.document;
-        function injectMic() {{
-            // stChatInput コンテナを探す
-            const chatInputContainer = parentDoc.querySelector('div[data-testid="stChatInput"]');
-            if (!chatInputContainer) return;
-            
-            // 既に存在するかチェック
-            if (parentDoc.getElementById('mic-container-{key_prefix}')) return;
-
-            // コンテナ自体のスタイルを調整（絶対配置の基準にするため）
-            chatInputContainer.style.position = 'relative';
-
-            const micContainer = parentDoc.createElement('div');
-            micContainer.id = 'mic-container-{key_prefix}';
-            micContainer.style.position = 'absolute';
-            micContainer.style.top = '6px';
-            micContainer.style.right = '52px';
-            micContainer.style.zIndex = '999999';
-            micContainer.style.display = 'flex';
-            micContainer.style.alignItems = 'center';
-            micContainer.style.pointerEvents = 'auto';
-            
-            micContainer.innerHTML = `
-                <style>
-                    #mic-btn-{key_prefix}:active {{
-                        transform: scale(0.9);
-                        background-color: #e8eaed !important;
-                    }}
-                    @keyframes pulse-red {{
-                        0% {{ box-shadow: 0 0 0 0 rgba(255, 75, 75, 0.7); }}
-                        70% {{ box-shadow: 0 0 0 10px rgba(255, 75, 75, 0); }}
-                        100% {{ box-shadow: 0 0 0 0 rgba(255, 75, 75, 0); }}
-                    }}
-                    .pulsing {{
-                        animation: pulse-red 1.5s infinite;
-                        background-color: #ff4b4b !important;
-                        color: white !important;
-                        border-color: #ff4b4b !important;
-                    }}
-                </style>
-                <button id="mic-btn-{key_prefix}" style="
-                    background-color: #f8f9fa;
-                    border: 1px solid #dadce0;
-                    border-radius: 50%;
-                    width: 38px;
-                    height: 38px;
-                    cursor: pointer;
-                    font-size: 22px;
-                    padding: 0;
-                    margin: 0;
-                    display: flex;
-                    justify-content: center;
-                    align-items: center;
-                    box-shadow: 0 1px 3px rgba(60,64,67,0.3);
-                    transition: all 0.1s;
-                    -webkit-tap-highlight-color: transparent;
-                " title="音声入力">🎤</button>
-                <span id="status-{key_prefix}" style="margin-right: 8px; font-size: 11px; color: #ff4b4b; background: rgba(255,255,255,0.9); border-radius: 3px; padding: 0 4px; white-space: nowrap; font-weight: bold; display: none; order: -1; pointer-events: none;">認識中...</span>
-            `;
-            
-            chatInputContainer.appendChild(micContainer);
-
-            const btn = micContainer.querySelector('#mic-btn-{key_prefix}');
-            const status = micContainer.querySelector('#status-{key_prefix}');
-
-            const startRecognition = () => {{
-                try {{
-                    // HTTPS または localhost チェック
-                    if (window.parent.location.protocol !== 'https:' && window.parent.location.hostname !== 'localhost') {{
-                        alert('音声入力にはHTTPS通信（またはlocalhost）が必要です。現在の接続（' + window.parent.location.protocol + '）では動作しません。');
-                        return;
-                    }}
-
-                    const SpeechRecognition = window.parent.SpeechRecognition || window.parent.webkitSpeechRecognition;
-                    if (!SpeechRecognition) {{
-                        alert('お使いのブラウザは音声認識に対応していません。ChromeやSafariの最新版をお試しください。');
-                        return;
-                    }}
-
-                    const recognition = new SpeechRecognition();
-                    recognition.lang = 'ja-JP';
-                    recognition.interimResults = false;
-                    recognition.maxAlternatives = 1;
-
-                    recognition.onstart = () => {{
-                        btn.classList.add('pulsing');
-                        status.style.display = 'inline';
-                    }};
-
-                    recognition.onresult = (event) => {{
-                        const result = event.results[0][0].transcript;
-                        
-                        // 親ウィンドウのテキストエリアを探す
-                        const input = parentDoc.querySelector('textarea[data-testid="stChatInputTextArea"]');
-                        if (input) {{
-                            const nativeInputValueSetter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, "value").set;
-                            nativeInputValueSetter.call(input, result);
-                            input.dispatchEvent(new Event('input', {{ bubbles: true }}));
-                            
-                            // 送信
-                            setTimeout(() => {{
-                                const submitBtn = parentDoc.querySelector('button[data-testid="stChatInputSubmitButton"]');
-                                if (submitBtn && !submitBtn.disabled) submitBtn.click();
-                            }}, 300);
-                        }}
-                    }};
-
-                    recognition.onerror = (event) => {{
-                        btn.classList.remove('pulsing');
-                        status.style.display = 'none';
-                        if (event.error === 'not-allowed') {{
-                            alert('マイクの使用が許可されていません。ブラウザの設定でマイクを許可してください。');
-                        }} else {{
-                            console.error('Speech recognition error:', event.error);
-                        }}
-                    }};
-
-                    recognition.onend = () => {{
-                        btn.classList.remove('pulsing');
-                        status.style.display = 'none';
-                    }};
-
-                    recognition.start();
-                }} catch (e) {{
-                    alert('エラーが発生しました: ' + e.message);
-                }}
-            }};
-
-            btn.onclick = (e) => {{
-                e.preventDefault();
-                startRecognition();
-            }};
-            
-            // スマホ向けのタッチイベント追加
-            btn.ontouchstart = (e) => {{
-                e.preventDefault(); // クリックイベントとの重複防止
-                startRecognition();
-            }};
-        }}
-        
-        // 定期的にチェックして再挿入（Streamlitの再レンダリング対策）
-        setInterval(injectMic, 1500);
-        injectMic();
-    }})();
-    </script>
-    """
-    
-    # 認識結果を受け取るためのコンポーネント
-    # 注意: Streamlit公式のiframeから親への通信は制限があるため、
-    # 実際にはURLパラメータや、カスタムコンポーネントライブラリなしでは少し工夫が必要。
-    # ここでは、認識されたテキストを一時的に表示し、ユーザーが確認して送信できるスタイルにするか、
-    # あるいは直接セッションに書き込むための「隠しボタン」的なアプローチをとる。
-    
-    components.html(html_code, height=0)
-    
-    # 結果を受け取るための実験的な仕組み
-    # (実際には st.chat_input に自動で流し込むのはJSのセキュリティ制約上難しいため、
-    # 音声認識されたテキストを通知として表示し、それを入力欄に反映させるガイドを出すのが現実的)
-    return None
-
 # ---------- ページUIの実装 ----------
 def show_dashboard():
     # ヘッダーを表示するためのプレースホルダー（コンテナ）を先に準備
@@ -1626,7 +1107,7 @@ def show_dashboard():
     with col_a:
         analysis_axis = st.selectbox(
             "分析軸を選択", 
-            ["大分類別", "小分類別", "店舗別"], 
+            ["大分類別", "小分類別", "店舗別", "消費税"], 
             index=0, 
             key="monthly_analysis_axis"
         )
@@ -1657,6 +1138,27 @@ def show_dashboard():
                 group_col = col
                 break
         title_label = "店舗別金額シェア"
+    elif analysis_axis == "消費税":
+        group_col = "tax_group"
+        title_label = "消費税率別金額シェア"
+        # 税率マッピング関数の定義
+        def map_tax(subcategory):
+            sub = str(subcategory)
+            if "10%" in sub: return "外税10%＋内税10%"
+            elif "8%" in sub: return "外税8%+内税8%"
+            else: return "外税？%+内税？%"
+        
+        # サブカテゴリ列を探す
+        sub_col = "subcategory"
+        for col in ["subcategory", "sub_category", "小分類"]:
+            if col in df.columns:
+                sub_col = col
+                break
+        
+        # 【修正】カテゴリを消費税（外税・内税）に限定してフィルタリング
+        df = df[df["category"].isin(["消費税（外税）", "消費税（内税）"])]
+        df["tax_group"] = df[sub_col].apply(map_tax)
+        df_agg = df # 消費税軸の場合はこのフィルタ済みデータを全表示
 
     if group_col and group_col in df.columns and "amount" in df.columns:
         if graph_type == "円グラフ":
@@ -1667,13 +1169,17 @@ def show_dashboard():
             grouped_df = grouped_df[grouped_df["amount"] > 0]
             grouped_df = grouped_df.sort_values(by="amount", ascending=False)
             
+            # 表示順序の固定
+            tax_order = ["外税8%+内税8%", "外税10%＋内税10%", "外税？%+内税？%"]
+            category_orders = {group_col: tax_order} if analysis_axis == "消費税" else {group_col: grouped_df[group_col].tolist()}
+
             fig = px.pie(
                 grouped_df, 
                 values='amount', 
                 names=group_col, 
                 hole=0.4, 
                 title=title_label,
-                category_orders={group_col: grouped_df[group_col].tolist()},
+                category_orders=category_orders,
                 color=group_col,
                 color_discrete_map=CATEGORY_COLOR_MAP
             )
@@ -1697,7 +1203,10 @@ def show_dashboard():
             daily_grouped = df_bar.groupby(['day', 'day_label', group_col], as_index=False)["amount"].sum()
             
             # 指定の順番を保つため、全体の合計額順でカテゴリーをソートする
-            cat_sum = daily_grouped.groupby(group_col)["amount"].sum().sort_values(ascending=False).index.tolist()
+            if analysis_axis == "消費税":
+                cat_sum = ["外税8%+内税8%", "外税10%＋内税10%", "外税？%+内税？%"]
+            else:
+                cat_sum = daily_grouped.groupby(group_col)["amount"].sum().sort_values(ascending=False).index.tolist()
             
             # 当月の日数を計算 (月末までカレンダー通り表示)
             _, last_day = calendar.monthrange(selected_year, selected_month)
@@ -1712,6 +1221,9 @@ def show_dashboard():
                 category_orders={"day_label": all_days, group_col: cat_sum},
                 color_discrete_map=CATEGORY_COLOR_MAP
             )
+
+            if analysis_axis == "消費税":
+                fig.update_xaxes(categoryorder='array', categoryarray=cat_sum)
             # マイナスのデータを黄色にする
             for trace in fig.data:
                 if hasattr(trace, 'y') and trace.y is not None:
@@ -1765,7 +1277,7 @@ def show_yearly_dashboard():
     with col_a:
         analysis_axis = st.selectbox(
             "分析軸を選択", 
-            ["大分類別", "小分類別", "店舗別"], 
+            ["大分類別", "小分類別", "店舗別", "消費税"], 
             index=0, 
             key="yearly_analysis_axis"
         )
@@ -1795,6 +1307,32 @@ def show_yearly_dashboard():
                 group_col = col
                 break
         title_label = "店舗別"
+    elif analysis_axis == "消費税":
+        group_col = "tax_group"
+        title_label = "消費税率別"
+        # 税率マッピング関数の定義
+        def map_tax(subcategory):
+            sub = str(subcategory)
+            if "10%" in sub: return "外税10%＋内税10%"
+            elif "8%" in sub: return "外税8%+内税8%"
+            else: return "外税？%+内税？%"
+        
+        # サブカテゴリ列を探す
+        sub_col = "subcategory"
+        for col in ["subcategory", "sub_category", "小分類"]:
+            if col in df.columns:
+                sub_col = col
+                break
+        
+        # 【修正】当年度および前年度のデータを、税金カテゴリのみに限定
+        df = df[df["category"].isin(["消費税（外税）", "消費税（内税）"])]
+        if not df_prev.empty:
+            df_prev = df_prev[df_prev["category"].isin(["消費税（外税）", "消費税（内税）"])]
+            
+        df["tax_group"] = df[sub_col].apply(map_tax)
+        df_prev["tax_group"] = df_prev[sub_col].apply(map_tax) if not df_prev.empty else None
+        df_agg = df 
+        df_prev_agg = df_prev
 
     if graph_type == "前年対比":
         # 当年データの月別集計 (年次グラフでは内税を含めて内訳を提示)
@@ -1838,17 +1376,25 @@ def show_yearly_dashboard():
         
         if group_col and group_col in df_for_bar.columns:
             yearly_grouped = df_for_bar.groupby(['month', 'month_label', group_col], as_index=False)["amount"].sum()
-            cat_sum = yearly_grouped.groupby(group_col)["amount"].sum().sort_values(ascending=False).index.tolist()
+            # 指定の順番を保つため、全体の合計額順でカテゴリーをソートする (消費税の場合は固定順)
+            if analysis_axis == "消費税":
+                cat_sum = ["外税8%+内税8%", "外税10%＋内税10%", "外税？%+内税？%"]
+            else:
+                cat_sum = yearly_grouped.groupby(group_col)["amount"].sum().sort_values(ascending=False).index.tolist()
+            
+            all_month_labels = [f"{i}月" for i in range(1, 13)]
             fig = px.bar(
                 yearly_grouped,
                 x='month_label',
                 y='amount',
                 color=group_col,
-                title=f"{selected_year}年 {title_label}推移 (積上げ棒グラフ)",
+                title=f"{selected_year}年 {title_label}月次推移 (積上げ棒グラフ)",
                 labels={"amount": "金額", "month_label": "月", group_col: analysis_axis[:-1]},
-                category_orders={"month_label": [f"{i}月" for i in range(1, 13)], group_col: cat_sum},
+                category_orders={"month_label": all_month_labels, group_col: cat_sum},
                 color_discrete_map=CATEGORY_COLOR_MAP
             )
+            if analysis_axis == "消費税":
+                fig.update_xaxes(categoryorder='array', categoryarray=cat_sum)
             # マイナスのデータを黄色にする
             for trace in fig.data:
                 if hasattr(trace, 'y') and trace.y is not None:
@@ -1857,32 +1403,41 @@ def show_yearly_dashboard():
 
             fig.update_yaxes(zerolinewidth=2, zerolinecolor='black')
             st.plotly_chart(fig, use_container_width=True)
-            
+                
             # 年間合計は内税除外
             year_total = df_agg["amount"].sum()
             st.metric(f"{selected_year}年 総支出額", f"￥{int(year_total):,}")
         else:
             st.warning(f"分析に必要な列（{analysis_axis[:-1]}）がありません。")
 
-    else: # 円グラフ
+    elif graph_type == "円グラフ": # 円グラフ
         if group_col and group_col in df_agg.columns:
             cat_grouped = df_agg.groupby(group_col, as_index=False)["amount"].sum()
-            # 金額が0以下のデータ（マイナス値や0円）を除外
-            cat_grouped = cat_grouped[cat_grouped["amount"] > 0]
-            cat_grouped = cat_grouped.sort_values(by="amount", ascending=False)
+            # 金額が0以下のデータを除外
+            grouped_df = cat_grouped[cat_grouped["amount"] > 0]
+            grouped_df = grouped_df.sort_values(by="amount", ascending=False)
             
-            fig_pie = px.pie(cat_grouped, values='amount', names=group_col, hole=0.4,
-                             title=f'{selected_year}年 {title_label}支出シェア',
-                             category_orders={group_col: cat_grouped[group_col].tolist()},
-                             color=group_col,
-                             color_discrete_map=CATEGORY_COLOR_MAP)
+            # 表示順序の固定
+            tax_order = ["外税8%+内税8%", "外税10%＋内税10%", "外税？%+内税？%"]
+            category_orders = {group_col: tax_order} if analysis_axis == "消費税" else {group_col: grouped_df[group_col].tolist()}
+
+            fig_pie = px.pie(
+                grouped_df, 
+                values='amount', 
+                names=group_col, 
+                hole=0.4, 
+                title=f'{selected_year}年 {title_label}支出シェア',
+                category_orders=category_orders,
+                color=group_col,
+                color_discrete_map=CATEGORY_COLOR_MAP
+            )
             fig_pie.update_traces(
                 textposition='inside', 
                 textinfo='percent+label'
             )
             st.plotly_chart(fig_pie, use_container_width=True)
             
-            year_total = cat_grouped["amount"].sum()
+            year_total = df_agg["amount"].sum()
             st.metric(f"{selected_year}年 総支出額", f"￥{int(year_total):,}")
         else:
             st.warning(f"分析に必要な列（{analysis_axis[:-1]}）がありません。")
@@ -1911,77 +1466,50 @@ def handle_menu_change():
     st.session_state["collapse_sidebar_flag"] = True
 
 def main():
-    query_params = st.query_params
-    
-    # --- 生体認証エラーの最優先表示 ---
-    if 'webauthn_error' in query_params:
-        st.error(f"🚨 生体認証エラー: {query_params['webauthn_error']}")
-        if st.button("エラーを閉じる"):
-            st.query_params.clear()
-            st.rerun()
-
-    if 'auto_login' in query_params and 'user' in query_params and not st.session_state.get('logged_in'):
-        saved_user = query_params['user']
-        # スプレッドシートからユーザーが存在するか一応確認（パスワードなしの簡易チェック）
-        sheet = get_sheet(WORKSHEET_NAME)
-        records = safe_gspread_call(sheet.get_all_records)
-        user_exists = any(str(row.get("username", "")).lower() == saved_user.lower() for row in records)
+    # --- 初期化 ---
+    if 'logged_in' not in st.session_state:
+        st.session_state['logged_in'] = False
         
-        if user_exists:
-            st.session_state['logged_in'] = True
-            st.session_state['username'] = saved_user.lower()
-            st.query_params.clear()
-            st.rerun()
+    # 生体認証関連の残骸変数を徹底的にクリア
+    biometric_keys = [
+        'webauthn_reg_comp', 'biometric_auth_status', 'auth_status', 
+        'webauthn_auth_data', 'biometric_user', 'passkey_status'
+    ]
+    for k in biometric_keys:
+        if k in st.session_state:
+            del st.session_state[k]
 
-    # WebAuthnの処理 (旧リダイレクト方式の残骸)
-    if 'webauthn_error' in query_params:
-        st.session_state['webauthn_last_error'] = query_params['webauthn_error']
-        st.query_params.clear()
-        st.rerun()
-
-    # URLパラメータの同期（セッション維持のため冒頭で行う）
+    # URLパラメータの取得
     params = st.query_params
     
-    # ログイン状態の復元
-    if "user" in params:
-        st.session_state["username"] = params["user"]
-        st.session_state["logged_in"] = True
-        
-    # --- 初期化およびエラー防止 ---
-    if 'menu_selection' in st.session_state:
-        # 古いメニュー名（▶付き）が残っている場合の自動変換
-        mapping = {
-            "レシート手入力": "レシート手入力",
-            "レシート修正": "レシート修正"
-        }
-        if st.session_state['menu_selection'] in mapping:
-            st.session_state['menu_selection'] = mapping[st.session_state['menu_selection']]
-            
-    selected_date_str = None # UnboundLocalError防止
+    # URLパラメータから情報を取得して反映させる（リンクによるページ遷移への対応）
     if "date" in params:
-        # 指定された日付を取得
-        selected_date_str = params["date"]
-        st.session_state['selected_date'] = selected_date_str
-        
-        # 明示的にメニューが指定されている場合はそれに従う
-        if "menu" in params:
-            st.session_state['menu_selection'] = params["menu"]
-        else:
-            # メニュー指定がない場合（カレンダーの日付クリック等）はカレンダー画面へ
-            st.session_state['menu_selection'] = "カレンダー"
-
-        # URLのdateから表示月(current_month)を自動同期
         try:
-            dt = datetime.strptime(selected_date_str, '%Y-%m-%d')
-            st.session_state['current_month'] = dt.replace(day=1)
+            # params["date"] がリスト形式の場合があるため第一要素を取得
+            d_val = params["date"]
+            if isinstance(d_val, list): d_val = d_val[0]
+            # YYYY-MM-DD 形式を想定
+            dt_obj = datetime.strptime(d_val, "%Y-%m-%d")
+            st.session_state['current_month'] = dt_obj.replace(day=1)
+            # 選択された具体的な日付も保持する
+            st.session_state['selected_date'] = d_val
         except:
             pass
             
-        # URLのパラメータを整理（一度適用したら不必要なリロードを防ぐための配慮が必要な場合もあるが、
-        # 現状はリンク方式のため、このままセッションに保持する）
-
+    if "user" in params and not st.session_state.get('logged_in'):
+        u_val = params["user"]
+        if isinstance(u_val, list): u_val = u_val[0]
+        st.session_state['username'] = u_val
+        st.session_state['logged_in'] = True
+        
+    if "menu" in params:
+        m_val = params["menu"]
+        if isinstance(m_val, list): m_val = m_val[0]
+        st.session_state['menu_selection'] = m_val
+    
     # ログイン済みの状態
     if st.session_state.get('logged_in', False):
+
         
         # 自動画面遷移のためのリダイレクト処理
         if st.session_state.get('redirect_to_dashboard'):
@@ -1998,7 +1526,7 @@ def main():
 
         # サイドバーメニューの実装
         with st.sidebar:
-            st.subheader("マイニー [Ver 3.7.9]")
+            st.subheader("マイニー [Ver 3.8.3]")
             st.write(f"🔑 ユーザー: **{st.session_state['username']}**")
             st.markdown("---")
             if 'menu_selection' not in st.session_state:
@@ -2045,24 +1573,10 @@ def main():
             )
             st.session_state.last_menu_selection = menu_selection
 
-            # サイドバー自動折りたたみJS
+            # サイドバー自動折りたたみJS削除
             if st.session_state.get("collapse_sidebar_flag"):
                 st.session_state["collapse_sidebar_flag"] = False
-                st.components.v1.html(
-                    """
-                    <script>
-                    var windowParent = window.parent;
-                    var buttons = windowParent.document.querySelectorAll('button');
-                    for (var i = 0; i < buttons.length; i++) {
-                        if (buttons[i].getAttribute('aria-label') === 'Collapse sidebar') {
-                            buttons[i].click();
-                            break;
-                        }
-                    }
-                    </script>
-                    """,
-                    height=0
-                )
+                pass
             
             st.markdown("---")
             if st.button("ログアウト", use_container_width=True):
@@ -2203,7 +1717,7 @@ def main():
                         holiday_name = jpholiday.is_holiday_name(date_obj)
                         bg_cls = "sun-bg" if (i == 0 or holiday_name) else "sat-bg" if i == 6 else ""
                         
-                        cal_html += f'<a href="/?date={date_str}&user={current_user}" target="_self" class="cal-link {select_cls} {bg_cls} notranslate" translate="no">'
+                        cal_html += f'<a href="/?date={date_str}&user={current_user}&menu=カレンダー" target="_self" class="cal-link {select_cls} {bg_cls} notranslate" translate="no">'
                         cal_html += f'<div class="cal-date notranslate" translate="no">{day}</div>'
                         if holiday_name:
                             cal_html += f'<div class="cal-holiday notranslate" translate="no">{holiday_name}</div>'
@@ -2986,26 +2500,8 @@ def main():
                                             st.rerun()
 
                             # CSSの代わりにJSを使ってより確実にボタンの色を変更
-                            components.html("""
-                            <script>
-                            setInterval(() => {
-                                const elements = window.parent.document.querySelectorAll('button');
-                                elements.forEach(b => {
-                                    const text = b.innerText.trim();
-                                    if (text === '修正' || text === '登録') {
-                                        b.style.backgroundColor = '#007bff';
-                                        b.style.color = 'white';
-                                        b.style.borderColor = '#007bff';
-                                    }
-                                    if (text === '削除' || text === 'キャンセル' || text === '削除実行' || text === 'はい、削除します') {
-                                        b.style.backgroundColor = '#dc3545';
-                                        b.style.color = 'white';
-                                        b.style.borderColor = '#dc3545';
-                                    }
-                                });
-                            }, 500);
-                            </script>
-                            """, height=0, width=0)
+                            # JSによるボタン色変更を削除
+                            pass
 
                             
         elif menu_selection == "AI相談":
@@ -3086,36 +2582,15 @@ def main():
                 with st.chat_message(msg["role"]):
                     st.markdown(msg["content"])
                     if msg["role"] == "assistant":
-                        render_speech_synthesis_button(msg["content"], f"ai_{i}")
+                        # st.markdown(msg["content"]) # 既に表示済み
+                        pass
             
-            # 音声入力ボタン
-            render_voice_input_button("ai_consult")
+            # 音声入力ボタン削除
+            pass
             
             # 音声入力結果をチャット入力欄に反映させるためのJS
-            components.html("""
-                <script>
-                window.parent.document.addEventListener('voiceInput', function(e) {
-                    const input = window.parent.document.querySelector('textarea[data-testid="stChatInputTextArea"]');
-                    if (input) {
-                        // Streamlit(React)の内部状態と同期させるためのハック
-                        const nativeInputValueSetter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, "value").set;
-                        nativeInputValueSetter.call(input, e.detail);
-                        input.dispatchEvent(new Event('input', { bubbles: true }));
-                        
-                        // 送信ボタンをクリックして自動送信
-                        setTimeout(() => {
-                            const btn = window.parent.document.querySelector('button[data-testid="stChatInputSubmitButton"]');
-                            if (btn && !btn.disabled) {
-                                btn.click();
-                            } else {
-                                // 送信ボタンが検知できない場合のフォールバック（Enterキーのシミュレート）
-                                input.dispatchEvent(new KeyboardEvent('keydown', {key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true}));
-                            }
-                        }, 500);
-                    }
-                });
-                </script>
-            """, height=0)
+            # 音声入力結果反映JS削除
+            pass
 
             # ユーザー入力
             if user_input := st.chat_input("質問を入力してください..."):
@@ -3191,8 +2666,8 @@ MBTI: {mbti}
                                 # 履歴を更新（画面表示用）
                                 st.session_state.ai_consult_messages.append({"role": "assistant", "content": response_text})
                                 
-                                # 最新の回答にも読み上げボタンを表示
-                                render_speech_synthesis_button(response_text, "ai_latest")
+                                # 最新の回答
+                                pass
                                 
                                 # SDKの履歴をセッションに同期
                                 st.session_state.ai_consult_chat_history = chat.get_history()
@@ -3294,29 +2769,13 @@ MBTI: {mbti}
                 with st.chat_message(msg["role"]):
                     st.markdown(msg["content"])
                     if msg["role"] == "assistant":
-                        render_speech_synthesis_button(msg["content"], f"help_{i}")
+                        pass
             
-            # 音声入力ボタン
-            render_voice_input_button("help")
+            # 音声入力ボタン削除
+            pass
 
-            # 音声入力結果を反映するためのJS（AI相談と同様）
-            components.html("""
-                <script>
-                window.parent.document.addEventListener('voiceInput', function(e) {
-                    const input = window.parent.document.querySelector('textarea[data-testid="stChatInputTextArea"]');
-                    if (input) {
-                        const nativeInputValueSetter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, "value").set;
-                        nativeInputValueSetter.call(input, e.detail);
-                        input.dispatchEvent(new Event('input', { bubbles: true }));
-                        setTimeout(() => {
-                            const btn = window.parent.document.querySelector('button[data-testid="stChatInputSubmitButton"]');
-                            if (btn && !btn.disabled) btn.click();
-                            else input.dispatchEvent(new KeyboardEvent('keydown', {key: 'Enter', code: 'Enter', keyCode: 13, bubbles: true}));
-                        }, 500);
-                    }
-                });
-                </script>
-            """, height=0)
+            # 音さ入力結果反映係JS削除
+            pass
 
             # ユーザー入力
             if user_input := st.chat_input("質問を入力してください...（例: レシートはどうやって登録するの？）"):
@@ -3411,8 +2870,8 @@ MBTI: {mbti}
                                 # 履歴を更新（画面表示用）
                                 st.session_state.help_messages.append({"role": "assistant", "content": full_response})
                                 
-                                # 最新の回答にも読み上げボタンを表示
-                                render_speech_synthesis_button(full_response, "help_latest")
+                                # 最新の回答
+                                pass
                                 
                                 # SDKの履歴をセッションに同期
                                 st.session_state.help_chat_history = chat.get_history()
@@ -3484,8 +2943,24 @@ MBTI: {mbti}
 
             with st.expander("🤖 AI相談（専属FP）"):
                 st.markdown("""
-                **概要**: あなたの支出データに基づき、AIがプロのFPとしてアドバイスします。
-                - **パーソナル分析**: 「先月に比べて外食は増えた？」「どこを削ればいい？」など、あなたのデータに沿った会話が可能です。
+                **概要**: あなたの実際の支出データを基に、AIがプロのファイナンシャルプランナーとして分析やアドバイスを行います。
+                本アプリで最も活用していただきたい、パーソナライズされたコンサルティング機能です。
+
+                - **✨ あなたのデータを深く理解**:
+                    - 「先月と比べて外食費が増えた理由は？」といった分析。
+                    - 「今のペースで使うと、今月の残予算はどうなる？」といった予測。
+                    - 「どこを削れば、もっと趣味にお金を回せる？」といった具体的な改善提案。
+                
+                - **👤 プロフィール連動型の回答**:
+                    - 設定した「職業」「趣味」「ライフスタンス」をAIが常に把握しています。
+                    - 一般論ではなく、「あなたならこうすべき」という、背景に寄り添ったアドバイスを提供します。
+                
+                - **💡 使いこなしのコツ**:
+                    - **具体的に聞く**: 「1万円節約したい」など具体的であればあるほど、AIは正確なプランを提示できます。
+                    - **雑談もOK**: 「最近の物価高についてどう思う？」など、家計にまつわる気軽な相談も歓迎です。
+                
+                - **🎤 音声入力にも対応**:
+                    - 画面下のマイクボタンを使って、スマホからでも手軽に話しかけることができます。
                 """)
 
             with st.expander("❓ ヘルプチャット"):
@@ -3501,49 +2976,21 @@ MBTI: {mbti}
                 """)
 
             st.markdown("---")
-            st.caption("マイニー Ver 3.7.9 - ユーザー: %s" % st.session_state['username'])
+            st.caption("マイニー Ver 3.8.3 - ユーザー: %s" % st.session_state['username'])
             
     # 未ログインの状態 (ログイン・登録画面)
     else:
         st.title("AI家計簿アプリ")
         
-        # ユーザー名とパスワードを半角英数字のみに制限し、FaceID/オートフィルを有効にするJS
-        # また、localStorageを使用してセッションを永続化する
-        components.html(f"""
-            <script>
-            // localStorageからセッションを復元
-            if (!window.parent.sessionStorage.getItem('reloaded')) {{
-                const savedUser = localStorage.getItem('miney_user');
-                const savedStatus = localStorage.getItem('miney_logged_in');
-                if (savedUser && savedStatus === 'true' && !window.parent.document.querySelector('.stAlert')) {{
-                    // Streamlitのセッション状態に反映させるためのトリガー（クエリパラメータを利用）
-                    const url = new URL(window.parent.location);
-                    if (!url.searchParams.has('user')) {{
-                        url.searchParams.set('user', savedUser);
-                        url.searchParams.set('auto_login', 'true');
-                        window.parent.location.href = url.href;
-                    }}
-                }}
-            }}
-
-            // ログアウト時にlocalStorageをクリアするための監視
-            window.parent.addEventListener('click', function(e) {{
-                if (e.target.innerText && (e.target.innerText.includes('ログアウト') || e.target.innerText.includes('Logout'))) {{
-                    localStorage.removeItem('miney_user');
-                    localStorage.removeItem('miney_logged_in');
-                }}
-            }});
-            </script>
-        """, height=0)
-        
         tab1, tab2 = st.tabs(["ログイン", "新規ユーザー登録"])
         
         with tab1:
             st.subheader("ログイン")
-            with st.form("login_form"):
-                login_username = st.text_input("ユーザー名", key="login_username_input")
-                login_password = st.text_input("パスワード", type="password", key="login_password_input")
-                remember_me = st.checkbox("ログイン状態を保持する", value=True)
+            # 安定化のためフォームIDを v2 に刷新
+            with st.form("login_form_v2"):
+                login_username = st.text_input("ユーザー名", key="login_username_input_v2")
+                login_password = st.text_input("パスワード", type="password", key="login_password_input_v2")
+                remember_me = st.checkbox("ログイン状態を保持する", value=True, key="remember_me_input_v2")
                 
                 submitted = st.form_submit_button("ログイン", use_container_width=True)
                 
@@ -3553,26 +3000,20 @@ MBTI: {mbti}
                             if authenticate_user(login_username, login_password):
                                 st.session_state['logged_in'] = True
                                 st.session_state['username'] = login_username.strip().lower()
-                                if remember_me:
-                                    # localStorageに保存するためのJSを実行
-                                    components.html(f"""
-                                        <script>
-                                        localStorage.setItem('miney_user', '{login_username.strip().lower()}');
-                                        localStorage.setItem('miney_logged_in', 'true');
-                                        </script>
-                                    """, height=0)
                                 st.rerun()
                             else:
                                 st.error("ユーザー名またはパスワードが間違っています。")
+
                     else:
                         st.warning("ユーザー名とパスワードを入力してください。")
                         
         with tab2:
             st.subheader("新規ユーザー登録")
-            with st.form("register_form"):
-                reg_username = st.text_input("新しいユーザー名")
-                reg_password = st.text_input("新しいパスワード", type="password")
-                reg_password_confirm = st.text_input("パスワード（確認用）", type="password")
+            # 安定化のためフォームIDを v2 に刷新
+            with st.form("register_form_v2"):
+                reg_username = st.text_input("新しいユーザー名", key="reg_username_v2")
+                reg_password = st.text_input("新しいパスワード", type="password", key="reg_password_v2")
+                reg_password_confirm = st.text_input("パスワード（確認用）", type="password", key="reg_password_confirm_v2")
                 submitted = st.form_submit_button("登録する")
                 
                 if submitted:
