@@ -1142,94 +1142,105 @@ def render_speech_synthesis_button(text, key):
     components.html(html_code, height=45)
 
 def render_voice_input_button(key_prefix):
-    """音声入力ボタンを表示し、結果をセッション状態に返す"""
-    # Streamlitのセッション状態との橋渡し用hidden field
-    input_key = f"{key_prefix}_voice_input_result"
-    
+    """チャット入力欄の右側にマイクボタンを動的に配置し、音声入力を可能にする"""
     html_code = f"""
-    <div style="display: flex; align-items: center; margin-bottom: 10px;">
-        <button id="mic-btn-{key_prefix}" style="
-            background-color: #f0f2f6;
-            border: 1px solid #dcdfe6;
-            border-radius: 50%;
-            width: 40px;
-            height: 40px;
-            cursor: pointer;
-            font-size: 20px;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            transition: all 0.3s;
-        " onclick="startRecognition()">🎤</button>
-        <span id="status-{key_prefix}" style="margin-left: 10px; font-size: 14px; color: #666;"></span>
-    </div>
-
     <script>
-    function startRecognition() {{
-        const btn = document.getElementById('mic-btn-{key_prefix}');
-        const status = document.getElementById('status-{key_prefix}');
-        const recognition = new (window.SpeechRecognition || window.webkitSpeechRecognition)();
+    (function() {{
+        const parentDoc = window.parent.document;
         
-        recognition.lang = 'ja-JP';
-        recognition.interimResults = false;
-        recognition.maxAlternatives = 1;
-
-        recognition.onstart = () => {{
-            btn.style.backgroundColor = '#ff4b4b';
-            btn.style.color = 'white';
-            status.innerText = '音声を認識中... 話してください';
-        }};
-
-        recognition.onspeechend = () => {{
-            recognition.stop();
-        }};
-
-        recognition.onresult = (event) => {{
-            const result = event.results[0][0].transcript;
-            status.innerText = '認識完了: ' + result;
+        function injectMicButton() {{
+            const chatInputArea = parentDoc.querySelector('[data-testid="stChatInput"]');
+            if (!chatInputArea) return false;
             
-            // 親ウィンドウ（Streamlit）の隠し入力フィールドに値をセットして送信
-            // ただしStreamlitの仕様上、直接セットしても反応しない場合があるため、
-            // カスタムイベントや特定のDOM操作が必要
-            window.parent.postMessage({{
-                type: 'streamlit:set_component_value',
-                value: result,
-                key: '{input_key}'
-            }}, '*');
+            if (parentDoc.getElementById('injected-mic-btn-{key_prefix}')) return true;
             
-            // 簡易的な方法として、ブラウザのプロンプト等で値を渡すことも可能だが、
-            // ここではStreamlitのセッション更新を待つ
-            setTimeout(() => {{
-                // ページ全体にメッセージを送る
-                const event = new CustomEvent('voiceInput', {{ detail: result }});
-                window.parent.document.dispatchEvent(event);
-            }}, 500);
-        }};
-
-        recognition.onerror = (event) => {{
-            if (event.error === 'not-allowed') {{
-                status.innerText = 'マイク権限エラー: 設定で許可するか、AndroidはHTTPS通信が必要です';
-            }} else {{
-                status.innerText = 'エラーが発生しました: ' + event.error;
+            const micBtn = parentDoc.createElement('button');
+            micBtn.id = 'injected-mic-btn-{key_prefix}';
+            micBtn.innerHTML = '🎤';
+            micBtn.title = '音声で入力';
+            micBtn.style.cssText = `
+                background: transparent;
+                border: none;
+                font-size: 22px;
+                cursor: pointer;
+                padding: 0 5px;
+                margin-right: 5px;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                transition: transform 0.2s;
+            `;
+            
+            micBtn.onmouseover = () => micBtn.style.transform = 'scale(1.2)';
+            micBtn.onmouseout = () => micBtn.style.transform = 'scale(1)';
+            
+            micBtn.onclick = function() {{
+                const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+                if (!SpeechRecognition) {{
+                    alert('このブラウザは音声認識をサポートしていません。');
+                    return;
+                }}
+                const recognition = new SpeechRecognition();
+                recognition.lang = 'ja-JP';
+                recognition.interimResults = false;
+                recognition.maxAlternatives = 1;
+                
+                micBtn.innerHTML = '🔴';
+                
+                recognition.onresult = function(event) {{
+                    const result = event.results[0][0].transcript;
+                    const chatTextArea = parentDoc.querySelector('textarea[data-testid="stChatInputTextArea"]');
+                    if (chatTextArea) {{
+                        // ReactのVirtual DOMに値を正しく認識させるためのネイティブSetter呼び出し
+                        const nativeInputValueSetter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, "value").set;
+                        const currentVal = chatTextArea.value || "";
+                        const newVal = currentVal ? currentVal + " " + result : result;
+                        nativeInputValueSetter.call(chatTextArea, newVal);
+                        
+                        // ReactのonChangeイベントを発火
+                        chatTextArea.dispatchEvent(new Event('input', {{ bubbles: true }}));
+                    }}
+                    micBtn.innerHTML = '🎤';
+                }};
+                
+                recognition.onerror = function(event) {{
+                    console.error('Speech recognition error', event.error);
+                    micBtn.innerHTML = '🎤';
+                    if (event.error === 'not-allowed') {{
+                        alert('マイクの使用が許可されていません。設定を確認するか、Androidの場合はHTTPSでアクセスしてください。');
+                    }}
+                }};
+                
+                recognition.onend = function() {{
+                    micBtn.innerHTML = '🎤';
+                }};
+                
+                recognition.start();
+            }};
+            
+            // [data-testid="stChatInput"] の中にある送信ボタンの前にマイクボタンを挿入する
+            const innerFlex = chatInputArea.children[0];
+            if (innerFlex) {{
+                innerFlex.insertBefore(micBtn, innerFlex.lastElementChild);
+                return true;
             }}
-            btn.style.backgroundColor = '#f0f2f6';
-            btn.style.color = 'black';
-        }};
-
-        recognition.onend = () => {{
-            btn.style.backgroundColor = '#f0f2f6';
-            btn.style.color = 'black';
-        }};
-
-        recognition.start();
-    }}
+            return false;
+        }}
+        
+        // st.chat_input は後からレンダリングされる可能性があるため、出現するまで定期的にチェック
+        let attempts = 0;
+        const intervalId = setInterval(() => {{
+            if (injectMicButton() || attempts > 40) {{
+                clearInterval(intervalId);
+            }}
+            attempts++;
+        }}, 500);
+    }})();
     </script>
     """
     
     import streamlit.components.v1 as components
-    components.html(html_code, height=60)
-    
-    return None
+    components.html(html_code, height=0)
 
 # ---------- ページUIの実装 ----------
 def show_dashboard():
@@ -1674,7 +1685,7 @@ def main():
 
         # サイドバーメニューの実装
         with st.sidebar:
-            st.subheader("マイニー [Ver 3.8.3]")
+            st.subheader("マイニー [Ver 3.8.4]")
             st.write(f"🔑 ユーザー: **{st.session_state['username']}**")
             st.markdown("---")
             if 'menu_selection' not in st.session_state:
@@ -2024,8 +2035,11 @@ def main():
                             category_totals[final_major] = category_totals.get(final_major, 0) + amt
                     
                     st.markdown("#### 📋 解析結果の確認")
-                    st.write(f"**日付**: {preview_date}")
-                    st.write(f"**店舗**: {preview_store}")
+                    
+                    # Convert AI payload date string to proper python object if possible for the calendar
+                    parsed_date_val = pd.to_datetime(preview_date).date() if preview_date else datetime.today().date()
+                    edited_date = st.date_input("**日付**", value=parsed_date_val, key="receipt_import_date")
+                    edited_store = st.text_input("**店舗**", value=preview_store, key="receipt_import_store", placeholder="店舗名を入力してください")
                     st.write(f"**合計金額**: ￥{total_amount:,}")
                     
                     # DataFrameで一覧表示
@@ -2049,68 +2063,68 @@ def main():
                         st.rerun()
                         
                     if submit_btn:
-                        try:
-                            with st.spinner("保存中..."):
-                                sheet = get_sheet(TRANSACTIONS_WORKSHEET_NAME)
-                                init_transactions_sheet(sheet)
-                                
-                                written_count = 0
-                                for item in results:
-                                    # カテゴリの正規化（14カテゴリ体系に強制）
-                                    majors = list(EXPENSE_CATEGORIES.keys())
-                                    major = str(item.get("major_category", "その他"))
-                                    final_major = "その他"
-                                    for m in majors:
-                                        if m in major or major in m:
-                                            final_major = m
-                                            break
-                                            
-                                    minors = EXPENSE_CATEGORIES.get(final_major, EXPENSE_CATEGORIES["その他"])
-                                    minor = str(item.get("minor_category", "❓その他"))
-                                    final_minor = minors[-1] if minors else "❓その他"
-                                    for m in minors:
-                                        text_only = "".join([c for c in m if c.isalnum() or c in "類物食品未分類その他%"])
-                                        if text_only and (text_only in minor or minor in text_only) and len(minor) > 0:
-                                            final_minor = m
-                                            break
-                                            
-                                    store_name = str(item.get("store_name", ""))
-                                    item_name = str(item.get("item_name", ""))
+                        edited_date_str = str(edited_date).strip() if edited_date else ""
+                        edited_store_str = str(edited_store).strip() if edited_store else ""
+                        
+                        if not edited_date_str:
+                            st.error("エラー: 日付を入力してください。")
+                        elif not edited_store_str:
+                            st.error("エラー: 店舗名を入力してください。")
+                        else:
+                            try:
+                                with st.spinner("保存中..."):
+                                    sheet = get_sheet(TRANSACTIONS_WORKSHEET_NAME)
+                                    init_transactions_sheet(sheet)
                                     
-                                    # 日付を yyyy-mm-dd に整形
-                                    raw_date = item.get("date", "")
-                                    formatted_date = ""
-                                    try:
-                                        if isinstance(raw_date, datetime):
-                                            formatted_date = raw_date.strftime("%Y-%m-%d")
-                                        else:
-                                            formatted_date = pd.to_datetime(raw_date).strftime("%Y-%m-%d")
-                                    except:
-                                        formatted_date = str(raw_date)
-
-                                    row_data = [
-                                        str(st.session_state['username']),
-                                        formatted_date,
-                                        str(store_name),
-                                        str(item_name),
-                                        str(final_major),
-                                        str(final_minor),
-                                        int(item.get("amount", 0)),
-                                        datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                                    ]
-                                    sheet.append_row(row_data)
-                                    written_count += 1
-                                
-                                st.session_state.flash_message = f"✅ 解析が完了し、{written_count}件のデータを保存しました！"
-                                
-                                time.sleep(1)
-                                
-                                st.session_state.parsed_results = None
-                                st.session_state.uploader_key += 1
-                                st.rerun()
-                                
-                        except Exception as e:
-                            st.error(f"保存エラー: {e}")
+                                    written_count = 0
+                                    for item in results:
+                                        # カテゴリの正規化（14カテゴリ体系に強制）
+                                        majors = list(EXPENSE_CATEGORIES.keys())
+                                        major = str(item.get("major_category", "その他"))
+                                        final_major = "その他"
+                                        for m in majors:
+                                            if m in major or major in m:
+                                                final_major = m
+                                                break
+                                                
+                                        minors = EXPENSE_CATEGORIES.get(final_major, EXPENSE_CATEGORIES["その他"])
+                                        minor = str(item.get("minor_category", "❓その他"))
+                                        final_minor = minors[-1] if minors else "❓その他"
+                                        for m in minors:
+                                            text_only = "".join([c for c in m if c.isalnum() or c in "類物食品未分類その他%"])
+                                            if text_only and (text_only in minor or minor in text_only) and len(minor) > 0:
+                                                final_minor = m
+                                                break
+                                                
+                                        store_name = str(edited_store).strip()
+                                        item_name = str(item.get("item_name", ""))
+                                        
+                                        # 日付を yyyy-mm-dd に整形
+                                        formatted_date = edited_date.strftime("%Y-%m-%d") if edited_date else ""
+    
+                                        row_data = [
+                                            str(st.session_state['username']),
+                                            formatted_date,
+                                            str(store_name),
+                                            str(item_name),
+                                            str(final_major),
+                                            str(final_minor),
+                                            int(item.get("amount", 0)),
+                                            datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                                        ]
+                                        sheet.append_row(row_data)
+                                        written_count += 1
+                                    
+                                    st.session_state.flash_message = f"✅ 解析が完了し、{written_count}件のデータを保存しました！"
+                                    
+                                    time.sleep(1)
+                                    
+                                    st.session_state.parsed_results = None
+                                    st.session_state.uploader_key += 1
+                                    st.rerun()
+                                    
+                            except Exception as e:
+                                st.error(f"保存エラー: {e}")
 
         elif menu_selection == "レシート手入力":
             st.markdown("#### 📝 レシート手入力")
@@ -2734,24 +2748,6 @@ def main():
             
             # 音声入力ボタン表示
             render_voice_input_button("ai_consult")
-            
-            # 音声入力結果をチャット入力欄に反映させるためのJS
-            import streamlit.components.v1 as components
-            components.html("""
-            <script>
-            window.parent.document.addEventListener('voiceInput', function(e) {
-                const text = e.detail;
-                const chatInput = window.parent.document.querySelector('textarea[data-testid="stChatInputTextArea"]');
-                if (chatInput) {
-                    // 入力欄にテキストをセット
-                    chatInput.value = text;
-                    // ReactのonChangeイベントを発火させる
-                    const event = new Event('input', { bubbles: true });
-                    chatInput.dispatchEvent(event);
-                }
-            });
-            </script>
-            """, height=0)
 
             # ユーザー入力
             if user_input := st.chat_input("質問を入力してください..."):
@@ -2935,22 +2931,6 @@ MBTI: {mbti}
             # 音声入力ボタン表示
             render_voice_input_button("help")
 
-            # 音さ入力結果反映係JS
-            import streamlit.components.v1 as components
-            components.html("""
-            <script>
-            window.parent.document.addEventListener('voiceInput', function(e) {
-                const text = e.detail;
-                const chatInput = window.parent.document.querySelector('textarea[data-testid="stChatInputTextArea"]');
-                if (chatInput) {
-                    chatInput.value = text;
-                    const event = new Event('input', { bubbles: true });
-                    chatInput.dispatchEvent(event);
-                }
-            });
-            </script>
-            """, height=0)
-
             # ユーザー入力
             if user_input := st.chat_input("質問を入力してください...（例: レシートはどうやって登録するの？）"):
                 # ユーザーのメッセージを表示して履歴に追加
@@ -2995,7 +2975,7 @@ MBTI: {mbti}
 【3. レシート取込（OCR）】
 ・操作：カメラで撮ったレシート画像をアップロードすると、AIが「店舗名」「商品名」「金額」「カテゴリ」を瞬時に解析します。
 ・自動補正：画像が横向きや逆さまでも、AIが正しい向き（縦向き）に自動で調整して表示します。
-・確認：解析結果を確認・修正して、そのまま家計簿に登録できます。
+・確認と修正：解析結果の「日付」はカレンダーから、「店舗名」はテキストボックスで直接編集して登録できます。空欄の場合はエラー表示で登録を防ぎます。
 
 【4. レシート手入力】
 ・操作：1行目の金額を入力中に「Enterキー」または「Tabキー」を押すと、自動的に次の行が追加されます。
@@ -3013,6 +2993,7 @@ MBTI: {mbti}
 
 【6. AI相談（専属FP）】
 ・概要：あなたの実際の支出データを元に、AIがプロのファイナンシャルプランナーとして分析や節約のアドバイスを行います。
+・音声入力：チャット入力欄の右側にある「🎤（マイク）ボタン」を押すと、声で直接相談内容を入力することができます。
 
 【7. プロフィール設定】
 ・概要：AI相談をよりパーソナライズするための基本情報（氏名、性別、生年月日、MBTI、職業、趣味、ライフスタンス）を設定できます。
@@ -3093,7 +3074,7 @@ MBTI: {mbti}
                 **概要**: レシートの写真を撮ってアップロードするだけで、AIが内容を読み取ります。
                 - **自動向き補正**: アップロードされた画像の向きをEXIF情報に基づいて自動的に正しく（縦向きに）調整します。
                 - **自動解析**: 店舗名、商品名、金額、カテゴリをAIが自動で推測して入力します。
-                - **編集と登録**: 解析結果を確認・修正し、そのまま家計簿へ登録できます。
+                - **編集と登録**: 解析完了後の確認画面で、「日付」をカレンダーから、「店舗名」をテキスト入力で直感的に修正できます。未入力での誤登録を防ぐチェック機能も搭載しています。
                 """)
 
             with st.expander("⌨️ レシート手入力（高速入力）"):
@@ -3118,6 +3099,7 @@ MBTI: {mbti}
             with st.expander("🤖 AI相談（専属FP）"):
                 st.markdown("""
                 **概要**: あなたの実際の支出データを基に、AIがプロのファイナンシャルプランナーとして分析やアドバイスを行います。
+                - **音声入力**: 入力欄右側のマイクボタンで、タイピング不要で声による相談が可能です。
                 本アプリで最も活用していただきたい、パーソナライズされたコンサルティング機能です。
 
                 - **✨ あなたのデータを深く理解**:
