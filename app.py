@@ -100,6 +100,42 @@ if api_key:
 st.set_page_config(page_title="AI家計簿アプリ - ダッシュボード", page_icon="📊", layout="wide")
 
 # ---------- セッション状態の初期化 ----------
+if '_init_done' not in st.session_state:
+    params = st.query_params
+    need_rerun = False
+    
+    if "date" in params:
+        try:
+            d_val = params["date"]
+            if isinstance(d_val, list): d_val = d_val[0]
+            dt_obj = datetime.strptime(d_val, "%Y-%m-%d")
+            st.session_state['current_month'] = dt_obj.replace(day=1)
+            st.session_state['selected_date'] = d_val
+            if 'date_range' in st.session_state:
+                del st.session_state['date_range']
+            need_rerun = True
+        except:
+            pass
+            
+    if "user" in params and not st.session_state.get('logged_in'):
+        u_val = params["user"]
+        if isinstance(u_val, list): u_val = u_val[0]
+        st.session_state['username'] = u_val
+        st.session_state['logged_in'] = True
+        need_rerun = True
+        
+    if "menu" in params:
+        m_val = params["menu"]
+        if isinstance(m_val, list): m_val = m_val[0]
+        st.session_state['menu_selection'] = m_val
+        need_rerun = True
+
+    st.session_state['_init_done'] = True
+    
+    if need_rerun:
+        st.query_params.clear()
+        st.rerun()
+
 if 'logged_in' not in st.session_state:
     st.session_state['logged_in'] = False
 if 'username' not in st.session_state:
@@ -1645,33 +1681,7 @@ def main():
         if k in st.session_state:
             del st.session_state[k]
 
-    # URLパラメータの取得
-    params = st.query_params
-    
-    # URLパラメータから情報を取得して反映させる（リンクによるページ遷移への対応）
-    if "date" in params:
-        try:
-            # params["date"] がリスト形式の場合があるため第一要素を取得
-            d_val = params["date"]
-            if isinstance(d_val, list): d_val = d_val[0]
-            # YYYY-MM-DD 形式を想定
-            dt_obj = datetime.strptime(d_val, "%Y-%m-%d")
-            st.session_state['current_month'] = dt_obj.replace(day=1)
-            # 選択された具体的な日付も保持する
-            st.session_state['selected_date'] = d_val
-        except:
-            pass
-            
-    if "user" in params and not st.session_state.get('logged_in'):
-        u_val = params["user"]
-        if isinstance(u_val, list): u_val = u_val[0]
-        st.session_state['username'] = u_val
-        st.session_state['logged_in'] = True
-        
-    if "menu" in params:
-        m_val = params["menu"]
-        if isinstance(m_val, list): m_val = m_val[0]
-        st.session_state['menu_selection'] = m_val
+    pass
     
     # ログイン済みの状態
     if st.session_state.get('logged_in', False):
@@ -1692,7 +1702,7 @@ def main():
 
         # サイドバーメニューの実装
         with st.sidebar:
-            st.subheader("マイニー [Ver 3.8.4]")
+            st.subheader("マイニー [Ver 3.8.5]")
             st.write(f"🔑 ユーザー: **{st.session_state['username']}**")
             st.markdown("---")
             if 'menu_selection' not in st.session_state:
@@ -2020,8 +2030,12 @@ def main():
                         cat = item.get("major_category", "その他")
                         return "内税" in cat or cat == "消費税（内税）"
 
+                    def is_any_tax(item):
+                        cat = item.get("major_category", "その他")
+                        return "消費税" in cat or "内税" in cat or "外税" in cat
+
                     # AIの解析結果に消費税が含まれていない場合、自動で10%の内税項目を追加する機能
-                    if len(results) > 0 and not any(is_internal_tax(item) for item in results):
+                    if len(results) > 0 and not any(is_any_tax(item) for item in results):
                         total_before_tax = sum(int(item.get("amount", 0)) for item in results)
                         tax_amount = int(total_before_tax * 0.1)
                         tax_item = {
@@ -2997,7 +3011,7 @@ MBTI: {mbti}
 【3. レシート取込（OCR）】
 ・操作：カメラで撮ったレシート画像をアップロードすると、AIが「店舗名」「商品名」「金額」「カテゴリ」を瞬時に解析します。
 ・自動補正：画像が横向きや逆さまでも、AIが正しい向き（縦向き）に自動で調整して表示します。
-・自動消費税：AIによる解析結果に消費税が含まれていない場合、自動で「消費税（内税）10%」の項目を計算し追加します。
+・自動消費税：AIによる解析結果に消費税が含まれていない場合、システムが自動的に内税10%の消費税項目を計算して追加します。
 ・確認と修正：解析結果の「日付」はカレンダーから、「店舗名」はテキストボックスで直接編集して登録できます。空欄の場合はエラー表示で登録を防ぎます。
 
 【4. レシート手入力】
@@ -3097,7 +3111,7 @@ MBTI: {mbti}
                 **概要**: レシートの写真を撮ってアップロードするだけで、AIが内容を読み取ります。
                 - **自動向き補正**: アップロードされた画像の向きをEXIF情報に基づいて自動的に正しく（縦向きに）調整します。
                 - **自動解析**: 店舗名、商品名、金額、カテゴリをAIが自動で推測して入力します。
-                - **自動消費税追加**: 解析結果に内税が含まれていない場合、システムが自動的に10%の消費税項目を計算して追加します。
+                - **自動消費税追加**: 解析結果に消費税が含まれていない場合、システムが自動的に内税10%の消費税項目を計算して追加します。
                 - **編集と登録**: 解析完了後の確認画面で、「日付」をカレンダーから、「店舗名」をテキスト入力で直感的に修正できます。未入力での誤登録を防ぐチェック機能も搭載しています。
                 """)
 
@@ -3156,7 +3170,7 @@ MBTI: {mbti}
                 """)
 
             st.markdown("---")
-            st.caption("マイニー Ver 3.8.3 - ユーザー: %s" % st.session_state['username'])
+            st.caption("マイニー Ver 3.8.5 - ユーザー: %s" % st.session_state['username'])
             
     # 未ログインの状態 (ログイン・登録画面)
     else:
