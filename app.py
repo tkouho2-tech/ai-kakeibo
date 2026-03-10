@@ -1084,14 +1084,21 @@ def render_transaction_breakdown(df, key_prefix):
             st.warning("カテゴリ情報がありません。")
 
 # ---------- 音声機能関連のユーティリティ ----------
+import re
+
 def render_speech_synthesis_button(text, key):
     """テキストを読み上げるスピーカーボタンを表示する"""
     if not text:
         return
     
-    # JavaScriptによる読み上げロジック
-    # クリーンアップ（改行などの除去）
-    clean_text = text.replace("'", "\\'").replace("\n", " ")
+    # 音声読み上げ用にMarkdown記号をクリーンアップ
+    # '# ' や '### 'のような見出し記号を削除
+    cleaned = re.sub(r'#+\s*', '', text)
+    # '**' や '*' のような強調記号を削除
+    cleaned = re.sub(r'\*{1,3}', '', cleaned)
+    
+    # JavaScriptによる読み上げロジック用のエスケープと改行処理
+    clean_text = cleaned.replace("'", "\\'").replace("\n", " ")
     
     html_code = f"""
     <button id="btn-{key}" style="
