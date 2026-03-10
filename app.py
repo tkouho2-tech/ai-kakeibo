@@ -2020,6 +2020,21 @@ def main():
                         cat = item.get("major_category", "その他")
                         return "内税" in cat or cat == "消費税（内税）"
 
+                    # AIの解析結果に消費税が含まれていない場合、自動で10%の内税項目を追加する機能
+                    if len(results) > 0 and not any(is_internal_tax(item) for item in results):
+                        total_before_tax = sum(int(item.get("amount", 0)) for item in results)
+                        tax_amount = int(total_before_tax * 0.1)
+                        tax_item = {
+                            "date": preview_date,
+                            "store_name": preview_store,
+                            "item_name": "消費税（内税）10%",
+                            "amount": tax_amount,
+                            "major_category": "消費税（内税）",
+                            "minor_category": "内税10%"
+                        }
+                        results.append(tax_item)
+                        st.session_state.parsed_results = results
+
                     total_amount = sum(int(item.get("amount", 0)) for item in results if not is_internal_tax(item))
                     
                     # 大分類別の内訳を集計
@@ -2982,6 +2997,7 @@ MBTI: {mbti}
 【3. レシート取込（OCR）】
 ・操作：カメラで撮ったレシート画像をアップロードすると、AIが「店舗名」「商品名」「金額」「カテゴリ」を瞬時に解析します。
 ・自動補正：画像が横向きや逆さまでも、AIが正しい向き（縦向き）に自動で調整して表示します。
+・自動消費税：AIによる解析結果に消費税が含まれていない場合、自動で「消費税（内税）10%」の項目を計算し追加します。
 ・確認と修正：解析結果の「日付」はカレンダーから、「店舗名」はテキストボックスで直接編集して登録できます。空欄の場合はエラー表示で登録を防ぎます。
 
 【4. レシート手入力】
@@ -3081,6 +3097,7 @@ MBTI: {mbti}
                 **概要**: レシートの写真を撮ってアップロードするだけで、AIが内容を読み取ります。
                 - **自動向き補正**: アップロードされた画像の向きをEXIF情報に基づいて自動的に正しく（縦向きに）調整します。
                 - **自動解析**: 店舗名、商品名、金額、カテゴリをAIが自動で推測して入力します。
+                - **自動消費税追加**: 解析結果に内税が含まれていない場合、システムが自動的に10%の消費税項目を計算して追加します。
                 - **編集と登録**: 解析完了後の確認画面で、「日付」をカレンダーから、「店舗名」をテキスト入力で直感的に修正できます。未入力での誤登録を防ぐチェック機能も搭載しています。
                 """)
 
