@@ -1771,7 +1771,7 @@ def main():
 
         # サイドバーメニューの実装
         with st.sidebar:
-            st.subheader("マイニー [Ver 3.8.9]")
+            st.subheader("マイニー [Ver 3.9.0]")
             st.write(f"🔑 ユーザー: **{st.session_state['username']}**")
             st.markdown("---")
             if 'menu_selection' not in st.session_state:
@@ -1838,9 +1838,6 @@ def main():
             if 'dl_format' not in st.session_state:
                 st.session_state.dl_format = None
 
-            # エキスパンダーの開閉状態をセッションで管理
-            # 注意: st.expander の expanded 引数は初期値のみ。
-            # プログラムから閉じたい場合は、キーを使って状態を操作するか、再レンダリング時に工夫が必要
             with st.expander("📥 データのダウンロード", expanded=(st.session_state.dl_step != "init")):
                 if st.session_state.dl_step == "init":
                     st.info("集計やバックアップ用にデータをダウンロードできます。形式を選択してください。")
@@ -1857,22 +1854,8 @@ def main():
                             st.rerun()
 
                 elif st.session_state.dl_step == "confirm":
-                    st.warning(f"**{st.session_state.dl_format}形式**でデータを準備します。")
-                    st.write("📂 ブラウザの「ダウンロード」フォルダ等に保存されます。")
-                    
-                    col1, col2 = st.columns(2)
-                    with col1:
-                        if st.button("実行する", type="primary", use_container_width=True):
-                            st.session_state.dl_step = "preparing"
-                            st.rerun()
-                    with col2:
-                        if st.button("キャンセル", use_container_width=True):
-                            st.session_state.dl_step = "init"
-                            st.session_state.dl_format = None
-                            st.rerun()
-
-                elif st.session_state.dl_step == "preparing":
-                    with st.spinner(f"{st.session_state.dl_format}データを生成中..."):
+                    # 選択された形式でデータを生成（スピナー表示）
+                    with st.spinner(f"{st.session_state.dl_format}データを準備中..."):
                         if st.session_state.dl_format == "Excel":
                             data = generate_excel_download(st.session_state['username'])
                             ext = "xlsx"
@@ -1882,37 +1865,29 @@ def main():
                             ext = "csv"
                             mime = "text/csv"
                         
-                        st.session_state.dl_buffer = data
-                        st.session_state.dl_filename = f"kakeibo_{st.session_state['username']}_{datetime.now().strftime('%Y%m%d')}.{ext}"
-                        st.session_state.dl_mime = mime
-                        st.session_state.dl_step = "ready"
-                        st.rerun()
+                        filename = f"kakeibo_{st.session_state['username']}_{datetime.now().strftime('%Y%m%d')}.{ext}"
 
-                elif st.session_state.dl_step == "ready":
-                    st.success("準備が完了しました！ボタンを押して保存してください。")
+                    st.warning(f"**{st.session_state.dl_format}形式**で出力します。")
+                    st.write("📂 ブラウザの「ダウンロード」フォルダ等に保存されます。")
                     
-                    # ダウンロードボタン
-                    clicked = st.download_button(
-                        label="⬇️ ファイルを保存する",
-                        data=st.session_state.dl_buffer,
-                        file_name=st.session_state.dl_filename,
-                        mime=st.session_state.dl_mime,
+                    # 「実行する」ボタン（実体はダウンロードボタン）
+                    st.download_button(
+                        label="🚀 実行する (ダウンロード)",
+                        data=data,
+                        file_name=filename,
+                        mime=mime,
+                        type="primary",
                         use_container_width=True
                     )
                     
-                    # ユーザーがダウンロードボタンを押すと再レンダリングが発生する。
-                    # 次のレンダリングで初期状態に戻るようにフラグをセットしておく。
-                    # または直接ボタンの下にリセットボタンを置く
-                    if st.button("キャンセル（メニューを閉じる）", use_container_width=True):
+                    if st.button("キャンセル", use_container_width=True):
                         st.session_state.dl_step = "init"
                         st.session_state.dl_format = None
-                        if 'dl_buffer' in st.session_state: del st.session_state.dl_buffer
                         st.rerun()
-                    
-                    # 💡 ポイント: download_button の仕様上、クリック後の直接検知は難しいが、
-                    # ready状態で放置させないよう、保存後は自動でリセットされるロジックにする
-                    # ここで `st.session_state.dl_step = "init"` とすると、
-                    # ボタン表示->クリック->再レンダリング時に init に戻る
+
+                    # 💡 ポイント: ボタン表示後、あらかじめ状態をinitに戻しておく。
+                    # ユーザーがダウンロードボタンを押すと再レンダリングされ、
+                    # その時には dl_step="init" なのでエキスパンダーが閉じる。
                     st.session_state.dl_step = "init"
                     st.session_state.dl_format = None
 
@@ -3325,7 +3300,7 @@ MBTI: {mbti}
                 """)
 
             st.markdown("---")
-            st.caption("マイニー Ver 3.8.9 - ユーザー: %s" % st.session_state['username'])
+            st.caption("マイニー Ver 3.9.0 - ユーザー: %s" % st.session_state['username'])
             
     # 未ログインの状態 (ログイン・登録画面)
     else:
