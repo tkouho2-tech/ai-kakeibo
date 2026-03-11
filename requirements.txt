@@ -11,3 +11,4 @@ jpholiday
 webauthn
 cbor2
 pyOpenSSL
+xlsxwriter

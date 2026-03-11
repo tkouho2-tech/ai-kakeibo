@@ -16,6 +16,7 @@ from google.genai import types
 import time
 import re
 import base64
+import xlsxwriter
 
 
 # ---------- 構成設定 ----------
@@ -1119,6 +1120,74 @@ def render_transaction_breakdown(df, key_prefix):
         else:
             st.warning("カテゴリ情報がありません。")
 
+# ---------- データダウンロード機能 ----------
+def prepare_download_data(username):
+    """
+    全期間のトランザクション、プロフィール、カテゴリを取得し、
+    ダウンロード用に「年」「月」列を追加したデータを準備する
+    """
+    try:
+        # 1. 全トランザクション取得
+        sheet = get_sheet(TRANSACTIONS_WORKSHEET_NAME)
+        values = safe_gspread_call(sheet.get_all_values)
+        if not values or len(values) < 2:
+            df_transactions = pd.DataFrame()
+        else:
+            headers = [h.strip() if h.strip() else f"empty_{i}" for i, h in enumerate(values[0])]
+            records_df = pd.DataFrame(values[1:])
+            records_df.columns = headers[:records_df.shape[1]]
+            records = records_df.to_dict('records')
+            df_transactions = get_clean_df(records, username)
+            
+            if not df_transactions.empty:
+                # 「年」「月」列を追加
+                df_transactions["年"] = df_transactions["date"].dt.year
+                df_transactions["月"] = df_transactions["date"].dt.month
+                # 表示順序やフォーマットの調整
+                df_transactions = df_transactions.sort_values("date", ascending=False)
+        
+        # 2. プロフィール取得
+        profile = get_user_master_data(username)
+        df_profile = pd.DataFrame([profile]) if profile else pd.DataFrame()
+        
+        # 3. カテゴリマスタ取得 (親子関係)
+        cat_list = []
+        for major, minors in EXPENSE_CATEGORIES.items():
+            for minor in minors:
+                cat_list.append({"大分類": major, "小分類": minor})
+        df_categories = pd.DataFrame(cat_list)
+        
+        return df_transactions, df_profile, df_categories
+    except Exception as e:
+        st.error(f"データ準備エラー: {e}")
+        return pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
+
+def generate_excel_download(username):
+    """複数シートを持つExcelファイルをバイナリ形式で生成する"""
+    df_tx, df_prof, df_cat = prepare_download_data(username)
+    
+    output = io.BytesIO()
+    with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+        if not df_tx.empty:
+            df_tx.to_excel(writer, index=False, sheet_name='実績データ')
+        if not df_prof.empty:
+            df_prof.to_excel(writer, index=False, sheet_name='ユーザープロフィール')
+        if not df_cat.empty:
+            df_cat.to_excel(writer, index=False, sheet_name='カテゴリマスタ')
+            
+        # xlsxwriterのワークブックオブジェクトを取得してフォーマット調整なども可能
+        # 今回はシンプルに書き出しのみ
+    
+    return output.getvalue()
+
+def generate_csv_download(username):
+    """CSV (UTF-8-sig) を生成する"""
+    df_tx, _, _ = prepare_download_data(username)
+    if df_tx.empty:
+        return None
+    
+    return df_tx.to_csv(index=False, encoding='utf-8-sig').encode('utf-8-sig')
+
 # ---------- 音声機能関連のユーティリティ ----------
 import re
 
@@ -1702,7 +1771,7 @@ def main():
 
         # サイドバーメニューの実装
         with st.sidebar:
-            st.subheader("マイニー [Ver 3.8.6]")
+            st.subheader("マイニー [Ver 3.8.7]")
             st.write(f"🔑 ユーザー: **{st.session_state['username']}**")
             st.markdown("---")
             if 'menu_selection' not in st.session_state:
@@ -1760,6 +1829,31 @@ def main():
                 st.query_params.clear()
                 st.session_state.clear()
                 st.rerun()
+
+            st.markdown("---")
+            with st.expander("📥 データのダウンロード", expanded=False):
+                st.info("集計やバックアップにご利用ください。")
+                
+                # Excelダウンロード
+                excel_data = generate_excel_download(st.session_state['username'])
+                st.download_button(
+                    label="📊 Excel形式 (.xlsx)",
+                    data=excel_data,
+                    file_name=f"kakeibo_{st.session_state['username']}_{datetime.now().strftime('%Y%m%d')}.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    use_container_width=True
+                )
+                
+                # CSVダウンロード
+                csv_data = generate_csv_download(st.session_state['username'])
+                if csv_data:
+                    st.download_button(
+                        label="📄 CSV形式 (Excel互換)",
+                        data=csv_data,
+                        file_name=f"kakeibo_{st.session_state['username']}_{datetime.now().strftime('%Y%m%d')}.csv",
+                        mime="text/csv",
+                        use_container_width=True
+                    )
 
         # メインコンテンツの切り替え
         if menu_selection == "ダッシュボード（月次集計）":
@@ -3170,7 +3264,7 @@ MBTI: {mbti}
                 """)
 
             st.markdown("---")
-            st.caption("マイニー Ver 3.8.6 - ユーザー: %s" % st.session_state['username'])
+            st.caption("マイニー Ver 3.8.7 - ユーザー: %s" % st.session_state['username'])
             
     # 未ログインの状態 (ログイン・登録画面)
     else:
