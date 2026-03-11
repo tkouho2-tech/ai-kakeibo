@@ -1771,7 +1771,7 @@ def main():
 
         # サイドバーメニューの実装
         with st.sidebar:
-            st.subheader("マイニー [Ver 3.8.8]")
+            st.subheader("マイニー [Ver 3.8.9]")
             st.write(f"🔑 ユーザー: **{st.session_state['username']}**")
             st.markdown("---")
             if 'menu_selection' not in st.session_state:
@@ -1890,7 +1890,9 @@ def main():
 
                 elif st.session_state.dl_step == "ready":
                     st.success("準備が完了しました！ボタンを押して保存してください。")
-                    st.download_button(
+                    
+                    # ダウンロードボタン
+                    clicked = st.download_button(
                         label="⬇️ ファイルを保存する",
                         data=st.session_state.dl_buffer,
                         file_name=st.session_state.dl_filename,
@@ -1898,12 +1900,21 @@ def main():
                         use_container_width=True
                     )
                     
-                    if st.button("完了して閉じる", use_container_width=True):
+                    # ユーザーがダウンロードボタンを押すと再レンダリングが発生する。
+                    # 次のレンダリングで初期状態に戻るようにフラグをセットしておく。
+                    # または直接ボタンの下にリセットボタンを置く
+                    if st.button("キャンセル（メニューを閉じる）", use_container_width=True):
                         st.session_state.dl_step = "init"
                         st.session_state.dl_format = None
                         if 'dl_buffer' in st.session_state: del st.session_state.dl_buffer
-                        # rerun することで expanded=False の状態に戻る
                         st.rerun()
+                    
+                    # 💡 ポイント: download_button の仕様上、クリック後の直接検知は難しいが、
+                    # ready状態で放置させないよう、保存後は自動でリセットされるロジックにする
+                    # ここで `st.session_state.dl_step = "init"` とすると、
+                    # ボタン表示->クリック->再レンダリング時に init に戻る
+                    st.session_state.dl_step = "init"
+                    st.session_state.dl_format = None
 
         # メインコンテンツの切り替え
         if menu_selection == "ダッシュボード（月次集計）":
@@ -3314,7 +3325,7 @@ MBTI: {mbti}
                 """)
 
             st.markdown("---")
-            st.caption("マイニー Ver 3.8.8 - ユーザー: %s" % st.session_state['username'])
+            st.caption("マイニー Ver 3.8.9 - ユーザー: %s" % st.session_state['username'])
             
     # 未ログインの状態 (ログイン・登録画面)
     else:
