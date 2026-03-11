@@ -1771,7 +1771,7 @@ def main():
 
         # サイドバーメニューの実装
         with st.sidebar:
-            st.subheader("マイニー [Ver 3.8.7]")
+            st.subheader("マイニー [Ver 3.8.8]")
             st.write(f"🔑 ユーザー: **{st.session_state['username']}**")
             st.markdown("---")
             if 'menu_selection' not in st.session_state:
@@ -1831,29 +1831,79 @@ def main():
                 st.rerun()
 
             st.markdown("---")
-            with st.expander("📥 データのダウンロード", expanded=False):
-                st.info("集計やバックアップにご利用ください。")
-                
-                # Excelダウンロード
-                excel_data = generate_excel_download(st.session_state['username'])
-                st.download_button(
-                    label="📊 Excel形式 (.xlsx)",
-                    data=excel_data,
-                    file_name=f"kakeibo_{st.session_state['username']}_{datetime.now().strftime('%Y%m%d')}.xlsx",
-                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                    use_container_width=True
-                )
-                
-                # CSVダウンロード
-                csv_data = generate_csv_download(st.session_state['username'])
-                if csv_data:
+            
+            # ダウンロード状態の初期化
+            if 'dl_step' not in st.session_state:
+                st.session_state.dl_step = "init"
+            if 'dl_format' not in st.session_state:
+                st.session_state.dl_format = None
+
+            # エキスパンダーの開閉状態をセッションで管理
+            # 注意: st.expander の expanded 引数は初期値のみ。
+            # プログラムから閉じたい場合は、キーを使って状態を操作するか、再レンダリング時に工夫が必要
+            with st.expander("📥 データのダウンロード", expanded=(st.session_state.dl_step != "init")):
+                if st.session_state.dl_step == "init":
+                    st.info("集計やバックアップ用にデータをダウンロードできます。形式を選択してください。")
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        if st.button("📊 Excel形式", use_container_width=True):
+                            st.session_state.dl_format = "Excel"
+                            st.session_state.dl_step = "confirm"
+                            st.rerun()
+                    with col2:
+                        if st.button("📄 CSV形式", use_container_width=True):
+                            st.session_state.dl_format = "CSV"
+                            st.session_state.dl_step = "confirm"
+                            st.rerun()
+
+                elif st.session_state.dl_step == "confirm":
+                    st.warning(f"**{st.session_state.dl_format}形式**でデータを準備します。")
+                    st.write("📂 ブラウザの「ダウンロード」フォルダ等に保存されます。")
+                    
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        if st.button("実行する", type="primary", use_container_width=True):
+                            st.session_state.dl_step = "preparing"
+                            st.rerun()
+                    with col2:
+                        if st.button("キャンセル", use_container_width=True):
+                            st.session_state.dl_step = "init"
+                            st.session_state.dl_format = None
+                            st.rerun()
+
+                elif st.session_state.dl_step == "preparing":
+                    with st.spinner(f"{st.session_state.dl_format}データを生成中..."):
+                        if st.session_state.dl_format == "Excel":
+                            data = generate_excel_download(st.session_state['username'])
+                            ext = "xlsx"
+                            mime = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                        else:
+                            data = generate_csv_download(st.session_state['username'])
+                            ext = "csv"
+                            mime = "text/csv"
+                        
+                        st.session_state.dl_buffer = data
+                        st.session_state.dl_filename = f"kakeibo_{st.session_state['username']}_{datetime.now().strftime('%Y%m%d')}.{ext}"
+                        st.session_state.dl_mime = mime
+                        st.session_state.dl_step = "ready"
+                        st.rerun()
+
+                elif st.session_state.dl_step == "ready":
+                    st.success("準備が完了しました！ボタンを押して保存してください。")
                     st.download_button(
-                        label="📄 CSV形式 (Excel互換)",
-                        data=csv_data,
-                        file_name=f"kakeibo_{st.session_state['username']}_{datetime.now().strftime('%Y%m%d')}.csv",
-                        mime="text/csv",
+                        label="⬇️ ファイルを保存する",
+                        data=st.session_state.dl_buffer,
+                        file_name=st.session_state.dl_filename,
+                        mime=st.session_state.dl_mime,
                         use_container_width=True
                     )
+                    
+                    if st.button("完了して閉じる", use_container_width=True):
+                        st.session_state.dl_step = "init"
+                        st.session_state.dl_format = None
+                        if 'dl_buffer' in st.session_state: del st.session_state.dl_buffer
+                        # rerun することで expanded=False の状態に戻る
+                        st.rerun()
 
         # メインコンテンツの切り替え
         if menu_selection == "ダッシュボード（月次集計）":
@@ -3264,7 +3314,7 @@ MBTI: {mbti}
                 """)
 
             st.markdown("---")
-            st.caption("マイニー Ver 3.8.7 - ユーザー: %s" % st.session_state['username'])
+            st.caption("マイニー Ver 3.8.8 - ユーザー: %s" % st.session_state['username'])
             
     # 未ログインの状態 (ログイン・登録画面)
     else:
