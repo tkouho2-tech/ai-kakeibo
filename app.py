@@ -272,9 +272,9 @@ def init_user_master_sheet(sheet):
     try:
         headers = safe_gspread_call(sheet.row_values, 1)
         if not headers or headers[0] != "username":
-            safe_gspread_call(sheet.insert_row, ["username", "name", "gender", "birthdate", "mbti", "occupation", "hobbies", "life_stance"], 1)
+            safe_gspread_call(sheet.insert_row, ["username", "name", "gender", "birthdate", "mbti", "occupation", "hobbies", "life_stance", "ai_base_instruction"], 1)
     except Exception:
-        safe_gspread_call(sheet.insert_row, ["username", "name", "gender", "birthdate", "mbti", "occupation", "hobbies", "life_stance"], 1)
+        safe_gspread_call(sheet.insert_row, ["username", "name", "gender", "birthdate", "mbti", "occupation", "hobbies", "life_stance", "ai_base_instruction"], 1)
 
 # ---------- 認証機能 ----------
 def register_user(username, password):
@@ -351,14 +351,15 @@ def save_user_master_data(username, profile_data):
             profile_data.get("mbti", ""),
             profile_data.get("occupation", ""),
             profile_data.get("hobbies", ""),
-            profile_data.get("life_stance", "")
+            profile_data.get("life_stance", ""),
+            profile_data.get("ai_base_instruction", "")
         ]
         
         if cell:
             # 既存の行を更新
             row_idx = cell.row
-            # A列(1) から H列(8) までの範囲を更新
-            update_range = f"A{row_idx}:H{row_idx}"
+            # A列(1) から I列(9) までの範囲を更新
+            update_range = f"A{row_idx}:I{row_idx}"
             safe_gspread_call(sheet.update, range_name=update_range, values=[row_data])
         else:
             # 新規追加
@@ -1771,7 +1772,7 @@ def main():
 
         # サイドバーメニューの実装
         with st.sidebar:
-            st.subheader("マイニー [Ver 3.9.0]")
+            st.subheader("マイニー [Ver 4.0.0]")
             st.write(f"🔑 ユーザー: **{st.session_state['username']}**")
             st.markdown("---")
             if 'menu_selection' not in st.session_state:
@@ -2942,6 +2943,7 @@ def main():
                                 occupation = user_profile.get("occupation", "未設定")
                                 hobbies = user_profile.get("hobbies", "未設定")
                                 life_stance = user_profile.get("life_stance", "未設定")
+                                ai_base_instruction = user_profile.get("ai_base_instruction", "")
                                 
                                 profile_prompt = f"""
 【ユーザーのプロフィール情報】
@@ -2952,6 +2954,9 @@ MBTI: {mbti}
 職業: {occupation}
 趣味: {hobbies}
 ライフスタンス（大切にしていること）: {life_stance}
+
+【AI相談への基本指示】
+{ai_base_instruction if ai_base_instruction else "（特になし）"}
 
 あなたは、ユーザー（{name}さん）の属性や趣味、職業的背景を理解した上で、単なる数字の増減だけでなく、その人の人生の質を上げるための家計アドバイスを行う親身なコンサルタントです。
 """
@@ -2968,7 +2973,13 @@ MBTI: {mbti}
 データに存在しない推測は避け、無駄遣いの指摘や節約のアドバイスなども積極的に行ってください。
 
 【ユーザーの家計簿データ】
-{csv_data_string}"""
+{csv_data_string}
+
+【回答ルール（最優先）】
+1. 回答はまず簡潔な結論から述べてください。
+2. 詳細なデータや内訳を表示する前に、必ず「詳細内容をご覧になりますか？」とユーザーに確認してください。
+3. ユーザーが「はい」と答えるか、詳細を求めた場合のみ、具体的な数値や表を提示してください。
+"""
                             
                             # 送信直前でチャットオブジェクトを「履歴付き」で作成
                             chat = client.chats.create(
@@ -3048,7 +3059,8 @@ MBTI: {mbti}
                 
                 st.markdown("---")
                 hobbies_input = st.text_area("趣味リスト", value=user_profile.get("hobbies", ""), placeholder="例：映画鑑賞、ドライブ、カフェ巡り...")
-                life_stance_input = st.text_area("ライフスタンス（大切にしていること）", value=user_profile.get("life_stance", ""), placeholder="例：自己投資を惜しまない、健康第一、家族との時間を大切にする...")
+                life_stance_input = st.text_area("ライフスタンス（大切にしていること）", value=user_profile.get("life_stance", ""), placeholder="例：自己投資を惜しまない、健康第一、家族との時間を大切にする...", height=200)
+                ai_base_instruction_input = st.text_area("AI相談の基本指示", value=user_profile.get("ai_base_instruction", ""), placeholder="例：回答はまず簡潔な結論から述べて。語尾に「だワン」をつけて。節約には厳しめにアドバイスして。")
                 
                 submit_button = st.form_submit_button("保存する", type="primary")
                 
@@ -3061,7 +3073,8 @@ MBTI: {mbti}
                             "mbti": mbti_input,
                             "occupation": occupation_input,
                             "hobbies": hobbies_input,
-                            "life_stance": life_stance_input
+                            "life_stance": life_stance_input,
+                            "ai_base_instruction": ai_base_instruction_input
                         }
                         
                         success, message = save_user_master_data(st.session_state['username'], profile_data_to_save)
@@ -3161,10 +3174,11 @@ MBTI: {mbti}
 【6. AI相談（専属FP）】
 ・概要：あなたの実際の支出データを元に、AIがプロのファイナンシャルプランナーとして分析や節約のアドバイスを行います。
 ・音声入力：チャット入力欄の右側にある「🎤（マイク）ボタン」を押すと、声で直接相談内容を入力することができます。
+・スマート回答：AIはまず簡潔な結論を述べ、「詳細内容をご覧になりますか？」と確認してから詳細を提示する対話型ロジックを採用しています。
 
 【7. プロフィール設定】
-・概要：AI相談をよりパーソナライズするための基本情報（氏名、性別、生年月日、MBTI、職業、趣味、ライフスタンス）を設定できます。
-・効果：ここで設定した情報をAIが読み込み、あなた個人の価値観やライフスタイルに沿った、より質の高いアドバイスを提供します。
+・概要：AI相談をよりパーソナライズするための基本情報（氏名、性別、生年月日、MBTI、職業、趣味、ライフスタンス、AI相談の基本指示）を設定できます。
+・効果：ここで設定した情報をAIが読み込み、あなた個人の価値観やライフスタイル、さらに「基本指示」で指定した好みの振る舞いに沿った、より質の高いアドバイスを提供します。
 
 回答のコツ：
 ・各機能への移動は、画面左側の「サイドバー（メニュー）」から行えることを案内してください。
@@ -3276,8 +3290,12 @@ MBTI: {mbti}
                     - 「どこを削れば、もっと趣味にお金を回せる？」といった具体的な改善提案。
                 
                 - **👤 プロフィール連動型の回答**:
-                    - 設定した「職業」「趣味」「ライフスタンス」をAIが常に把握しています。
-                    - 一般論ではなく、「あなたならこうすべき」という、背景に寄り添ったアドバイスを提供します。
+                    - 設定した「職業」「趣味」「ライフスタンス」に加えて、新機能の「AI相談の基本指示」をAIが常に把握しています。
+                    - 一般論ではなく、「あなたならこうすべき」という、背景とユーザーの好みに寄り添ったアドバイスを提供します。
+                
+                - **🤖 スマート・メッセージング**:
+                    - 忙しい時でもすぐに内容を把握できるよう、AIはまず簡潔な結論から話します。
+                    - 詳細なデータを見たい場合は「はい」と答えることで、深掘りした分析結果が表示されます。
                 
                 - **💡 使いこなしのコツ**:
                     - **具体的に聞く**: 「1万円節約したい」など具体的であればあるほど、AIは正確なプランを提示できます。
@@ -3297,10 +3315,11 @@ MBTI: {mbti}
                 st.markdown("""
                 **概要**: AI相談のアドバイスをよりパーソナライズするための情報を登録・管理します。
                 - **パーソナライズ**: 入力した情報（職業、趣味、大切にしていること等）をAIが事前に把握し、一般的なアドバイスではなく「あなたのため」の親身なコンサルティングを実現します。
+                - **AI相談の基本指示**: AIの話し方（語尾、厳しさ等）や回答スタイルを直接指定できるようになりました。
                 """)
 
             st.markdown("---")
-            st.caption("マイニー Ver 3.9.0 - ユーザー: %s" % st.session_state['username'])
+            st.caption("マイニー Ver 4.0.0 - ユーザー: %s" % st.session_state['username'])
             
     # 未ログインの状態 (ログイン・登録画面)
     else:
