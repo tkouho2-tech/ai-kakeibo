@@ -3317,19 +3317,18 @@ MBTI: {mbti}
                 remember_me = st.checkbox("ログイン状態を保持する", value=True, key="remember_me_input_v2")
                 
                 submitted = st.form_submit_button("ログイン", use_container_width=True)
-                
-                if submitted:
-                    if login_username and login_password:
-                        with st.spinner("認証中..."):
-                            if authenticate_user(login_username, login_password):
-                                st.session_state['logged_in'] = True
-                                st.session_state['username'] = login_username.strip().lower()
-                                st.rerun()
-                            else:
-                                st.error("ユーザー名またはパスワードが間違っています。")
-
-                    else:
-                        st.warning("ユーザー名とパスワードを入力してください。")
+            
+            if submitted:
+                if login_username and login_password:
+                    with st.spinner("認証中..."):
+                        if authenticate_user(login_username, login_password):
+                            st.session_state['logged_in'] = True
+                            st.session_state['username'] = login_username.strip().lower()
+                            st.rerun()
+                        else:
+                            st.error("ユーザー名またはパスワードが間違っています。")
+                else:
+                    st.warning("ユーザー名とパスワードを入力してください。")
                         
         with tab2:
             st.subheader("新規ユーザー登録")
@@ -3338,21 +3337,21 @@ MBTI: {mbti}
                 reg_username = st.text_input("新しいユーザー名", key="reg_username_v2")
                 reg_password = st.text_input("新しいパスワード", type="password", key="reg_password_v2")
                 reg_password_confirm = st.text_input("パスワード（確認用）", type="password", key="reg_password_confirm_v2")
-                submitted = st.form_submit_button("登録する")
-                
-                if submitted:
-                    if reg_username and reg_password and reg_password_confirm:
-                        if reg_password != reg_password_confirm:
-                            st.error("パスワードが一致しません。")
-                        else:
-                            with st.spinner("登録中..."):
-                                success, message = register_user(reg_username, reg_password)
-                                if success:
-                                    st.success(message)
-                                else:
-                                    st.error(message)
+                reg_submitted = st.form_submit_button("登録する")
+            
+            if reg_submitted:
+                if reg_username and reg_password and reg_password_confirm:
+                    if reg_password != reg_password_confirm:
+                        st.error("パスワードが一致しません。")
                     else:
-                        st.warning("すべてのフィールドを入力してください。")
+                        with st.spinner("登録中..."):
+                            success, message = register_user(reg_username, reg_password)
+                            if success:
+                                st.success(message)
+                            else:
+                                st.error(message)
+                else:
+                    st.warning("すべてのフィールドを入力してください。")
 
 if __name__ == "__main__":
     main()
