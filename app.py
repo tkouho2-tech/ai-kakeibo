@@ -2,6 +2,7 @@ import streamlit as st
 import jpholiday
 import pandas as pd
 import plotly.express as px
+import plotly.graph_objects as go
 import gspread
 import bcrypt
 import os
@@ -1551,11 +1552,32 @@ def show_dashboard():
                 color_discrete_map=CATEGORY_COLOR_MAP
             )
 
+            # --- トレンド線（カテゴリ別累積推移）の追加 ---
+            # 各カテゴリの積上げ高さに合わせるため、下層のカテゴリから順に合算した累積シリーズを維持する
+            cumulative_daily = pd.Series(0.0, index=all_days)
+            for cat in reversed(cat_sum): # 下層から積上げるためreversed
+                cat_data = daily_grouped[daily_grouped[group_col] == cat]
+                if not cat_data.empty:
+                    # all_daysに合わせて補完し、その日のカテゴリ合計を出す
+                    cat_data_full = pd.DataFrame({'day_label': all_days}).merge(cat_data, on='day_label', how='left').fillna({'amount': 0.0})
+                    cumulative_daily += cat_data_full['amount']
+                    
+                    line_color = CATEGORY_COLOR_MAP.get(cat, None)
+                    fig.add_trace(go.Scatter(
+                        x=all_days,
+                        y=cumulative_daily,
+                        mode='lines+markers',
+                        name=f'{cat} (累積推移)',
+                        line=dict(color=line_color, width=1),
+                        marker=dict(size=4),
+                        showlegend=False # 棒グラフの凡例があるため非表示
+                    ))
+
             if analysis_axis == "消費税":
                 fig.update_xaxes(categoryorder='array', categoryarray=cat_sum)
-            # マイナスのデータを黄色にする
+            # マイナスのデータを黄色にする (棒グラフのトレースのみ対象)
             for trace in fig.data:
-                if hasattr(trace, 'y') and trace.y is not None:
+                if trace.type == 'bar' and hasattr(trace, 'y') and trace.y is not None:
                     orig_color = trace.marker.color
                     trace.marker.color = ['#FFFF00' if v is not None and (isinstance(v, (int, float)) and v < 0) else orig_color for v in trace.y]
 
@@ -1722,11 +1744,33 @@ def show_yearly_dashboard():
                 category_orders={"month_label": all_month_labels, group_col: cat_sum},
                 color_discrete_map=CATEGORY_COLOR_MAP
             )
+
+            # --- トレンド線（カテゴリ別累積推移）の追加 ---
+            # 各カテゴリの積上げ高さに合わせるため、下層のカテゴリから順に合算した累積シリーズを維持する
+            cumulative_monthly = pd.Series(0.0, index=all_month_labels)
+            for cat in reversed(cat_sum): # 下層から積上げるためreversed
+                cat_data = yearly_grouped[yearly_grouped[group_col] == cat]
+                if not cat_data.empty:
+                    # all_month_labelsに合わせて補完し、その月のカテゴリ合計を出す
+                    cat_data_full = pd.DataFrame({'month_label': all_month_labels}).merge(cat_data, on='month_label', how='left').fillna({'amount': 0.0})
+                    cumulative_monthly += cat_data_full['amount']
+                    
+                    line_color = CATEGORY_COLOR_MAP.get(cat, None)
+                    fig.add_trace(go.Scatter(
+                        x=all_month_labels,
+                        y=cumulative_monthly,
+                        mode='lines+markers',
+                        name=f'{cat} (累積推移)',
+                        line=dict(color=line_color, width=1),
+                        marker=dict(size=4),
+                        showlegend=False
+                    ))
+
             if analysis_axis == "消費税":
                 fig.update_xaxes(categoryorder='array', categoryarray=cat_sum)
-            # マイナスのデータを黄色にする
+            # マイナスのデータを黄色にする (棒グラフのトレースのみ対象)
             for trace in fig.data:
-                if hasattr(trace, 'y') and trace.y is not None:
+                if trace.type == 'bar' and hasattr(trace, 'y') and trace.y is not None:
                     orig_color = trace.marker.color
                     trace.marker.color = ['#FFFF00' if v is not None and (isinstance(v, (int, float)) and v < 0) else orig_color for v in trace.y]
 
@@ -3419,13 +3463,12 @@ MBTI: {mbti}
         with tab1:
             st.subheader("ログイン")
             
-            with st.container():
+            with st.form("login_form"):
                 login_username = st.text_input("ユーザー名", key="login_username_input_v2")
                 login_password = st.text_input("パスワード", type="password", key="login_password_input_v2")
                 remember_me = st.checkbox("ログイン状態を保持する", value=True, key="remember_me_input_v2")
                 
-                # フォームの代わりにコンテナと標準ボタンを使用して「Missing Submit Button」エラーを回避
-                submitted = st.button("ログイン", use_container_width=True, type="primary")
+                submitted = st.form_submit_button("ログイン", use_container_width=True, type="primary")
             
             if submitted:
                 if login_username and login_password:
@@ -3442,12 +3485,12 @@ MBTI: {mbti}
         with tab2:
             st.subheader("新規ユーザー登録")
             
-            with st.container():
+            with st.form("register_form"):
                 reg_username = st.text_input("新しいユーザー名", key="reg_username_v2")
                 reg_password = st.text_input("新しいパスワード", type="password", key="reg_password_v2")
                 reg_password_confirm = st.text_input("パスワード（確認用）", type="password", key="reg_password_confirm_v2")
-                # 同様にコンテナと標準ボタンを使用
-                reg_submitted = st.button("登録する", use_container_width=True, type="primary")
+                
+                reg_submitted = st.form_submit_button("登録する", use_container_width=True, type="primary")
             
             if reg_submitted:
                 if reg_username and reg_password and reg_password_confirm:
