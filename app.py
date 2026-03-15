@@ -2671,7 +2671,7 @@ def main():
                                     }
 
                             # --- レシートヘッダー（日付・店舗名）の修正エリア ---
-                            st.write("##### レシート情報の修正")
+                            st.write(f"##### レシート情報の修正（合計金額: ￥{int(selected_receipt['金額合計']):,}）")
                             with st.container(border=True):
                                 h_col1, h_col2 = st.columns(2)
                                 with h_col1:
@@ -3413,7 +3413,7 @@ MBTI: {mbti}
                 """)
 
             st.markdown("---")
-            st.caption("マイニー Ver 4.1.2 - ユーザー: %s" % st.session_state['username'])
+            st.caption("マイニー Ver 4.1.3 - ユーザー: %s" % st.session_state['username'])
             
     # 未ログインの状態 (ログイン・登録画面)
     else:
