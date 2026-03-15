@@ -3184,8 +3184,8 @@ MBTI: {mbti}
                 
                 st.markdown("---")
                 hobbies_input = st.text_area("趣味リスト", value=user_profile.get("hobbies", ""), placeholder="例：映画鑑賞、ドライブ、カフェ巡り...")
-                life_stance_input = st.text_area("ライフスタンス（大切にしていること）", value=user_profile.get("life_stance", ""), placeholder="例：自己投資を惜しまない、健康第一、家族との時間を大切にする...", height=200)
-                ai_base_instruction_input = st.text_area("AI相談の基本指示", value=user_profile.get("ai_base_instruction", ""), placeholder="例：回答はまず簡潔な結論から述べて。語尾に「だワン」をつけて。節約には厳しめにアドバイスして。")
+                life_stance_input = st.text_area("ライフスタンス（大切にしていること）", value=user_profile.get("life_stance", ""), placeholder="例：自己投資を惜しまない、健康第一、家族との時間を大切にする...", height=300)
+                ai_base_instruction_input = st.text_area("AI相談の基本指示", value=user_profile.get("ai_base_instruction", ""), placeholder="例：回答はまず簡潔な結論から述べて。語尾に「だワン」をつけて。節約には厳しめにアドバイスして。", height=300)
                 
                 submit_button = st.form_submit_button("保存する", type="primary")
                 
