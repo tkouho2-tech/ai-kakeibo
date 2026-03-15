@@ -3419,13 +3419,14 @@ MBTI: {mbti}
         
         with tab1:
             st.subheader("ログイン")
-            # 安定化のためフォームIDを v2 に刷新
-            with st.form("login_form_v2"):
+            
+            with st.container():
                 login_username = st.text_input("ユーザー名", key="login_username_input_v2")
                 login_password = st.text_input("パスワード", type="password", key="login_password_input_v2")
                 remember_me = st.checkbox("ログイン状態を保持する", value=True, key="remember_me_input_v2")
                 
-                submitted = st.form_submit_button("ログイン", use_container_width=True)
+                # フォームの代わりにコンテナと標準ボタンを使用して「Missing Submit Button」エラーを回避
+                submitted = st.button("ログイン", use_container_width=True, type="primary")
             
             if submitted:
                 if login_username and login_password:
@@ -3441,12 +3442,13 @@ MBTI: {mbti}
                         
         with tab2:
             st.subheader("新規ユーザー登録")
-            # 安定化のためフォームIDを v2 に刷新
-            with st.form("register_form_v2"):
+            
+            with st.container():
                 reg_username = st.text_input("新しいユーザー名", key="reg_username_v2")
                 reg_password = st.text_input("新しいパスワード", type="password", key="reg_password_v2")
                 reg_password_confirm = st.text_input("パスワード（確認用）", type="password", key="reg_password_confirm_v2")
-                reg_submitted = st.form_submit_button("登録する")
+                # 同様にコンテナと標準ボタンを使用
+                reg_submitted = st.button("登録する", use_container_width=True, type="primary")
             
             if reg_submitted:
                 if reg_username and reg_password and reg_password_confirm:
