@@ -2588,6 +2588,8 @@ def main():
                         明細数=("amount", "count")
                     )
                     receipts_df.columns = ["日付", "店舗名", "金額合計", "明細数"]
+                    # 店舗名が空欄の場合は「店舗不明」とする
+                    receipts_df["店舗名"] = receipts_df["店舗名"].replace("", "店舗不明")
                     receipts_df["日付"] = receipts_df["日付"].dt.strftime('%Y-%m-%d')
                     receipts_df["金額合計"] = receipts_df["金額合計"].apply(lambda x: int(x))
                     receipts_df = receipts_df.sort_values(by="日付", ascending=False).reset_index(drop=True)
