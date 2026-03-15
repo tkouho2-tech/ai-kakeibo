@@ -829,7 +829,7 @@ def render_month_navigation():
     return df
 
 # ---------- レシート解析機能 ----------
-def parse_receipt_with_gemini(image_file):
+def parse_receipt_with_gemini(image_file, additional_instruction=""):
     try:
         img = Image.open(image_file)
         img = ImageOps.exif_transpose(img) # 向きを自動補正
@@ -848,6 +848,7 @@ def parse_receipt_with_gemini(image_file):
             
         prompt = f"""
 以下の画像（レシートまたは領収書）から必要な情報を抽出し、明細行ごとにJSON形式で出力してください。
+{additional_instruction}
 
 抽出項目（各明細に対して）:
 1. "store_name" : 店舗名（文字列、不明な場合は ""）
@@ -876,6 +877,10 @@ def parse_receipt_with_gemini(image_file):
 2. 「消費税（内税）」はすでに商品単価に含まれているため、レシート合計金額の計算（検証）においては「無視」してください。
 AIが辻褄を合わせるために勝手に商品金額を調整（減額・増額）することは絶対に禁止します。
 行・割引や値引（マイナス金額で抽出）・消費税・小計などのいずれかを読み飛ばしているか誤読している可能性があります。読み飛ばしがないよう、すべての金額要素を漏れなく抽出してください。
+
+【合計金額の明示】:
+抽出した明細の最後に、必ず「レシートの最終合計金額」を示す特別な明細を1つ追加してください。
+その際、"major_category" は "合計"、"minor_category" は "総合計"、"item_name" は "合計金額" とし、"amount" にはレシートに印字された最終的な支払い合計額を設定してください。
 
 それ以外の場合は、以下のカテゴリ体系に厳密に従って、明細ごとに適切に分類してください。
 {get_categories_prompt_text()}
@@ -924,6 +929,58 @@ JSONの出力形式は以下を厳守してください。マークダウンの 
         
     except Exception as e:
         return {"error": str(e)}
+
+def verify_receipt_checksum(results):
+    """
+    レシートの読み取り結果（JSON）について、計算が合うか検証する。
+    $$最終合計額 = （各明細の合計） + （消費税 / 外税） ー （利用ポイント）
+    一致するかどうか(bool)と、合計行を除外したクリーンな結果(list)を返す。
+    """
+    if not isinstance(results, list) or len(results) == 0:
+        return False, results
+        
+    reported_total = None
+    calculated_total = 0
+    clean_results = []
+    
+    for item in results:
+        # 合計行の抽出
+        if item.get("major_category") == "合計" and item.get("minor_category") == "総合計":
+            try:
+                reported_total = int(item.get("amount", 0))
+            except ValueError:
+                reported_total = None
+            continue
+            
+        clean_results.append(item)
+        
+        try:
+            amt = int(item.get("amount", 0))
+        except ValueError:
+            amt = 0
+            
+        cat = item.get("major_category", "")
+        # 内税は単価に含まれるため計算から除外
+        if "内税" in cat or cat == "消費税（内税）":
+            continue
+            
+        # ポイント利用などは絶対値を引き算
+        if cat == "割引・ポイント利用":
+            calculated_total -= abs(amt)
+        else:
+            calculated_total += amt
+
+    # 合計行が抽出されていない場合はチェック不能なのでとりあえずFalse
+    if reported_total is None:
+        return False, clean_results
+
+    is_valid = (reported_total == calculated_total)
+    if not is_valid:
+        print(f"Checksum mismatch: Reported={reported_total}, Calculated={calculated_total}")
+        for item in clean_results:
+            print(f"  - {item.get('item_name')}: {item.get('amount')} ({item.get('major_category')})")
+
+    return is_valid, clean_results
 
 def categorize_items_with_ai(items, store_name):
     """商品名リストと店舗名から、Gemini APIを使用してカテゴリを自動判別する"""
@@ -1772,7 +1829,7 @@ def main():
 
         # サイドバーメニューの実装
         with st.sidebar:
-            st.subheader("マイニー [Ver 4.1.0]")
+            st.subheader("マイニー [Ver 4.1.1]")
             st.write(f"🔑 ユーザー: **{st.session_state['username']}**")
             st.markdown("---")
             if 'menu_selection' not in st.session_state:
@@ -2135,12 +2192,26 @@ def main():
                             with st.spinner("画像を解析中... Geminiが読み取っています"):
                                 results = parse_receipt_with_gemini(uploaded_file)
                                 
+                                # 整合性チェックと自動再解析ロジック
+                                is_valid, clean_results = verify_receipt_checksum(results)
+                                if not is_valid and isinstance(results, list) and len(results) > 0 and "error" not in results[0]:
+                                    st.warning("🔄 読み取った金額に矛盾を検知しました。再解析を行っています...")
+                                    retry_instruction = "【重要】読み取った数値に矛盾があります。特に『1』と『7』、あるいは小数点やポイント値の誤認がないか、元のレシート画像を再精査して数値を修正してください。"
+                                    results_retry = parse_receipt_with_gemini(uploaded_file, additional_instruction=retry_instruction)
+                                    is_valid_retry, clean_results_retry = verify_receipt_checksum(results_retry)
+                                    
+                                    if "error" not in results_retry and len(results_retry) > 0:
+                                        is_valid = is_valid_retry
+                                        clean_results = clean_results_retry
+                                        results = results_retry # エラーハンドリング用にresultsも更新
+                                
                             if isinstance(results, list) and len(results) > 0 and isinstance(results[0], dict) and "error" in results[0]:
                                 st.error(f"解析に失敗しました: {results[0]['error']}")
                             elif isinstance(results, dict) and "error" in results:
                                 st.error(f"解析に失敗しました: {results['error']}")
                             else:
-                                st.session_state.parsed_results = results
+                                st.session_state.ocr_checksum_valid = is_valid
+                                st.session_state.parsed_results = clean_results
                                 st.rerun()
                         except Exception as e:
                             st.error(f"解析処理中に予期せぬエラーが発生しました: {e}")
@@ -2148,6 +2219,12 @@ def main():
                 else:
                     # 解析完了後、プレビューと確認画面を表示
                     results = st.session_state.parsed_results
+                    is_valid = st.session_state.get('ocr_checksum_valid', True)
+                    
+                    if is_valid:
+                        st.success("✅ 読み取り成功: 合計金額の計算が一致しました。")
+                    else:
+                        st.warning("⚠️ 合計金額の不整合があります。各明細の金額やポイント利用等を確認・修正してください。")
                     
                     if len(results) > 0:
                         preview_date = results[0].get("date", "")
