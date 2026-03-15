@@ -270,12 +270,17 @@ def init_transactions_sheet(sheet):
 
 def init_user_master_sheet(sheet):
     """初期セットアップ：User_Masterシートのヘッダーがない場合に作成する"""
+    expected_headers = ["username", "name", "gender", "birthdate", "mbti", "occupation", "hobbies", "life_stance", "ai_base_instruction"]
     try:
         headers = safe_gspread_call(sheet.row_values, 1)
         if not headers or headers[0] != "username":
-            safe_gspread_call(sheet.insert_row, ["username", "name", "gender", "birthdate", "mbti", "occupation", "hobbies", "life_stance", "ai_base_instruction"], 1)
+            safe_gspread_call(sheet.insert_row, expected_headers, 1)
+        elif len(headers) < len(expected_headers):
+            # 不足しているヘッダーを追記する
+            for i in range(len(headers), len(expected_headers)):
+                safe_gspread_call(sheet.update_cell, 1, i + 1, expected_headers[i])
     except Exception:
-        safe_gspread_call(sheet.insert_row, ["username", "name", "gender", "birthdate", "mbti", "occupation", "hobbies", "life_stance", "ai_base_instruction"], 1)
+        safe_gspread_call(sheet.insert_row, expected_headers, 1)
 
 # ---------- 認証機能 ----------
 def register_user(username, password):
@@ -3452,7 +3457,7 @@ MBTI: {mbti}
                 """)
 
             st.markdown("---")
-            st.caption("マイニー Ver 4.1.6 - ユーザー: %s" % st.session_state['username'])
+            st.caption("マイニー Ver 4.1.7 - ユーザー: %s" % st.session_state['username'])
             
     # 未ログインの状態 (ログイン・登録画面)
     else:
