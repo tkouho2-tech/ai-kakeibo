@@ -2069,8 +2069,11 @@ def main():
                         # 空白のマス目
                         cal_html += '<div></div>'
                     else:
-                        amount = daily_totals.get(day, 0)
-                        amount_text = f"￥{int(amount):,}" if amount > 0 else ""
+                        amount = daily_totals.get(day, None)
+                        if amount is not None:
+                            amount_text = f"￥{int(amount):,}" if amount > 0 else "￥0" if amount == 0 else ""
+                        else:
+                            amount_text = ""
                         date_obj = datetime(year, month, day).date()
                         date_str = date_obj.strftime('%Y-%m-%d')
                         is_selected = st.session_state.get('selected_date') == date_str
@@ -2515,8 +2518,8 @@ def main():
                     st.rerun()
 
                 if submit_manual:
-                    # 入力されているデータのみを抽出（商品名があり、かつ金額が 0 ではないもの）
-                    valid_items = [itm for itm in st.session_state.manual_input_items if itm["name"].strip() != "" and itm["amount"] != 0]
+                    # 入力されているデータのみを抽出（商品名が入力されているもの。0円のレシートも許容）
+                    valid_items = [itm for itm in st.session_state.manual_input_items if itm["name"].strip() != ""]
 
                     if not input_store:
                         st.error("店舗名を入力してください。")
@@ -2826,8 +2829,7 @@ def main():
                                         if st.button("登録実行", use_container_width=True, type="primary", key=f"save_btn_{current_editing_id}"):
                                             if not edit_name.strip():
                                                 st.warning("⚠️ 商品名を入力してください。")
-                                            elif edit_amount == 0:
-                                                st.warning("⚠️ 金額を入力してください。")
+                                            # 0円の場合の警告（elif edit_amount == 0:）を削除し、0円を許容する
                                             else:
                                                 try:
                                                     with st.spinner("保存中..."):
@@ -3409,7 +3411,7 @@ MBTI: {mbti}
                 """)
 
             st.markdown("---")
-            st.caption("マイニー Ver 4.1.0 - ユーザー: %s" % st.session_state['username'])
+            st.caption("マイニー Ver 4.1.2 - ユーザー: %s" % st.session_state['username'])
             
     # 未ログインの状態 (ログイン・登録画面)
     else:
