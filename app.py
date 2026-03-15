@@ -3408,7 +3408,7 @@ MBTI: {mbti}
                 """)
 
             st.markdown("---")
-            st.caption("マイニー Ver 4.1.4 - ユーザー: %s" % st.session_state['username'])
+            st.caption("マイニー Ver 4.1.5 - ユーザー: %s" % st.session_state['username'])
             
     # 未ログインの状態 (ログイン・登録画面)
     else:
