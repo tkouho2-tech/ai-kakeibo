@@ -9,7 +9,7 @@ import os
 import json
 import io
 import calendar
-from datetime import datetime
+from datetime import datetime, date, timedelta
 from dateutil.relativedelta import relativedelta
 from PIL import Image, ImageOps
 from google import genai
@@ -353,6 +353,102 @@ def get_payment_details_for_transaction(username, method_name):
                 return (p_type, "", "", "")
     return "その他", "", "", ""
 
+# --- クレジットカード利用額計算用ヘルパー ---
+def get_last_day_of_month(target_date):
+    """指定した月の日付から、その月の末日（datetime.date）を返す"""
+    _, last_day = calendar.monthrange(target_date.year, target_date.month)
+    return target_date.replace(day=last_day).date()
+
+def calculate_credit_card_periods(target_date, closing_str, pay_month_str, pay_date_str):
+    """
+    指定月(target_date: datetime)に基づく、クレジットカードの2つの期間を算出する。
+    戻り値:
+      (
+        # 1. 対象月の利用額（次回支払額となるもの）
+        usage_start_date (date), 
+        usage_end_date (date), 
+        next_payment_date (date),
+        
+        # 2. 当月支払予定額（前回の利用額となるもの）
+        prev_usage_start_date (date), 
+        prev_usage_end_date (date), 
+        current_payment_date (date)
+      )
+    ※ 設定が未入力の場合は全て None を返す。
+    """
+    if not closing_str or not pay_month_str or not pay_date_str:
+        return None, None, None, None, None, None
+        
+    # target_date を基本の「当月1日」とする
+    base_calc_date = target_date.replace(day=1)
+    
+    # 支払い月のオフセット計算
+    pay_month_offset = 0
+    if "当月" in pay_month_str: pay_month_offset = 0
+    elif "翌々月" in pay_month_str: pay_month_offset = 2
+    elif "翌月" in pay_month_str: pay_month_offset = 1
+
+    try:
+        # ------- 1. 対象月の利用額（次回支払額: Target Usage）の算出 -------
+        # 「対象月」とは、ユーザーが画面で開いている月の締め日を含む期間
+        
+        # 締め日の決定
+        if "月末" in closing_str:
+            # 月末締めの場合、そのまま当月1日～月末
+            usage_start_date = base_calc_date.date()
+            usage_end_date = get_last_day_of_month(base_calc_date)
+            # 支払い基準月は当月
+            billing_base_date = base_calc_date
+        else:
+            # 〇〇日締めの場合、前月まるまる〜当月〇〇日 までが請求サイクル
+            c_day = int(closing_str.replace("日締め", "").replace("日", "").strip())
+            usage_end_date = base_calc_date.replace(day=c_day).date()
+            # 開始日は前月の c_day + 1
+            prev_m = base_calc_date - relativedelta(months=1)
+            # もし前月の日数が c_day 以下なら月末からとか調整が必要だが、実在しない日付は通常設定されない
+            usage_start_date = prev_m.replace(day=c_day) + relativedelta(days=1)
+            usage_start_date = usage_start_date.date()
+            
+            billing_base_date = base_calc_date
+            
+        # 次回支払日の決定 (billing_base_date に offset を足した月の支払日)
+        next_pay_month_date = billing_base_date + relativedelta(months=pay_month_offset)
+        if "月末" in pay_date_str:
+            next_payment_date = get_last_day_of_month(next_pay_month_date)
+        else:
+            p_day = int(pay_date_str.replace("日払い", "").replace("日", "").strip())
+            next_payment_date = next_pay_month_date.replace(day=p_day).date()
+
+        # ------- 2. 当月支払予定額（前回の利用額: Current Payment）の算出 -------
+        # 「当月支払」とは、next_payment_date が target_date の月になるのはいつの利用分か？逆算する。
+        # 支払予定日が「当月」になる場合、利用期間は pay_month_offset ヶ月前になる。
+        target_payment_date_base = base_calc_date
+        # 逆に、引落月が「当月」である利用分（billing_base_date）を探す
+        prev_billing_base_date = base_calc_date - relativedelta(months=pay_month_offset)
+
+        if "月末" in closing_str:
+            prev_usage_start_date = prev_billing_base_date.date()
+            prev_usage_end_date = get_last_day_of_month(prev_billing_base_date)
+        else:
+            c_day = int(closing_str.replace("日締め", "").replace("日", "").strip())
+            prev_usage_end_date = prev_billing_base_date.replace(day=c_day).date()
+            pprev_m = prev_billing_base_date - relativedelta(months=1)
+            prev_usage_start_date = (pprev_m.replace(day=c_day) + relativedelta(days=1)).date()
+            
+        if "月末" in pay_date_str:
+            current_payment_date = get_last_day_of_month(target_payment_date_base)
+        else:
+            p_day = int(pay_date_str.replace("日払い", "").replace("日", "").strip())
+            current_payment_date = target_payment_date_base.replace(day=p_day).date()
+
+        return (
+            usage_start_date, usage_end_date, next_payment_date,
+            prev_usage_start_date, prev_usage_end_date, current_payment_date
+        )
+    except Exception as e:
+        print(f"Date Calc Error: {e}")
+        return None, None, None, None, None, None
+
 def save_payment_method(username, payment_data):
     """支払い方法を保存（新規追加または更新）する"""
     try:
@@ -620,8 +716,9 @@ def load_transactions_data(target_date, mode="monthly"):
     # 期間でフィルタ
     if mode == "monthly":
         df = df[(df["date"].dt.year == target_date.year) & (df["date"].dt.month == target_date.month)]
-    else:  # yearly
+    elif mode == "yearly":
         df = df[df["date"].dt.year == target_date.year]
+    # mode == "all" の場合は日付フィルタを行わず全期間を返す
     
     # 金額を数値に変換
     if "amount" in df.columns:
@@ -1793,6 +1890,85 @@ def show_dashboard():
     else:
         st.warning(f"分析に必要な列（{analysis_axis[:-1]}）がありません。")
 
+def show_credit_card_dashboard():
+    st.markdown("## 💳 クレジットカード利用状況", unsafe_allow_html=True)
+    
+    render_month_navigation()
+    target_date = st.session_state.current_month
+    
+    methods = get_payment_methods(st.session_state['username'])
+    credit_cards = [m for m in methods if str(m.get("is_credit_card", "False")).lower() == "true"]
+    
+    if not credit_cards:
+        st.info("クレジットカードが登録されていません。サイドバーの「マスター設定」＞「支払方法設定」から登録してください。")
+        return
+        
+    st.markdown("---")
+    
+    with st.spinner("データ集計中..."):
+        df_all = load_transactions_data(target_date, mode="all")
+        if df_all.empty:
+            st.info("データがありません。")
+            return
+            
+        for cc in credit_cards:
+            cc_name = cc.get("name", "名称未設定")
+            closing_str = cc.get("closing_date", "")
+            pay_m_str = cc.get("payment_month", "")
+            pay_d_str = cc.get("payment_date", "")
+            
+            # クレジットカードの計算ヘルパー呼び出し
+            u_start, u_end, n_pay_date, pu_start, pu_end, c_pay_date = calculate_credit_card_periods(
+                target_date, closing_str, pay_m_str, pay_d_str
+            )
+            
+            st.markdown(f"### {cc_name}")
+            
+            if not u_start:
+                st.warning("締日や支払日の設定が完了していません。設定画面から設定してください。")
+                st.markdown("---")
+                continue
+            
+            # 該当カードのデータを抽出
+            df_cc = df_all[df_all["payment_method"] == cc_name]
+            
+            # 1. 対象月（現在選択している月）の〆日までの利用額（次回支払分）
+            mask_next = (df_cc["date"].dt.date >= u_start) & (df_cc["date"].dt.date <= u_end)
+            df_next = df_cc[mask_next]
+            amt_next = df_next["amount"].sum() if not df_next.empty else 0
+            
+            # 2. 当月支払予定額（前回の利用分）
+            mask_curr = (df_cc["date"].dt.date >= pu_start) & (df_cc["date"].dt.date <= pu_end)
+            df_curr = df_cc[mask_curr]
+            amt_curr = df_curr["amount"].sum() if not df_curr.empty else 0
+            
+            # UI描画 (カード形式で2つ並べる)
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                st.markdown(f"**対象月の利用額 (次回支払)**")
+                st.caption(f"対象期間: **{u_start.strftime('%Y/%m/%d')} 〜 {u_end.strftime('%Y/%m/%d')}**")
+                st.markdown(f"<h3 style='margin-top:0px;'>¥ {int(amt_next):,}</h3>", unsafe_allow_html=True)
+                st.caption(f"支払予定日: {n_pay_date.strftime('%Y/%m/%d')}")
+
+            with col2:
+                st.markdown(f"**当月支払予定額 (前回の利用)**")
+                st.caption(f"対象期間: **{pu_start.strftime('%Y/%m/%d')} 〜 {pu_end.strftime('%Y/%m/%d')}**")
+                auto_color = "red" if amt_curr > 0 else "black"
+                st.markdown(f"<h3 style='margin-top:0px; color:{auto_color};'>¥ {int(amt_curr):,}</h3>", unsafe_allow_html=True)
+                st.caption(f"引落日: {c_pay_date.strftime('%Y/%m/%d')}")
+                
+            # 限度額の表示（設定されている場合）
+            limit_str = cc.get("credit_limit", "")
+            if limit_str and str(limit_str).isdigit():
+                limit = int(limit_str)
+                # 対象月の利用額に対してのプログレスなどを出すとリッチ
+                ratio = min(amt_next / limit, 1.0)
+                st.progress(ratio)
+                st.caption(f"限度額: ¥{limit:,} に対する利用率: {int(ratio*100)}%")
+                
+            st.markdown("---")
+
 def show_payment_master():
     """支払い方法マスター設定画面"""
     st.markdown("#### 💳 支払い方法マスター")
@@ -2295,8 +2471,7 @@ def main():
                 .block-container h5 { font-size: calc(1.00rem + 2pt) !important; }
                 </style>
             """, unsafe_allow_html=True)
-            
-            st.subheader("マイニー [Ver 4.3.2]")
+            st.subheader("マイニー [Ver 4.4.0]")
             st.write(f"🔑 ユーザー: **{st.session_state['username']}**")
             st.markdown("---")
             if 'menu_selection' not in st.session_state:
@@ -3994,8 +4169,7 @@ MBTI: {mbti}
                 """)
 
         elif menu_selection == "クレジットカード":
-            st.markdown("## 💳 クレジットカード")
-            st.info("ただいま準備中です。次回のアップデートをお待ちください！")
+            show_credit_card_dashboard()
 
         elif menu_selection == "支払方法マスター":
             show_payment_master()
@@ -4003,8 +4177,7 @@ MBTI: {mbti}
         elif menu_selection == "プロフィール設定":
             show_profile_settings()
 
-        st.markdown("---")
-        st.caption("マイニー Ver 4.3.2 - ユーザー: %s" % st.session_state['username'])
+        st.caption("マイニー Ver 4.4.0 - ユーザー: %s" % st.session_state['username'])
             
     # 未ログインの状態 (ログイン・登録画面)
     else:
