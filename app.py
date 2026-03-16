@@ -1583,7 +1583,7 @@ def show_dashboard():
     with col_a:
         analysis_axis = st.selectbox(
             "分析軸を選択", 
-            ["大分類別", "小分類別", "店舗別", "消費税"], 
+            ["大分類別", "小分類別", "店舗別", "消費税", "支払い方法"], 
             index=0, 
             key="monthly_analysis_axis"
         )
@@ -1633,8 +1633,12 @@ def show_dashboard():
         
         # 【修正】カテゴリを消費税（外税・内税）に限定してフィルタリング
         df = df[df["category"].isin(["消費税（外税）", "消費税（内税）"])]
-        df["tax_group"] = df[sub_col].apply(map_tax)
+        if sub_col in df.columns:
+            df["tax_group"] = df[sub_col].apply(map_tax)
         df_agg = df # 消費税軸の場合はこのフィルタ済みデータを全表示
+    elif analysis_axis == "支払い方法":
+        group_col = "payment_method"
+        title_label = "支払い方法別金額シェア"
 
     if group_col and group_col in df.columns and "amount" in df.columns:
         if graph_type == "円グラフ":
@@ -1973,7 +1977,7 @@ def show_yearly_dashboard():
     with col_a:
         analysis_axis = st.selectbox(
             "分析軸を選択", 
-            ["大分類別", "小分類別", "店舗別", "消費税"], 
+            ["大分類別", "小分類別", "店舗別", "消費税", "支払い方法"], 
             index=0, 
             key="yearly_analysis_axis"
         )
@@ -2025,10 +2029,17 @@ def show_yearly_dashboard():
         if not df_prev.empty:
             df_prev = df_prev[df_prev["category"].isin(["消費税（外税）", "消費税（内税）"])]
             
-        df["tax_group"] = df[sub_col].apply(map_tax)
-        df_prev["tax_group"] = df_prev[sub_col].apply(map_tax) if not df_prev.empty else None
+        if sub_col in df.columns:
+            df["tax_group"] = df[sub_col].apply(map_tax)
+        if not df_prev.empty and sub_col in df_prev.columns:
+            df_prev["tax_group"] = df_prev[sub_col].apply(map_tax)
+            
         df_agg = df 
         df_prev_agg = df_prev
+        
+    elif analysis_axis == "支払い方法":
+        group_col = "payment_method"
+        title_label = "支払い方法別"
 
     if graph_type == "前年対比":
         # 当年データの月別集計 (年次グラフでは内税を含めて内訳を提示)
@@ -2218,7 +2229,7 @@ def main():
 
         # サイドバーメニューの実装
         with st.sidebar:
-            st.subheader("マイニー [Ver 4.2.2]")
+            st.subheader("マイニー [Ver 4.2.3]")
             st.write(f"🔑 ユーザー: **{st.session_state['username']}**")
             st.markdown("---")
             if 'menu_selection' not in st.session_state:
@@ -3921,7 +3932,7 @@ MBTI: {mbti}
             show_profile_settings()
 
         st.markdown("---")
-        st.caption("マイニー Ver 4.2.2 - ユーザー: %s" % st.session_state['username'])
+        st.caption("マイニー Ver 4.2.3 - ユーザー: %s" % st.session_state['username'])
             
     # 未ログインの状態 (ログイン・登録画面)
     else:
