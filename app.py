@@ -49,6 +49,7 @@ EXPENSE_CATEGORIES = {
     "割引・ポイント利用": ["共通ポイント利用", "店舗独自ポイント利用", "クーポン割引", "キャッシュバック・還元"],
     "消費税（外税）": ["外税8%", "外税10%", "外税？％"],
     "消費税（内税）": ["内税8%", "内税10%", "内税？％"],
+    "納税額": ["確定申告納税額", "その他"],
     "その他": ["📁未分類"]
 }
 
@@ -72,7 +73,8 @@ CATEGORY_COLOR_MAP = {
     "その他": "#778899",   # ライトスレートグレー
     "消費税（外税）": "#BC8F8F", # ロージーブラウン
     "消費税（内税）": "#D2B48C", # タン
-    "割引・ポイント利用": "#FFFF00" # 黄色
+    "割引・ポイント利用": "#FFFF00", # 黄色
+    "納税額": "#4682B4"      # スチールブルー
 }
 
 def get_categories():
@@ -289,7 +291,7 @@ def init_user_master_sheet(sheet):
 
 def init_payment_master_sheet(sheet):
     """初期セットアップ：Payment_Masterシートのヘッダーがない場合に作成する"""
-    expected_headers = ["username", "payment_id", "name", "type", "closing_date", "payment_month", "payment_date"]
+    expected_headers = ["username", "payment_id", "name", "type", "closing_date", "payment_month", "payment_date", "is_credit_card", "credit_limit"]
     try:
         headers = safe_gspread_call(sheet.row_values, 1)
         if not headers or headers[0] != "username":
@@ -311,6 +313,17 @@ def get_payment_methods(username):
         if records:
             for row in records:
                 if str(row.get("username", "")).lower() == username.lower():
+                    # boolean パース
+                    is_cc_raw = str(row.get("is_credit_card", "False")).lower()
+                    row["is_credit_card"] = True if is_cc_raw == "true" else False
+                    
+                    # limit パース
+                    limit_raw = row.get("credit_limit", "")
+                    try:
+                        row["credit_limit"] = int(float(limit_raw)) if limit_raw else 0
+                    except ValueError:
+                        row["credit_limit"] = 0
+                    
                     methods.append(row)
         return methods
     except Exception as e:
@@ -339,12 +352,14 @@ def save_payment_method(username, payment_data):
             payment_data.get("type", "現金"),
             payment_data.get("closing_date", ""),
             payment_data.get("payment_month", ""),
-            payment_data.get("payment_date", "")
+            payment_data.get("payment_date", ""),
+            str(payment_data.get("is_credit_card", False)),
+            str(payment_data.get("credit_limit", ""))
         ]
         
         if row_idx:
             # 既存の行を更新
-            update_range = f"A{row_idx}:G{row_idx}"
+            update_range = f"A{row_idx}:I{row_idx}"
             safe_gspread_call(sheet.update, range_name=update_range, values=[row_data])
         else:
             # 新規追加
@@ -1695,6 +1710,205 @@ def show_dashboard():
     else:
         st.warning(f"分析に必要な列（{analysis_axis[:-1]}）がありません。")
 
+def show_payment_master():
+    """支払い方法マスター設定画面"""
+    st.markdown("#### 💳 支払い方法マスター")
+    st.info("レシート登録時に選択できる「支払い方法」を追加・管理します。")
+    
+    # 現在の支払い方法一覧を表示
+    methods = get_payment_methods(st.session_state['username'])
+    
+    st.write("##### 登録済みの支払い方法")
+    if methods:
+        # DataFrameにして表示
+        df_methods = pd.DataFrame(methods)
+        
+        # is_credit_card 列がなければ False にしておく
+        if "is_credit_card" not in df_methods.columns:
+            df_methods["is_credit_card"] = False
+        # credit_limit 列がなければ 空白 または NaN
+        if "credit_limit" not in df_methods.columns:
+            df_methods["credit_limit"] = None
+        
+        # 表示用カラムを絞る
+        display_cols = ["payment_id", "name", "type", "is_credit_card", "closing_date", "payment_month", "payment_date", "credit_limit"]
+        df_display = df_methods[[c for c in display_cols if c in df_methods.columns]].copy()
+        
+        # Boolean を "はい" / "いいえ" にする
+        if "is_credit_card" in df_display.columns:
+            # 念のため文字列になっている場合を考慮
+            df_display["is_credit_card"] = df_display["is_credit_card"].apply(
+                lambda x: "はい" if str(x).lower() == "true" or x == True else "いいえ"
+            )
+
+        df_display = df_display.rename(columns={
+            "name": "支払い方法名", "type": "種類", "is_credit_card": "クレカ判定", 
+            "closing_date": "締日", "payment_month": "支払月", "payment_date": "支払日", "credit_limit": "限度額"
+        })
+        event = st.dataframe(
+            df_display, 
+            use_container_width=True, 
+            hide_index=True,
+            selection_mode="single-row",
+            on_select="rerun",
+            key="payment_master_list"
+        )
+        
+        selected_indices = event.selection.rows
+        if selected_indices:
+            selected_idx = selected_indices[0]
+            selected_payment_id = df_display.iloc[selected_idx]['payment_id']
+            
+            # Find original dict
+            selected_method = next((m for m in methods if m["payment_id"] == selected_payment_id), None)
+            
+            if selected_method:
+                st.markdown(f"**選択されている支払い方法:** {selected_method['name']}")
+                
+                # Check if we are confirming deletion
+                if st.session_state.get("confirm_delete_payment_id") == selected_payment_id:
+                    st.warning(f"「{selected_method['name']}」を本当に削除しますか？")
+                    col_yes, col_no = st.columns(2)
+                    with col_yes:
+                        if st.button("はい、削除します", type="primary", use_container_width=True):
+                            with st.spinner("削除中..."):
+                                success, msg = delete_payment_method(st.session_state['username'], selected_payment_id)
+                                if success:
+                                    st.success(msg)
+                                    del st.session_state["confirm_delete_payment_id"]
+                                    time.sleep(1)
+                                    st.rerun()
+                                else:
+                                    st.error(msg)
+                    with col_no:
+                        if st.button("キャンセル", use_container_width=True):
+                            del st.session_state["confirm_delete_payment_id"]
+                            st.rerun()
+                else:
+                    col_e, col_d = st.columns(2)
+                    with col_e:
+                        if st.button("✏️ 修正する", use_container_width=True):
+                            st.session_state.show_add_payment_form = True
+                            st.session_state.editing_payment = selected_method
+                            st.rerun()
+                    with col_d:
+                        if st.button("🗑️ 削除する", use_container_width=True):
+                            st.session_state.confirm_delete_payment_id = selected_payment_id
+                            st.rerun()
+    else:
+        st.write("登録されている支払い方法はありません。（デフォルトとして「現金」が利用可能です）")
+        
+    if not st.session_state.get("show_add_payment_form", False):
+        st.markdown("<br>", unsafe_allow_html=True)
+        if st.button("➕ 新しく支払い方法を追加する", type="primary"):
+            st.session_state.show_add_payment_form = True
+            if "editing_payment" in st.session_state:
+                del st.session_state["editing_payment"]
+            st.rerun()
+    else:
+        st.markdown("---")
+        is_edit_mode = "editing_payment" in st.session_state and st.session_state.editing_payment is not None
+        edit_data = st.session_state.get("editing_payment", {})
+        
+        st.write("##### 支払い方法の修正" if is_edit_mode else "##### 新規支払い方法の追加")
+        with st.container(border=True):
+            p_col1, p_col2 = st.columns(2)
+            with p_col1:
+                default_name = edit_data.get("name", "")
+                new_name = st.text_input("支払い方法名（例: 楽天カード、現金、PayPay）", value=default_name)
+            with p_col2:
+                default_type = edit_data.get("type", "クレジットカード")
+                type_options = ["クレジットカード", "デビットカード", "電子マネー", "ポイント", "現金", "銀行振込", "その他", "未設定"]
+                type_index = type_options.index(default_type) if default_type in type_options else (len(type_options) - 1)
+                new_type = st.selectbox("種類", type_options, index=type_index)
+                is_credit_card = (new_type == "クレジットカード")
+            
+            if is_credit_card:
+                # クレジットカード専用設定
+                st.markdown("###### クレジットカード詳細設定")
+                c_col1, c_col2, c_col3 = st.columns(3)
+                
+                closing_opts = ["", "末日"] + [str(i) for i in range(1, 31)]
+                def_closing = str(edit_data.get("closing_date", ""))
+                closing_idx = closing_opts.index(def_closing) if def_closing in closing_opts else 0
+                
+                month_opts = ["", "当月", "翌月", "翌々月"]
+                def_month = str(edit_data.get("payment_month", ""))
+                month_idx = month_opts.index(def_month) if def_month in month_opts else 0
+                
+                date_opts = ["", "末日"] + [str(i) for i in range(1, 31)]
+                def_date = str(edit_data.get("payment_date", ""))
+                date_idx = date_opts.index(def_date) if def_date in date_opts else 0
+                
+                def_limit = int(edit_data.get("credit_limit", 0)) if edit_data.get("credit_limit") else 0
+                
+                with c_col1:
+                    closing_date = st.selectbox("締日", closing_opts, index=closing_idx)
+                with c_col2:
+                    payment_month = st.selectbox("支払月", month_opts, index=month_idx)
+                with c_col3:
+                    payment_date = st.selectbox("支払日", date_opts, index=date_idx)
+
+                credit_limit = st.number_input("限度額（円）", min_value=0, step=10000, value=def_limit, help="0の場合は設定なし")
+            else:
+                closing_date = ""
+                payment_month = ""
+                payment_date = ""
+                credit_limit = 0
+                
+            btn_col1, btn_col2 = st.columns(2)
+            with btn_col1:
+                submit_label = "更新する" if is_edit_mode else "保存する"
+                submit_payment = st.button(submit_label, type="primary", use_container_width=True)
+            with btn_col2:
+                cancel_payment = st.button("キャンセル", use_container_width=True)
+                
+            if cancel_payment:
+                st.session_state.show_add_payment_form = False
+                if "editing_payment" in st.session_state:
+                    del st.session_state["editing_payment"]
+                st.rerun()
+                
+            if submit_payment:
+                if not new_name.strip():
+                    st.warning("⚠️ 支払い方法名は必須です。")
+                elif is_credit_card and (not closing_date or not payment_month or not payment_date):
+                    st.warning("⚠️ クレジットカードフラグがONの場合は、締日・支払月・支払日をすべて設定してください。")
+                else:
+                    with st.spinner("保存中..."):
+                        # クレカ以外は詳細設定をクリアして保存
+                        limit_val = credit_limit if credit_limit > 0 else ""
+                        if not is_credit_card:
+                            closing_date = ""
+                            payment_month = ""
+                            payment_date = ""
+                            limit_val = ""
+                            
+                        # IDは自動採番、または既存IDを継承
+                        generated_id = edit_data.get("payment_id") if is_edit_mode else f"pay_{int(time.time() * 1000)}"
+                            
+                        data_to_save = {
+                            "payment_id": generated_id,
+                            "name": new_name.strip(),
+                            "type": new_type.strip(),
+                            "is_credit_card": is_credit_card,
+                            "closing_date": closing_date,
+                            "payment_month": payment_month,
+                            "payment_date": payment_date,
+                            "credit_limit": limit_val
+                        }
+                        succ, msg = save_payment_method(st.session_state['username'], data_to_save)
+                        if succ:
+                            st.success(msg)
+                            st.session_state.show_add_payment_form = False
+                            if "editing_payment" in st.session_state:
+                                del st.session_state["editing_payment"]
+                            time.sleep(1)
+                            st.rerun()
+                        else:
+                            st.error(msg)
+
+
 def show_yearly_dashboard():
     # ヘッダーを表示するためのプレースホルダー
     header_placeholder = st.empty()
@@ -1973,7 +2187,7 @@ def main():
 
         # サイドバーメニューの実装
         with st.sidebar:
-            st.subheader("マイニー [Ver 4.1.6]")
+            st.subheader("マイニー [Ver 4.1.8]")
             st.write(f"🔑 ユーザー: **{st.session_state['username']}**")
             st.markdown("---")
             if 'menu_selection' not in st.session_state:
@@ -1990,6 +2204,7 @@ def main():
                 "マニュアル", 
                 "ヘルプ", 
                 "AI相談", 
+                "支払方法マスター",
                 "プロフィール設定"
             ]
             
@@ -2444,7 +2659,12 @@ def main():
                     # 🎯 支払い方法のUIを追加
                     methods = get_payment_methods(st.session_state['username'])
                     method_options = [m["name"] for m in methods] if methods else ["現金"]
-                    selected_payment = st.selectbox("支払い方法", options=method_options)
+                    
+                    if "未設定" not in method_options:
+                        method_options = ["未設定"] + method_options
+                        
+                    default_idx = method_options.index("未設定") if "未設定" in method_options else 0
+                    selected_payment = st.selectbox("支払い方法", options=method_options, index=default_idx)
                     
                     st.write("この内容で登録しますか？")
                     
@@ -2740,12 +2960,18 @@ def main():
                     df_agg = df.copy()
                     if "category" in df_agg.columns:
                         df_agg.loc[df_agg["category"] == "消費税（内税）", "amount"] = 0
+                        
+                    if "payment_method" not in df_agg.columns:
+                        df_agg["payment_method"] = "未設定"
+                    else:
+                        df_agg["payment_method"] = df_agg["payment_method"].fillna("未設定")
                     
                     receipts_df = df_agg.groupby(["date", store_col], as_index=False).agg(
+                        payment_method=("payment_method", "first"),
                         amount=("amount", "sum"),
                         明細数=("amount", "count")
                     )
-                    receipts_df.columns = ["日付", "店舗名", "金額合計", "明細数"]
+                    receipts_df.columns = ["日付", "店舗名", "支払い方法", "金額合計", "明細数"]
                     # 店舗名が空欄の場合は「店舗不明」とする
                     receipts_df["店舗名"] = receipts_df["店舗名"].replace("", "店舗不明")
                     receipts_df["日付"] = receipts_df["日付"].dt.strftime('%Y-%m-%d')
@@ -2764,6 +2990,9 @@ def main():
                         hide_index=True, 
                         selection_mode="single-row",
                         on_select="rerun",
+                        column_config={
+                            "店舗名": st.column_config.TextColumn("店舗名", width="medium"),
+                        },
                         key=f"receipt_list_df_{st.session_state.receipt_list_version}"
                     )
                     
@@ -2804,9 +3033,11 @@ def main():
                             if st.session_state.get('current_receipt_key') != receipt_key or st.session_state.get('edit_data') is None:
                                 st.session_state['current_receipt_key'] = receipt_key
                                 st.session_state['edit_data'] = {}
+                                first_payment = details.iloc[0].get("payment_method", "現金") if not details.empty else "現金"
                                 st.session_state['edit_header'] = {
                                     "date": target_date.date(),
-                                    "store": target_store
+                                    "store": target_store,
+                                    "payment_method": first_payment
                                 }
                                 st.session_state['editing_gs_idx'] = None
                                 st.session_state['new_row_count'] = 0
@@ -2833,34 +3064,70 @@ def main():
                             # --- レシートヘッダー（日付・店舗名）の修正エリア ---
                             st.write(f"##### レシート修正（金額：￥{int(selected_receipt['金額合計']):,}）")
                             with st.container(border=True):
-                                h_col1, h_col2 = st.columns(2)
-                                with h_col1:
-                                    new_date = st.date_input("日付", value=st.session_state['edit_header']['date'], key=f"edit_header_date_{receipt_key}")
-                                with h_col2:
-                                    new_store = st.text_input("店舗名", value=st.session_state['edit_header']['store'], key=f"edit_header_store_{receipt_key}")
+                                # 1行目：日付
+                                c1, c2, c3 = st.columns([1.5, 8.5, 2])
+                                with c1:
+                                    st.markdown("<p style='margin-top: 8px; font-weight: bold;'>日付</p>", unsafe_allow_html=True)
+                                with c2:
+                                    new_date = st.date_input("日付", value=st.session_state['edit_header']['date'], key=f"edit_header_date_{receipt_key}", label_visibility="collapsed")
+                                
+                                # 2行目：店舗名
+                                c1, c2, c3 = st.columns([1.5, 8.5, 2])
+                                with c1:
+                                    st.markdown("<p style='margin-top: 8px; font-weight: bold;'>店舗名</p>", unsafe_allow_html=True)
+                                with c2:
+                                    new_store = st.text_input("店舗名", value=st.session_state['edit_header']['store'], key=f"edit_header_store_{receipt_key}", label_visibility="collapsed")
+                                
+                                # 3行目：支払い方法
+                                c1, c2, c3 = st.columns([1.5, 8.5, 2])
+                                with c1:
+                                    st.markdown("<p style='margin-top: 8px; font-weight: bold;'>支払い方法</p>", unsafe_allow_html=True)
+                                with c2:
+                                    methods = get_payment_methods(st.session_state['username'])
+                                    method_options = [m["name"] for m in methods] if methods else ["現金"]
+                                    
+                                    # 「未設定」を先頭に追加（重複を避ける）
+                                    if "未設定" not in method_options:
+                                        method_options = ["未設定"] + method_options
+
+                                    current_payment = str(st.session_state['edit_header'].get('payment_method', '未設定')).strip()
+                                    if not current_payment or str(current_payment).lower() == 'nan':
+                                        current_payment = '未設定'
+                                        
+                                    if current_payment not in method_options:
+                                        method_options.append(current_payment)
+                                        
+                                    payment_idx = method_options.index(current_payment)
+                                    new_payment = st.selectbox("支払い方法", method_options, index=payment_idx, key=f"edit_header_payment_{receipt_key}", label_visibility="collapsed")
                                 
                                 # ヘッダー情報を更新
                                 st.session_state['edit_header']['date'] = new_date
                                 st.session_state['edit_header']['store'] = new_store
+                                st.session_state['edit_header']['payment_method'] = new_payment
 
                             # --- アクションボタンエリア（上部） ---
                             action_col1, action_col2 = st.columns(2)
                             
                             with action_col1:
-                                if st.button("日付・店舗名更新", use_container_width=True, type="primary"):
+                                if st.button("日付・店舗名・支払更新", use_container_width=True, type="primary"):
                                     try:
                                         with st.spinner("一括更新中..."):
                                             sheet = get_sheet(TRANSACTIONS_WORKSHEET_NAME)
                                             target_date_str = st.session_state['edit_header']['date'].strftime("%Y-%m-%d")
                                             target_store = st.session_state['edit_header']['store']
+                                            target_payment = st.session_state['edit_header']['payment_method']
                                             
                                             # 既存の全明細行をループして日付と店舗を更新
                                             existing_indices = [int(k) for k in st.session_state['edit_data'].keys() if not str(k).startswith("new_")]
                                             current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                                            
+                                            batch_updates = []
                                             for r_idx in existing_indices:
-                                                sheet.update_cell(r_idx, 2, target_date_str)
-                                                sheet.update_cell(r_idx, 3, target_store)
-                                                sheet.update_cell(r_idx, 8, current_time)
+                                                batch_updates.append({"range": f"B{r_idx}:C{r_idx}", "values": [[target_date_str, target_store]]})
+                                                batch_updates.append({"range": f"H{r_idx}:I{r_idx}", "values": [[current_time, target_payment]]})
+                                                
+                                            if batch_updates:
+                                                safe_gspread_call(sheet.batch_update, batch_updates)
                                                 
                                             st.success("✅ レシート情報を一括更新しました")
                                             st.session_state.receipt_list_version += 1
@@ -3340,90 +3607,9 @@ MBTI: {mbti}
                             st.error(message)
 
             st.markdown("---")
-            st.markdown("#### 💳 支払い方法マスター")
-            st.info("レシート登録時に選択できる「支払い方法」を追加・管理します。")
-            
-            # 現在の支払い方法一覧を表示
-            methods = get_payment_methods(st.session_state['username'])
-            
-            st.write("##### 登録済みの支払い方法")
-            if methods:
-                # DataFrameにして表示
-                df_methods = pd.DataFrame(methods)
-                # 表示用カラムを絞る
-                display_cols = ["payment_id", "name", "type", "closing_date", "payment_month", "payment_date"]
-                df_display = df_methods[[c for c in display_cols if c in df_methods.columns]].copy()
-                df_display = df_display.rename(columns={
-                    "name": "支払い方法名", "type": "種類", "closing_date": "締日", 
-                    "payment_month": "支払月", "payment_date": "支払日"
-                })
-                st.dataframe(df_display, use_container_width=True, hide_index=True)
-                
-                # 削除機能
-                with st.expander("🗑️ 支払い方法を削除する"):
-                    del_id = st.selectbox("削除する支払い方法（ID）を選択", options=[m["payment_id"] for m in methods])
-                    if st.button("削除実行"):
-                        with st.spinner("削除中..."):
-                            success, msg = delete_payment_method(st.session_state['username'], del_id)
-                            if success:
-                                st.success(msg)
-                                time.sleep(1)
-                                st.rerun()
-                            else:
-                                st.error(msg)
-            else:
-                st.write("登録されている支払い方法はありません。（デフォルトとして「現金」が利用可能です）")
-                
-            st.write("##### 新規追加 / 編集")
-            with st.form("payment_method_form"):
-                p_col1, p_col2 = st.columns(2)
-                with p_col1:
-                    new_id = st.text_input("ID（半角英数、例: card_rakuten）", help="既存のIDを指定すると上書き更新されます。")
-                    new_name = st.text_input("支払い方法名（例: 楽天カード、現金）")
-                with p_col2:
-                    type_options = ["現金", "クレジットカード", "電子マネー", "QR・バーコード決済", "その他"]
-                    new_type = st.selectbox("種類", options=type_options)
-                
-                # クレジットカード専用設定
-                st.markdown("###### クレジットカード詳細設定（種類が「クレジットカード」の場合のみ有効）")
-                c_col1, c_col2, c_col3 = st.columns(3)
-                with c_col1:
-                    closing_date = st.selectbox("締日", ["", "末日"] + [str(i) for i in range(1, 31)])
-                with c_col2:
-                    payment_month = st.selectbox("支払月", ["", "当月", "翌月", "翌々月"])
-                with c_col3:
-                    payment_date = st.selectbox("支払日", ["", "末日"] + [str(i) for i in range(1, 31)])
-                    
-                submit_payment = st.form_submit_button("保存する", type="primary")
-                
-                if submit_payment:
-                    if not new_id or not new_name:
-                        st.warning("⚠️ IDと支払い方法名は必須です。")
-                    elif new_type == "クレジットカード" and (not closing_date or not payment_month or not payment_date):
-                        st.warning("⚠️ クレジットカードの場合は、締日・支払月・支払日をすべて設定してください。")
-                    else:
-                        with st.spinner("保存中..."):
-                            # クレカ以外は詳細設定をクリアして保存
-                            if new_type != "クレジットカード":
-                                closing_date = ""
-                                payment_month = ""
-                                payment_date = ""
-                                
-                            data_to_save = {
-                                "payment_id": new_id,
-                                "name": new_name,
-                                "type": new_type,
-                                "closing_date": closing_date,
-                                "payment_month": payment_month,
-                                "payment_date": payment_date
-                            }
-                            succ, msg = save_payment_method(st.session_state['username'], data_to_save)
-                            if succ:
-                                st.success(msg)
-                                time.sleep(1)
-                                st.rerun()
-                            else:
-                                st.error(msg)
+            # 支払い方法マスターは独立したメニューに移動しました。
+
+        elif menu_selection == "ヘルプ":
             st.markdown("#### 💡 ヘルプ・サポート")
             
             st.info("アプリの機能や使い方、データの保存先などについて何でも聞いてください！")
@@ -3501,8 +3687,8 @@ MBTI: {mbti}
 
 【5. レシート修正・履歴】
 ・操作：「レシート修正」メニューから、過去に登録した全てのデータを表形式で確認できます。
-・UI：明細一覧の指示が「（修正する行を選択して下さい）」となり、直感的に操作できます。
-・編集：内容（日付・店舗名、個別明細）を書き換えて「更新」または「登録実行」ボタンを押すだけで修正完了です。
+・UI：明細一覧の指示が「（修正する行を選択して下さい）」となり、直感的に操作できます。対象レシート一覧には新たに「支払い方法」列が追加されました。
+・編集：内容（日付・店舗名、支払い方法、個別明細）を書き換えて「更新」または「登録実行」ボタンを押すだけで一括修正完了です。支払い方法が空だったデータは「未設定」と表示されます。
 ・安全性（データ保護）：書き込み直前にデータの不整合（行のずれなど）を検知する安全装置が搭載されました。不整合時はエラーを出して停止するため、間違ったデータを消すことはありません。
 ・画面遷移の改善：明細の修正や削除後も、選択中のレシートが保持されます。また、行の選択状態のみがクリアされるため、続けて次の明細をスムーズに修正できます。
 ・リロード機能：個別明細の修正・削除後は、レシート全体の合計金額などが即座に自動更新されます。
@@ -3521,6 +3707,11 @@ MBTI: {mbti}
 ・概要：登録された家計データをファイルとして保存できます。
 ・操作：左側のサイドバー下部にある「📥 データのダウンロード」をクリックし、Excel形式またはCSV形式を選択、「🚀 実行する」を押してください。
 ・活用：PCでの詳細な分析や、データのバックアップとして利用可能です。
+
+【9. 支払方法マスター】
+・概要：自分が使うクレジットカードや電子マネーなどの支払い方法を登録、修正、削除できます。
+・操作：サイドバーから「支払方法マスター」を選びます。「追加する」から「名称」と「種類」を指定して保存します。クレジットカードの場合は支払日や限度額も登録可能です。
+・連動：ここで登録した支払い方法は、レシート手入力やレシート修正時のプルダウンとして利用できます。
 
 回答のコツ：
 ・各機能への移動は、画面左側の「サイドバー（メニュー）」から行えることを案内してください。
@@ -3598,7 +3789,7 @@ MBTI: {mbti}
                 - **自動向き補正**: アップロードされた画像の向きをEXIF情報に基づいて自動的に正しく（縦向きに）調整します。
                 - **自動解析**: 店舗名、商品名、金額、カテゴリをAIが自動で推測して入力します。
                 - **自動消費税追加**: 解析結果に消費税が含まれていない場合、システムが自動的に内税10%の消費税項目を計算して追加します。
-                - **編集と登録**: 解析完了後の確認画面で、「日付」をカレンダーから、「店舗名」をテキスト入力で直感的に修正できます。未入力での誤登録を防ぐチェック機能も搭載しています。
+                - **編集と登録**: 解析完了後の確認画面で、「日付」をカレンダーから、「店舗名」をテキスト入力で直感的に修正できます。支払い方法は初期状態で「未設定」が選ばれるため、任意に正しいものを選んでください。未入力での誤登録を防ぐチェック機能も搭載しています。
                 """)
 
             with st.expander("⌨️ レシート手入力（高速入力）"):
@@ -3612,12 +3803,20 @@ MBTI: {mbti}
             with st.expander("✏️ レシート修正・履歴管理"):
                 st.markdown("""
                 **概要**: 過去に登録した全てのデータを一覧・検索・編集できます。
-                - **一括管理**: 全ての支出データが時系列で表示されます。
-                - **かんたん修正**: 修正内容を入力して「更新」または「登録実行」を押すだけ。
+                - **一覧管理**: 全ての支出データが時系列で表示され、対象一覧には「支払い方法」列も加わり一目で情報を把握できます。
+                - **かんたん修正**: 修正内容（日付、店舗名、支払い方法、金額、カテゴリ等）を入力して「更新」または「登録実行」を押すだけ。
+                - **一括更新**: レシート全体の日付、店舗名、支払い方法を一括で変更できるようになりました。
                 - **遷移改善**: 明細の修正・削除後も対象レシートの選択が維持され、続けて次の修正が行えます。
                 - **自動リロード**: 個別明細の操作後、一覧の合計表示などが自動的に最新の状態に更新されます。
-                - **UI改善**: 「日付・店舗名更新」ボタンの名称変更や、選択指示の明確化（「選択して下さい」）により、使いやすさが向上しました。
                 - **安全な削除**: 削除時は再確認が出るため、誤操作を防げます。
+                """)
+                
+            with st.expander("💳 支払方法マスター"):
+                st.markdown("""
+                **概要**: アプリ全体で利用する「支払い方法（クレジットカード、現金、電子マネーなど）」を管理します。
+                - **登録・修正・削除**: 自分が使っている決済手段を自由に登録し、不要になったら削除できます。
+                - **種類と詳細設定**: 「クレジットカード」を選ぶと、締日や支払日、限度額などの詳細情報も設定可能です。
+                - **アプリ内連携**: マスターに登録した支払い方法は、そのままレシート取込・手入力・修正の各画面で選択できるようになります。
                 """)
 
             with st.expander("🤖 AI相談（専属FP）"):
@@ -3668,8 +3867,14 @@ MBTI: {mbti}
                 - **活用方法**: 表計算ソフトでの詳細な分析や、万が一のためのバックアップに活用してください。
                 """)
 
-            st.markdown("---")
-            st.caption("マイニー Ver 4.1.7 - ユーザー: %s" % st.session_state['username'])
+        elif menu_selection == "支払方法マスター":
+            show_payment_master()
+
+        elif menu_selection == "プロフィール設定":
+            show_profile_settings()
+
+        st.markdown("---")
+        st.caption("マイニー Ver 4.1.8 - ユーザー: %s" % st.session_state['username'])
             
     # 未ログインの状態 (ログイン・登録画面)
     else:
