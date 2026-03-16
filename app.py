@@ -1901,7 +1901,7 @@ def show_dashboard():
         st.warning(f"分析に必要な列（{analysis_axis[:-1]}）がありません。")
 
 def show_credit_card_dashboard():
-    st.markdown("## 💳 クレジットカード利用状況", unsafe_allow_html=True)
+    st.markdown("<h2 style='font-size: calc(1.75rem - 1pt) !important; margin-bottom: 20px;'>💳 クレジットカード利用状況</h2>", unsafe_allow_html=True)
     
     render_month_navigation()
     target_date = st.session_state.current_month
@@ -2481,7 +2481,7 @@ def main():
                 .block-container h5 { font-size: calc(1.00rem + 2pt) !important; }
                 </style>
             """, unsafe_allow_html=True)
-            st.subheader("マイニー [Ver 4.4.2]")
+            st.subheader("マイニー [Ver 4.4.3]")
             st.write(f"🔑 ユーザー: **{st.session_state['username']}**")
             st.markdown("---")
             if 'menu_selection' not in st.session_state:
@@ -2511,19 +2511,19 @@ def main():
             idx3 = group3_opts.index(current_sel) if current_sel in group3_opts else None
             idx4 = group4_opts.index(current_sel) if current_sel in group4_opts else None
             
-            st.markdown("【表示・分析系】")
+            st.markdown("<div style='color: navy; font-weight: bold;'>【表示・分析系】</div>", unsafe_allow_html=True)
             st.radio("g1", group1_opts, index=idx1, key="menu_g1", 
                      on_change=on_menu_change, args=("menu_g1",), label_visibility="collapsed")
             
-            st.markdown("【レシート管理】")
+            st.markdown("<div style='color: navy; font-weight: bold;'>【レシート管理】</div>", unsafe_allow_html=True)
             st.radio("g2", group2_opts, index=idx2, key="menu_g2", 
                      on_change=on_menu_change, args=("menu_g2",), label_visibility="collapsed")
             
-            st.markdown("【相談・サポート】")
+            st.markdown("<div style='color: navy; font-weight: bold;'>【相談・サポート】</div>", unsafe_allow_html=True)
             st.radio("g3", group3_opts, index=idx3, key="menu_g3", 
                      on_change=on_menu_change, args=("menu_g3",), label_visibility="collapsed")
             
-            st.markdown("【マスター設定】")
+            st.markdown("<div style='color: navy; font-weight: bold;'>【マスター設定】</div>", unsafe_allow_html=True)
             st.radio("g4", group4_opts, index=idx4, key="menu_g4", 
                      on_change=on_menu_change, args=("menu_g4",), label_visibility="collapsed")
 
@@ -2696,7 +2696,7 @@ def main():
     left: 50%;
     transform: translate(-50%, -50%);
     font-size: 8px;
-    color: #e53e3e;
+    color: navy;
     width: 90%;
     text-align: center;
     white-space: nowrap;
@@ -4187,7 +4187,7 @@ MBTI: {mbti}
         elif menu_selection == "プロフィール設定":
             show_profile_settings()
 
-        st.caption("マイニー Ver 4.4.2 - ユーザー: %s" % st.session_state['username'])
+        st.caption("マイニー Ver 4.4.3 - ユーザー: %s" % st.session_state['username'])
             
     # 未ログインの状態 (ログイン・登録画面)
     else:
