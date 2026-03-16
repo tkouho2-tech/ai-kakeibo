@@ -2195,7 +2195,7 @@ def main():
 
         # サイドバーメニューの実装
         with st.sidebar:
-            st.subheader("マイニー [Ver 4.1.9]")
+            st.subheader("マイニー [Ver 4.2.0]")
             st.write(f"🔑 ユーザー: **{st.session_state['username']}**")
             st.markdown("---")
             if 'menu_selection' not in st.session_state:
@@ -3373,52 +3373,51 @@ def main():
             # --- データの準備（全期間からログインユーザー分のみ抽出） ---
             @st.cache_data(ttl=300)
             def get_user_data_csv_for_ai(username):
-                # 全データを取得（load_transactions_dataを流用せず、全期間を対象にするため直接取得）
-                sheet = get_sheet(TRANSACTIONS_WORKSHEET_NAME)
-                init_transactions_sheet(sheet)
-                values = safe_gspread_call(sheet.get_all_values)
+                # ユーザーに関連する3つのシートのデータをすべて取得して結合する
+                result_parts = []
                 
-                if not values or len(values) < 2:
-                    return ""
-                    
-                headers = [h.strip() if h.strip() else f"empty_{i}" for i, h in enumerate(values[0])]
-                df_all = pd.DataFrame(values[1:])
-                if df_all.shape[1] > len(headers):
-                    headers += [f"extra_{i}" for i in range(len(headers), df_all.shape[1])]
-                df_all.columns = headers[:df_all.shape[1]]
-                
-                # セキュリティの最重要要件：現在ログインしているユーザーのデータのみにフィルタリング
-                if "username" in df_all.columns:
-                    df_user = df_all[df_all["username"].astype(str).str.lower() == username.lower()].copy()
-                else:
-                    return ""
+                # ヘルパー: 指定シートからログインユーザーの全行・全列をCSVテキストで取得
+                def fetch_sheet_csv(sheet_name, title):
+                    try:
+                        sheet = get_sheet(sheet_name, create_if_not_found=True)
+                        if sheet_name == USER_MASTER_WORKSHEET_NAME:
+                            init_user_master_sheet(sheet)
+                        elif sheet_name == PAYMENT_MASTER_WORKSHEET_NAME:
+                            init_payment_master_sheet(sheet)
+                        else:
+                            init_transactions_sheet(sheet)
+                            
+                        values = safe_gspread_call(sheet.get_all_values)
+                        if not values or len(values) < 2:
+                            return f"--- {title} ---\nデータなし\n"
+                            
+                        headers = [h.strip() if h.strip() else f"empty_{i}" for i, h in enumerate(values[0])]
+                        df_all = pd.DataFrame(values[1:])
+                        if df_all.shape[1] > len(headers):
+                            headers += [f"extra_{i}" for i in range(len(headers), df_all.shape[1])]
+                        df_all.columns = headers[:df_all.shape[1]]
+                        
+                        if "username" in df_all.columns:
+                            df_user = df_all[df_all["username"].astype(str).str.lower() == username.lower()].copy()
+                        else:
+                            df_user = pd.DataFrame()
+                            
+                        if df_user.empty:
+                            return f"--- {title} ---\nデータなし\n"
+                            
+                        # 不要なパスワードハッシュ等が含まれている場合は念のため除外（User_Master等には通常ないが念の為）
+                        if "password_hash" in df_user.columns:
+                            df_user = df_user.drop(columns=["password_hash"])
+                            
+                        return f"--- {title} ---\n{df_user.to_csv(index=False)}\n"
+                    except Exception as e:
+                        return f"--- {title} ---\nデータ取得エラー: {e}\n"
 
-                if df_user.empty:
-                    return ""
-
-                # 必要なカラムのみ抽出・整形
-                # 「対象年月、日付、店舗名、大分類、小分類、金額」
-                df_user["date"] = pd.to_datetime(df_user["date"], errors="coerce")
-                df_user = df_user.dropna(subset=["date"])
-                df_user["対象年月"] = df_user["date"].dt.strftime('%Y-%m')
-                df_user["日付"] = df_user["date"].dt.strftime('%Y-%m-%d')
+                result_parts.append(fetch_sheet_csv(TRANSACTIONS_WORKSHEET_NAME, "支出データ"))
+                result_parts.append(fetch_sheet_csv(USER_MASTER_WORKSHEET_NAME, "ユーザープロフィール"))
+                result_parts.append(fetch_sheet_csv(PAYMENT_MASTER_WORKSHEET_NAME, "支払方法マスター"))
                 
-                # 表示用カラムのリネーム
-                rename_map = {
-                    "store_name": "店舗名",
-                    "item_name": "商品名",
-                    "category": "大分類",
-                    "subcategory": "小分類",
-                    "amount": "金額"
-                }
-                # 存在するカラムのみマッピング
-                actual_rename = {k: v for k, v in rename_map.items() if k in df_user.columns}
-                df_user = df_user.rename(columns=actual_rename)
-                
-                target_cols = ["対象年月", "日付", "店舗名", "商品名", "大分類", "小分類", "金額"]
-                available_cols = [c for c in target_cols if c in df_user.columns]
-                
-                return df_user[available_cols].to_csv(index=False)
+                return "\n".join(result_parts)
                 
             # メニュー切り替え直後、または手動更新時はキャッシュをクリア
             if st.session_state.get("refresh_ai_data_flag"):
@@ -3887,7 +3886,7 @@ MBTI: {mbti}
             show_profile_settings()
 
         st.markdown("---")
-        st.caption("マイニー Ver 4.1.9 - ユーザー: %s" % st.session_state['username'])
+        st.caption("マイニー Ver 4.2.0 - ユーザー: %s" % st.session_state['username'])
             
     # 未ログインの状態 (ログイン・登録画面)
     else:
