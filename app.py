@@ -1184,7 +1184,7 @@ def render_transaction_breakdown(df, key_prefix):
         df_agg.loc[df_agg["category"] == "消費税（内税）", "amount"] = 0
 
     # 表示パターンの選択（小分類別を削除）
-    view_pattern = st.radio("表示パターン", ["店舗別", "大分類別"], horizontal=True, key=f"{key_prefix}_view_pattern")
+    view_pattern = st.radio("表示パターン", ["店舗別", "大分類別", "支払い方法別"], horizontal=True, key=f"{key_prefix}_view_pattern")
     
     if view_pattern == "店舗別":
         store_col = "store_name" if "store_name" in df.columns else "store" if "store" in df.columns else None
@@ -1324,6 +1324,54 @@ def render_transaction_breakdown(df, key_prefix):
                         st.dataframe(display_df, use_container_width=True, hide_index=True)
         else:
             st.warning("カテゴリ情報がありません。")
+
+    elif view_pattern == "支払い方法別":
+        pm_col = "payment_method"
+        if pm_col in df.columns:
+            # fillna to avoid dropping NaNs in grouping
+            df_agg_pm = df_agg.copy()
+            df_pm = df.copy()
+            df_agg_pm[pm_col] = df_agg_pm[pm_col].fillna("未設定").replace(r'^\s*$', "未設定", regex=True)
+            df_pm[pm_col] = df_pm[pm_col].fillna("未設定").replace(r'^\s*$', "未設定", regex=True)
+            
+            pm_grouped = df_agg_pm.groupby(pm_col, as_index=False)["amount"].sum()
+            pm_grouped = pm_grouped[pm_grouped["amount"] > 0]
+            pm_grouped = pm_grouped.sort_values(by="amount", ascending=False)
+            
+            store_col = "store_name" if "store_name" in df.columns else "store" if "store" in df.columns else None
+            
+            for _, row in pm_grouped.iterrows():
+                pm = row[pm_col]
+                total_amt_str = f"￥{int(row['amount']):,}"
+                
+                with st.expander(f"{pm}：{total_amt_str}"):
+                    pm_filtered_df = df_pm[df_pm[pm_col] == pm].copy()
+                    
+                    if store_col:
+                        # 2段階目：店舗
+                        store_grouped = pm_filtered_df.groupby(store_col, as_index=False)["amount"].sum()
+                        store_grouped = store_grouped.sort_values(by="amount", ascending=False)
+                        
+                        for _, s_row in store_grouped.iterrows():
+                            store_name = s_row[store_col]
+                            s_amt_str = f"￥{int(s_row['amount']):,}"
+                            
+                            with st.expander(f"  └ {store_name}：{s_amt_str}"):
+                                store_filtered_df = pm_filtered_df[pm_filtered_df[store_col] == store_name].copy()
+                                
+                                # 3段階目：大分類
+                                if "category" in store_filtered_df.columns:
+                                    cat_grouped = store_filtered_df.groupby("category", as_index=False)["amount"].sum()
+                                    cat_grouped = cat_grouped.sort_values(by="amount", ascending=False)
+                                    cat_grouped["amount"] = cat_grouped["amount"].apply(lambda x: f"￥{int(x):,}")
+                                    cat_grouped.columns = ["大分類", "金額"]
+                                    st.dataframe(cat_grouped, use_container_width=True, hide_index=True)
+                                else:
+                                    st.warning("カテゴリ情報がありません。")
+                    else:
+                        st.info("店舗情報がありません。")
+        else:
+            st.warning("支払い方法データがありません。")
 
 # ---------- データダウンロード機能 ----------
 def prepare_download_data(username):
@@ -2229,7 +2277,7 @@ def main():
 
         # サイドバーメニューの実装
         with st.sidebar:
-            st.subheader("マイニー [Ver 4.2.3]")
+            st.subheader("マイニー [Ver 4.2.4]")
             st.write(f"🔑 ユーザー: **{st.session_state['username']}**")
             st.markdown("---")
             if 'menu_selection' not in st.session_state:
@@ -3932,7 +3980,7 @@ MBTI: {mbti}
             show_profile_settings()
 
         st.markdown("---")
-        st.caption("マイニー Ver 4.2.3 - ユーザー: %s" % st.session_state['username'])
+        st.caption("マイニー Ver 4.2.4 - ユーザー: %s" % st.session_state['username'])
             
     # 未ログインの状態 (ログイン・登録画面)
     else:
