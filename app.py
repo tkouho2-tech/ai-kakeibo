@@ -544,6 +544,14 @@ def get_clean_df(records, username):
     df["date"] = pd.to_datetime(df["date"], errors="coerce")
     df = df.dropna(subset=["date"])
     
+    # "payment_method"が空の場合は「未設定」とする
+    if "payment_method" in df.columns:
+        # 空文字やスペースのみの文字、nullを「未設定」にする
+        df["payment_method"] = df["payment_method"].replace(r"^\s*$", "未設定", regex=True)
+        df["payment_method"] = df["payment_method"].fillna("未設定")
+    else:
+        df["payment_method"] = "未設定"
+    
     return df
 
 # ---------- データ取得機能 ----------
