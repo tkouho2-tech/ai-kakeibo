@@ -1,4 +1,5 @@
 import streamlit as st
+from streamlit_option_menu import option_menu
 import jpholiday
 import pandas as pd
 import plotly.express as px
@@ -2277,53 +2278,58 @@ def main():
 
         # サイドバーメニューの実装
         with st.sidebar:
-            st.subheader("マイニー [Ver 4.2.4]")
+            st.subheader("マイニー [Ver 4.3.0]")
             st.write(f"🔑 ユーザー: **{st.session_state['username']}**")
             st.markdown("---")
             if 'menu_selection' not in st.session_state:
                 st.session_state['menu_selection'] = "カレンダー"
             
-            # 既存の "ダッシュボード" を "ダッシュボード（月次集計）" に置換し、年次を追加
-            menu_options = [
-                "ダッシュボード（月次集計）", 
-                "ダッシュボード（年次集計）", 
-                "カレンダー", 
-                "レシート取込", 
-                "レシート手入力", 
-                "レシート修正", 
-                "マニュアル", 
-                "ヘルプ", 
-                "AI相談", 
-                "支払方法マスター",
-                "プロフィール設定"
-            ]
-            
-            # メニューのリセット処理（別の画面から戻ってきたとき用）
-            # もしカレンダー等から「ダッシュボード系以外」を経由して戻ってきた場合、
-            # 次にダッシュボードをクリックしたときに「月次」にしたいという要件。
-            # 直前の値を保持しておき、遷移を検知する
+            # 別の画面から戻ってきたとき用
             if "last_menu_selection" not in st.session_state:
                 st.session_state.last_menu_selection = st.session_state['menu_selection']
+                
+            def on_menu_change(key):
+                st.session_state['menu_selection'] = st.session_state[key]
+                handle_menu_change()
+                st.session_state.last_menu_selection = st.session_state['menu_selection']
+
+            # Categories and items
+            group1_opts = ["ダッシュボード（月次集計）", "ダッシュボード（年次集計）", "カレンダー", "クレジットカード"]
+            group1_icons = ["graph-up", "graph-up-arrow", "calendar3", "credit-card"]
             
-            # サイドバーの仕切り線（カレンダーとレシート取込の間）
-            st.markdown("""
-                <style>
-                /* radioボタン全体の中で、3番目の項目（カレンダー）の直後に線を引く */
-                div[data-testid="stSidebar"] div[role="radiogroup"] > div:nth-of-type(3) {
-                    border-bottom: 2px solid #ddd;
-                    margin-bottom: 15px;
-                    padding-bottom: 10px;
-                }
-                </style>
-            """, unsafe_allow_html=True)
+            group2_opts = ["レシート取込", "レシート手入力", "レシート修正"]
+            group2_icons = ["camera", "pencil-square", "tools"]
             
-            menu_selection = st.radio(
-                "機能を選択",
-                menu_options,
-                key="menu_selection",
-                on_change=handle_menu_change
-            )
-            st.session_state.last_menu_selection = menu_selection
+            group3_opts = ["マニュアル", "ヘルプ", "AI相談"]
+            group3_icons = ["book", "question-circle", "chat-dots"]
+            
+            group4_opts = ["支払方法マスター", "プロフィール設定"]
+            group4_icons = ["gear", "person-circle"]
+            
+            current_sel = st.session_state['menu_selection']
+            
+            idx1 = group1_opts.index(current_sel) if current_sel in group1_opts else None
+            idx2 = group2_opts.index(current_sel) if current_sel in group2_opts else None
+            idx3 = group3_opts.index(current_sel) if current_sel in group3_opts else None
+            idx4 = group4_opts.index(current_sel) if current_sel in group4_opts else None
+            
+            option_menu("【表示・分析系】", group1_opts, icons=group1_icons, manual_select=idx1, 
+                        key="menu_g1", on_change=on_menu_change, 
+                        styles={"container": {"padding": "0!important", "margin-bottom": "10px"}})
+            
+            option_menu("【レシート管理】", group2_opts, icons=group2_icons, manual_select=idx2, 
+                        key="menu_g2", on_change=on_menu_change,
+                        styles={"container": {"padding": "0!important", "margin-bottom": "10px"}})
+            
+            option_menu("【相談・サポート】", group3_opts, icons=group3_icons, manual_select=idx3, 
+                        key="menu_g3", on_change=on_menu_change,
+                        styles={"container": {"padding": "0!important", "margin-bottom": "10px"}})
+            
+            option_menu("【マスター設定】", group4_opts, icons=group4_icons, manual_select=idx4, 
+                        key="menu_g4", on_change=on_menu_change,
+                        styles={"container": {"padding": "0!important", "margin-bottom": "10px"}})
+                        
+            menu_selection = st.session_state['menu_selection']
 
             # サイドバー自動折りたたみJS削除
             if st.session_state.get("collapse_sidebar_flag"):
@@ -3973,6 +3979,10 @@ MBTI: {mbti}
                 - **活用方法**: 表計算ソフトでの詳細な分析や、万が一のためのバックアップに活用してください。
                 """)
 
+        elif menu_selection == "クレジットカード":
+            st.markdown("## 💳 クレジットカード")
+            st.info("ただいま準備中です。次回のアップデートをお待ちください！")
+
         elif menu_selection == "支払方法マスター":
             show_payment_master()
 
@@ -3980,7 +3990,7 @@ MBTI: {mbti}
             show_profile_settings()
 
         st.markdown("---")
-        st.caption("マイニー Ver 4.2.4 - ユーザー: %s" % st.session_state['username'])
+        st.caption("マイニー Ver 4.3.0 - ユーザー: %s" % st.session_state['username'])
             
     # 未ログインの状態 (ログイン・登録画面)
     else:
