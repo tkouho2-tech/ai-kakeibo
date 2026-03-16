@@ -263,7 +263,7 @@ def init_users_sheet(sheet):
 
 def init_transactions_sheet(sheet):
     """初期セットアップ：取引シートのヘッダーがない場合に作成する"""
-    expected_headers = ["username", "date", "store_name", "item_name", "category", "subcategory", "amount", "update", "payment_method"]
+    expected_headers = ["username", "date", "store_name", "item_name", "category", "subcategory", "amount", "update", "payment_method", "payment_type", "closing_date", "payment_month", "payment_date"]
     try:
         headers = sheet.row_values(1)
         if not headers or headers[0] != "username":
@@ -329,6 +329,27 @@ def get_payment_methods(username):
     except Exception as e:
         st.error(f"支払い方法取得エラー: {e}")
         return []
+
+def get_payment_details_for_transaction(username, method_name):
+    """Transactionsに付与する支払い方法詳細（種類、締日、支払月、支払日）を取得する"""
+    if not method_name or method_name == "未設定":
+        return "未設定", "", "", ""
+        
+    methods = get_payment_methods(username)
+    for m in methods:
+        if m.get("name") == method_name:
+            p_type = m.get("type", "その他")
+            is_cc = m.get("is_credit_card", False)
+            if is_cc or p_type == "クレジットカード":
+                return (
+                    p_type,
+                    m.get("closing_date", ""),
+                    m.get("payment_month", ""),
+                    m.get("payment_date", "")
+                )
+            else:
+                return (p_type, "", "", "")
+    return "その他", "", "", ""
 
 def save_payment_method(username, payment_data):
     """支払い方法を保存（新規追加または更新）する"""
@@ -2195,7 +2216,7 @@ def main():
 
         # サイドバーメニューの実装
         with st.sidebar:
-            st.subheader("マイニー [Ver 4.2.0]")
+            st.subheader("マイニー [Ver 4.2.1]")
             st.write(f"🔑 ユーザー: **{st.session_state['username']}**")
             st.markdown("---")
             if 'menu_selection' not in st.session_state:
@@ -2727,6 +2748,7 @@ def main():
                                         # 日付を yyyy-mm-dd に整形
                                         formatted_date = edited_date.strftime("%Y-%m-%d") if edited_date else ""
     
+                                        p_type, p_close, p_month, p_date = get_payment_details_for_transaction(st.session_state['username'], selected_payment)
                                         row_data = [
                                             str(st.session_state['username']),
                                             formatted_date,
@@ -2736,7 +2758,11 @@ def main():
                                             str(final_minor),
                                             int(item.get("amount", 0)),
                                             datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                                            str(selected_payment)
+                                            str(selected_payment),
+                                            str(p_type),
+                                            str(p_close),
+                                            str(p_month),
+                                            str(p_date)
                                         ]
                                         sheet.append_row(row_data)
                                         written_count += 1
@@ -2924,6 +2950,7 @@ def main():
                                     major = cat.get("major_category", "その他")
                                     minor = cat.get("minor_category", "📁未分類")
                                     
+                                    p_type, p_close, p_month, p_date = get_payment_details_for_transaction(st.session_state['username'], selected_payment_manual)
                                     row_data = [
                                         str(st.session_state['username']),
                                         str(input_date.strftime('%Y-%m-%d')),
@@ -2933,7 +2960,11 @@ def main():
                                         str(minor),
                                         int(itm["amount"]),
                                         datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                                        str(selected_payment_manual)
+                                        str(selected_payment_manual),
+                                        str(p_type),
+                                        str(p_close),
+                                        str(p_month),
+                                        str(p_date)
                                     ]
                                     safe_gspread_call(sheet.append_row, row_data)
                                 
@@ -3129,10 +3160,11 @@ def main():
                                             existing_indices = [int(k) for k in st.session_state['edit_data'].keys() if not str(k).startswith("new_")]
                                             current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                                             
+                                            p_type, p_close, p_month, p_date = get_payment_details_for_transaction(st.session_state['username'], target_payment)
                                             batch_updates = []
                                             for r_idx in existing_indices:
                                                 batch_updates.append({"range": f"B{r_idx}:C{r_idx}", "values": [[target_date_str, target_store]]})
-                                                batch_updates.append({"range": f"H{r_idx}:I{r_idx}", "values": [[current_time, target_payment]]})
+                                                batch_updates.append({"range": f"H{r_idx}:M{r_idx}", "values": [[current_time, target_payment, str(p_type), str(p_close), str(p_month), str(p_date)]]})
                                                 
                                             if batch_updates:
                                                 safe_gspread_call(sheet.batch_update, batch_updates)
@@ -3293,9 +3325,10 @@ def main():
                                                         target_date_str = st.session_state['edit_header']['date'].strftime("%Y-%m-%d")
                                                         target_store = st.session_state['edit_header']['store']
                                                         
+                                                        p_type, p_close, p_month, p_date = get_payment_details_for_transaction(user_name, edit_payment)
                                                         if str(current_editing_id).startswith("new_"):
                                                             # 新規追加
-                                                            new_row = [user_name, target_date_str, target_store, edit_name, edit_major, edit_minor, edit_amount, datetime.now().strftime("%Y-%m-%d %H:%M:%S"), edit_payment]
+                                                            new_row = [user_name, target_date_str, target_store, edit_name, edit_major, edit_minor, edit_amount, datetime.now().strftime("%Y-%m-%d %H:%M:%S"), edit_payment, str(p_type), str(p_close), str(p_month), str(p_date)]
                                                             sheet.append_row(new_row)
                                                         else:
                                                             # 既存更新: 安全装置（行データの検証）
@@ -3310,10 +3343,10 @@ def main():
                                                                 st.stop()
                                                             
                                                             # バッチ更新（1回のAPI呼び出しで範囲を更新）
-                                                            # A:username, B:date, C:store, D:item, E:major, F:minor, G:amount, H:update, I:payment_method
-                                                            # 更新範囲: B (Col 2) から I (Col 9)
-                                                            update_range = f"B{r_idx}:I{r_idx}"
-                                                            update_values = [[target_date_str, target_store, edit_name, edit_major, edit_minor, edit_amount, datetime.now().strftime("%Y-%m-%d %H:%M:%S"), edit_payment]]
+                                                            # A:username, B:date, C:store, D:item, E:major, F:minor, G:amount, H:update, I:payment_method, J:type, K:close_date, L:pay_month, M:pay_date
+                                                            # 更新範囲: B (Col 2) から M (Col 13)
+                                                            update_range = f"B{r_idx}:M{r_idx}"
+                                                            update_values = [[target_date_str, target_store, edit_name, edit_major, edit_minor, edit_amount, datetime.now().strftime("%Y-%m-%d %H:%M:%S"), edit_payment, str(p_type), str(p_close), str(p_month), str(p_date)]]
                                                             sheet.update(range_name=update_range, values=update_values)
                                                         
                                                         st.success("✅ 修正を登録しました")
@@ -3886,7 +3919,7 @@ MBTI: {mbti}
             show_profile_settings()
 
         st.markdown("---")
-        st.caption("マイニー Ver 4.2.0 - ユーザー: %s" % st.session_state['username'])
+        st.caption("マイニー Ver 4.2.1 - ユーザー: %s" % st.session_state['username'])
             
     # 未ログインの状態 (ログイン・登録画面)
     else:
