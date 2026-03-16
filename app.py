@@ -1,5 +1,4 @@
 import streamlit as st
-from streamlit_option_menu import option_menu
 import jpholiday
 import pandas as pd
 import plotly.express as px
@@ -2278,7 +2277,22 @@ def main():
 
         # サイドバーメニューの実装
         with st.sidebar:
-            st.subheader("マイニー [Ver 4.3.0]")
+            st.markdown("""
+                <style>
+                /* サイドバーのメニュータイトル・選択肢の文字を1pt小さく */
+                [data-testid="stSidebar"] .stMarkdown p, 
+                [data-testid="stSidebar"] label[data-baseweb="radio"] div {
+                    font-size: calc(1rem - 1pt) !important;
+                }
+                /* メイン画面の表示タイトルを1pt小さく */
+                .block-container h2 { font-size: calc(1.75rem - 1pt) !important; }
+                .block-container h3 { font-size: calc(1.50rem - 1pt) !important; }
+                .block-container h4 { font-size: calc(1.25rem - 1pt) !important; }
+                .block-container h5 { font-size: calc(1.00rem - 1pt) !important; }
+                </style>
+            """, unsafe_allow_html=True)
+            
+            st.subheader("マイニー [Ver 4.3.1]")
             st.write(f"🔑 ユーザー: **{st.session_state['username']}**")
             st.markdown("---")
             if 'menu_selection' not in st.session_state:
@@ -2289,22 +2303,17 @@ def main():
                 st.session_state.last_menu_selection = st.session_state['menu_selection']
                 
             def on_menu_change(key):
-                st.session_state['menu_selection'] = st.session_state[key]
-                handle_menu_change()
-                st.session_state.last_menu_selection = st.session_state['menu_selection']
+                new_val = st.session_state.get(key)
+                if new_val is not None:
+                    st.session_state['menu_selection'] = new_val
+                    handle_menu_change()
+                    st.session_state.last_menu_selection = st.session_state['menu_selection']
 
             # Categories and items
             group1_opts = ["ダッシュボード（月次集計）", "ダッシュボード（年次集計）", "カレンダー", "クレジットカード"]
-            group1_icons = ["graph-up", "graph-up-arrow", "calendar3", "credit-card"]
-            
             group2_opts = ["レシート取込", "レシート手入力", "レシート修正"]
-            group2_icons = ["camera", "pencil-square", "tools"]
-            
             group3_opts = ["マニュアル", "ヘルプ", "AI相談"]
-            group3_icons = ["book", "question-circle", "chat-dots"]
-            
             group4_opts = ["支払方法マスター", "プロフィール設定"]
-            group4_icons = ["gear", "person-circle"]
             
             current_sel = st.session_state['menu_selection']
             
@@ -2313,21 +2322,22 @@ def main():
             idx3 = group3_opts.index(current_sel) if current_sel in group3_opts else None
             idx4 = group4_opts.index(current_sel) if current_sel in group4_opts else None
             
-            option_menu("【表示・分析系】", group1_opts, icons=group1_icons, manual_select=idx1, 
-                        key="menu_g1", on_change=on_menu_change, 
-                        styles={"container": {"padding": "0!important", "margin-bottom": "10px"}})
+            st.markdown("【表示・分析系】")
+            st.radio("g1", group1_opts, index=idx1, key="menu_g1", 
+                     on_change=on_menu_change, args=("menu_g1",), label_visibility="collapsed")
             
-            option_menu("【レシート管理】", group2_opts, icons=group2_icons, manual_select=idx2, 
-                        key="menu_g2", on_change=on_menu_change,
-                        styles={"container": {"padding": "0!important", "margin-bottom": "10px"}})
+            st.markdown("【レシート管理】")
+            st.radio("g2", group2_opts, index=idx2, key="menu_g2", 
+                     on_change=on_menu_change, args=("menu_g2",), label_visibility="collapsed")
             
-            option_menu("【相談・サポート】", group3_opts, icons=group3_icons, manual_select=idx3, 
-                        key="menu_g3", on_change=on_menu_change,
-                        styles={"container": {"padding": "0!important", "margin-bottom": "10px"}})
+            st.markdown("【相談・サポート】")
+            st.radio("g3", group3_opts, index=idx3, key="menu_g3", 
+                     on_change=on_menu_change, args=("menu_g3",), label_visibility="collapsed")
             
-            option_menu("【マスター設定】", group4_opts, icons=group4_icons, manual_select=idx4, 
-                        key="menu_g4", on_change=on_menu_change,
-                        styles={"container": {"padding": "0!important", "margin-bottom": "10px"}})
+            st.markdown("【マスター設定】")
+            st.radio("g4", group4_opts, index=idx4, key="menu_g4", 
+                     on_change=on_menu_change, args=("menu_g4",), label_visibility="collapsed")
+
                         
             menu_selection = st.session_state['menu_selection']
 
@@ -3990,7 +4000,7 @@ MBTI: {mbti}
             show_profile_settings()
 
         st.markdown("---")
-        st.caption("マイニー Ver 4.3.0 - ユーザー: %s" % st.session_state['username'])
+        st.caption("マイニー Ver 4.3.1 - ユーザー: %s" % st.session_state['username'])
             
     # 未ログインの状態 (ログイン・登録画面)
     else:
