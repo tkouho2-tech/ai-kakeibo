@@ -2187,7 +2187,7 @@ def main():
 
         # サイドバーメニューの実装
         with st.sidebar:
-            st.subheader("マイニー [Ver 4.1.8]")
+            st.subheader("マイニー [Ver 4.1.9]")
             st.write(f"🔑 ユーザー: **{st.session_state['username']}**")
             st.markdown("---")
             if 'menu_selection' not in st.session_state:
@@ -3368,12 +3368,17 @@ def main():
                 # 全データを取得（load_transactions_dataを流用せず、全期間を対象にするため直接取得）
                 sheet = get_sheet(TRANSACTIONS_WORKSHEET_NAME)
                 init_transactions_sheet(sheet)
-                records = safe_gspread_call(sheet.get_all_records)
+                values = safe_gspread_call(sheet.get_all_values)
                 
-                if not records:
+                if not values or len(values) < 2:
                     return ""
+                    
+                headers = [h.strip() if h.strip() else f"empty_{i}" for i, h in enumerate(values[0])]
+                df_all = pd.DataFrame(values[1:])
+                if df_all.shape[1] > len(headers):
+                    headers += [f"extra_{i}" for i in range(len(headers), df_all.shape[1])]
+                df_all.columns = headers[:df_all.shape[1]]
                 
-                df_all = pd.DataFrame(records)
                 # セキュリティの最重要要件：現在ログインしているユーザーのデータのみにフィルタリング
                 if "username" in df_all.columns:
                     df_user = df_all[df_all["username"].astype(str).str.lower() == username.lower()].copy()
@@ -3874,7 +3879,7 @@ MBTI: {mbti}
             show_profile_settings()
 
         st.markdown("---")
-        st.caption("マイニー Ver 4.1.8 - ユーザー: %s" % st.session_state['username'])
+        st.caption("マイニー Ver 4.1.9 - ユーザー: %s" % st.session_state['username'])
             
     # 未ログインの状態 (ログイン・登録画面)
     else:
