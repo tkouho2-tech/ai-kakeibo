@@ -2284,15 +2284,19 @@ def main():
                 [data-testid="stSidebar"] label[data-baseweb="radio"] div {
                     font-size: calc(1rem - 1pt) !important;
                 }
-                /* メイン画面の表示タイトルを1pt小さく */
-                .block-container h2 { font-size: calc(1.75rem - 1pt) !important; }
-                .block-container h3 { font-size: calc(1.50rem - 1pt) !important; }
-                .block-container h4 { font-size: calc(1.25rem - 1pt) !important; }
-                .block-container h5 { font-size: calc(1.00rem - 1pt) !important; }
+                /* サイドバーの大タイトル下の余白を詰める */
+                [data-testid="stSidebar"] .stMarkdown {
+                    margin-bottom: -15px !important;
+                }
+                /* メイン画面の表示タイトルを2pt大きく */
+                .block-container h2 { font-size: calc(1.75rem + 2pt) !important; }
+                .block-container h3 { font-size: calc(1.50rem + 2pt) !important; }
+                .block-container h4 { font-size: calc(1.25rem + 2pt) !important; }
+                .block-container h5 { font-size: calc(1.00rem + 2pt) !important; }
                 </style>
             """, unsafe_allow_html=True)
             
-            st.subheader("マイニー [Ver 4.3.1]")
+            st.subheader("マイニー [Ver 4.3.2]")
             st.write(f"🔑 ユーザー: **{st.session_state['username']}**")
             st.markdown("---")
             if 'menu_selection' not in st.session_state:
@@ -4000,7 +4004,7 @@ MBTI: {mbti}
             show_profile_settings()
 
         st.markdown("---")
-        st.caption("マイニー Ver 4.3.1 - ユーザー: %s" % st.session_state['username'])
+        st.caption("マイニー Ver 4.3.2 - ユーザー: %s" % st.session_state['username'])
             
     # 未ログインの状態 (ログイン・登録画面)
     else:
