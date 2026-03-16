@@ -397,7 +397,7 @@ def calculate_credit_card_periods(target_date, closing_str, pay_month_str, pay_d
         # 「対象月」とは、ユーザーが画面で開いている月の締め日を含む期間
         
         # 締め日の決定
-        if "月末" in closing_str:
+        if "末" in closing_str:
             # 月末締めの場合、そのまま当月1日～月末
             usage_start_date = base_calc_date.date()
             usage_end_date = get_last_day_of_month(base_calc_date)
@@ -405,7 +405,10 @@ def calculate_credit_card_periods(target_date, closing_str, pay_month_str, pay_d
             billing_base_date = base_calc_date
         else:
             # 〇〇日締めの場合、前月まるまる〜当月〇〇日 までが請求サイクル
-            c_day = int(closing_str.replace("日締め", "").replace("日", "").strip())
+            # 数字だけ抽出する
+            c_day_str = closing_str.replace("日締め", "").replace("日", "").strip()
+            c_day = int(c_day_str) if c_day_str.isdigit() else 15 # fallback
+            
             usage_end_date = base_calc_date.replace(day=c_day).date()
             # 開始日は前月の c_day + 1
             prev_m = base_calc_date - relativedelta(months=1)
@@ -417,10 +420,11 @@ def calculate_credit_card_periods(target_date, closing_str, pay_month_str, pay_d
             
         # 次回支払日の決定 (billing_base_date に offset を足した月の支払日)
         next_pay_month_date = billing_base_date + relativedelta(months=pay_month_offset)
-        if "月末" in pay_date_str:
+        if "末" in pay_date_str:
             next_payment_date = get_last_day_of_month(next_pay_month_date)
         else:
-            p_day = int(pay_date_str.replace("日払い", "").replace("日", "").strip())
+            p_day_str = pay_date_str.replace("日払い", "").replace("日", "").strip()
+            p_day = int(p_day_str) if p_day_str.isdigit() else 27 # fallback
             next_payment_date = next_pay_month_date.replace(day=p_day).date()
 
         # ------- 2. 当月支払予定額（前回の利用額: Current Payment）の算出 -------
@@ -430,19 +434,21 @@ def calculate_credit_card_periods(target_date, closing_str, pay_month_str, pay_d
         # 逆に、引落月が「当月」である利用分（billing_base_date）を探す
         prev_billing_base_date = base_calc_date - relativedelta(months=pay_month_offset)
 
-        if "月末" in closing_str:
+        if "末" in closing_str:
             prev_usage_start_date = prev_billing_base_date.date()
             prev_usage_end_date = get_last_day_of_month(prev_billing_base_date)
         else:
-            c_day = int(closing_str.replace("日締め", "").replace("日", "").strip())
+            c_day_str = closing_str.replace("日締め", "").replace("日", "").strip()
+            c_day = int(c_day_str) if c_day_str.isdigit() else 15
             prev_usage_end_date = prev_billing_base_date.replace(day=c_day).date()
             pprev_m = prev_billing_base_date - relativedelta(months=1)
             prev_usage_start_date = (pprev_m.replace(day=c_day) + relativedelta(days=1)).date()
             
-        if "月末" in pay_date_str:
+        if "末" in pay_date_str:
             current_payment_date = get_last_day_of_month(target_payment_date_base)
         else:
-            p_day = int(pay_date_str.replace("日払い", "").replace("日", "").strip())
+            p_day_str = pay_date_str.replace("日払い", "").replace("日", "").strip()
+            p_day = int(p_day_str) if p_day_str.isdigit() else 27
             current_payment_date = target_payment_date_base.replace(day=p_day).date()
 
         return (
@@ -2475,7 +2481,7 @@ def main():
                 .block-container h5 { font-size: calc(1.00rem + 2pt) !important; }
                 </style>
             """, unsafe_allow_html=True)
-            st.subheader("マイニー [Ver 4.4.1]")
+            st.subheader("マイニー [Ver 4.4.2]")
             st.write(f"🔑 ユーザー: **{st.session_state['username']}**")
             st.markdown("---")
             if 'menu_selection' not in st.session_state:
@@ -4181,7 +4187,7 @@ MBTI: {mbti}
         elif menu_selection == "プロフィール設定":
             show_profile_settings()
 
-        st.caption("マイニー Ver 4.4.1 - ユーザー: %s" % st.session_state['username'])
+        st.caption("マイニー Ver 4.4.2 - ユーザー: %s" % st.session_state['username'])
             
     # 未ログインの状態 (ログイン・登録画面)
     else:
