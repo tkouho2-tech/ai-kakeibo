@@ -2481,7 +2481,7 @@ def main():
                 .block-container h5 { font-size: calc(1.00rem + 2pt) !important; }
                 </style>
             """, unsafe_allow_html=True)
-            st.subheader("マイニー [Ver 4.4.3]")
+            st.subheader("マイニー [Ver 4.4.4]")
             st.write(f"🔑 ユーザー: **{st.session_state['username']}**")
             st.markdown("---")
             if 'menu_selection' not in st.session_state:
@@ -2506,24 +2506,30 @@ def main():
             
             current_sel = st.session_state['menu_selection']
             
+            # 各radioコンポーネントの値を現在の選択と強制的に一致させる（他グループの選択を解除）
+            st.session_state["menu_g1"] = current_sel if current_sel in group1_opts else None
+            st.session_state["menu_g2"] = current_sel if current_sel in group2_opts else None
+            st.session_state["menu_g3"] = current_sel if current_sel in group3_opts else None
+            st.session_state["menu_g4"] = current_sel if current_sel in group4_opts else None
+            
             idx1 = group1_opts.index(current_sel) if current_sel in group1_opts else None
             idx2 = group2_opts.index(current_sel) if current_sel in group2_opts else None
             idx3 = group3_opts.index(current_sel) if current_sel in group3_opts else None
             idx4 = group4_opts.index(current_sel) if current_sel in group4_opts else None
             
-            st.markdown("<div style='color: navy; font-weight: bold;'>【表示・分析系】</div>", unsafe_allow_html=True)
+            st.markdown("【表示・分析系】")
             st.radio("g1", group1_opts, index=idx1, key="menu_g1", 
                      on_change=on_menu_change, args=("menu_g1",), label_visibility="collapsed")
             
-            st.markdown("<div style='color: navy; font-weight: bold;'>【レシート管理】</div>", unsafe_allow_html=True)
+            st.markdown("【レシート管理】")
             st.radio("g2", group2_opts, index=idx2, key="menu_g2", 
                      on_change=on_menu_change, args=("menu_g2",), label_visibility="collapsed")
             
-            st.markdown("<div style='color: navy; font-weight: bold;'>【相談・サポート】</div>", unsafe_allow_html=True)
+            st.markdown("【相談・サポート】")
             st.radio("g3", group3_opts, index=idx3, key="menu_g3", 
                      on_change=on_menu_change, args=("menu_g3",), label_visibility="collapsed")
             
-            st.markdown("<div style='color: navy; font-weight: bold;'>【マスター設定】</div>", unsafe_allow_html=True)
+            st.markdown("【マスター設定】")
             st.radio("g4", group4_opts, index=idx4, key="menu_g4", 
                      on_change=on_menu_change, args=("menu_g4",), label_visibility="collapsed")
 
@@ -4187,7 +4193,7 @@ MBTI: {mbti}
         elif menu_selection == "プロフィール設定":
             show_profile_settings()
 
-        st.caption("マイニー Ver 4.4.3 - ユーザー: %s" % st.session_state['username'])
+        st.caption("マイニー Ver 4.4.4 - ユーザー: %s" % st.session_state['username'])
             
     # 未ログインの状態 (ログイン・登録画面)
     else:
