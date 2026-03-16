@@ -50,7 +50,8 @@ EXPENSE_CATEGORIES = {
     "消費税（外税）": ["外税8%", "外税10%", "外税？％"],
     "消費税（内税）": ["内税8%", "内税10%", "内税？％"],
     "納税額": ["確定申告納税額", "その他"],
-    "その他": ["📁未分類"]
+    "その他": ["📁未分類"],
+    "支払い方法": ["クレジットカード", "デビットカード", "電子マネー", "ポイント", "現金", "銀行振込", "未設定", "その他"]
 }
 
 # グラフ用配色定義 (大分類)
@@ -74,7 +75,8 @@ CATEGORY_COLOR_MAP = {
     "消費税（外税）": "#BC8F8F", # ロージーブラウン
     "消費税（内税）": "#D2B48C", # タン
     "割引・ポイント利用": "#FFFF00", # 黄色
-    "納税額": "#4682B4"      # スチールブルー
+    "納税額": "#4682B4",      # スチールブルー
+    "支払い方法": "#8A2BE2"      # ブルーバイオレット
 }
 
 def get_categories():
@@ -2216,7 +2218,7 @@ def main():
 
         # サイドバーメニューの実装
         with st.sidebar:
-            st.subheader("マイニー [Ver 4.2.1]")
+            st.subheader("マイニー [Ver 4.2.2]")
             st.write(f"🔑 ユーザー: **{st.session_state['username']}**")
             st.markdown("---")
             if 'menu_selection' not in st.session_state:
@@ -3919,7 +3921,7 @@ MBTI: {mbti}
             show_profile_settings()
 
         st.markdown("---")
-        st.caption("マイニー Ver 4.2.1 - ユーザー: %s" % st.session_state['username'])
+        st.caption("マイニー Ver 4.2.2 - ユーザー: %s" % st.session_state['username'])
             
     # 未ログインの状態 (ログイン・登録画面)
     else:
