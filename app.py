@@ -376,6 +376,10 @@ def calculate_credit_card_periods(target_date, closing_str, pay_month_str, pay_d
       )
     ※ 設定が未入力の場合は全て None を返す。
     """
+    closing_str = str(closing_str) if closing_str else ""
+    pay_month_str = str(pay_month_str) if pay_month_str else ""
+    pay_date_str = str(pay_date_str) if pay_date_str else ""
+    
     if not closing_str or not pay_month_str or not pay_date_str:
         return None, None, None, None, None, None
         
@@ -2471,7 +2475,7 @@ def main():
                 .block-container h5 { font-size: calc(1.00rem + 2pt) !important; }
                 </style>
             """, unsafe_allow_html=True)
-            st.subheader("マイニー [Ver 4.4.0]")
+            st.subheader("マイニー [Ver 4.4.1]")
             st.write(f"🔑 ユーザー: **{st.session_state['username']}**")
             st.markdown("---")
             if 'menu_selection' not in st.session_state:
@@ -4177,7 +4181,7 @@ MBTI: {mbti}
         elif menu_selection == "プロフィール設定":
             show_profile_settings()
 
-        st.caption("マイニー Ver 4.4.0 - ユーザー: %s" % st.session_state['username'])
+        st.caption("マイニー Ver 4.4.1 - ユーザー: %s" % st.session_state['username'])
             
     # 未ログインの状態 (ログイン・登録画面)
     else:
