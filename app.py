@@ -1944,7 +1944,13 @@ def show_credit_card_dashboard():
         df_all = load_transactions_data(target_date, mode="all")
         
         # 該当カードのデータを抽出
-        df_cc = df_all[df_all["payment_method"] == selected_card_name] if not df_all.empty else pd.DataFrame()
+        if not df_all.empty:
+            df_cc = df_all[df_all["payment_method"] == selected_card_name]
+            # 集計時の二重計上を防ぐため、内税を除外
+            if "category" in df_cc.columns:
+                df_cc = df_cc[df_cc["category"] != "消費税（内税）"]
+        else:
+            df_cc = pd.DataFrame()
         
         # 各期間の集計とデータフレーム保持
         today = date.today()
@@ -2560,7 +2566,7 @@ def main():
                 .block-container h5 { font-size: calc(1.00rem + 2pt) !important; }
                 </style>
             """, unsafe_allow_html=True)
-            st.subheader("マイニー [Ver 4.4.8]")
+            st.subheader("マイニー [Ver 4.4.9]")
             st.write(f"🔑 ユーザー: **{st.session_state['username']}**")
             st.markdown("---")
             if 'menu_selection' not in st.session_state:
