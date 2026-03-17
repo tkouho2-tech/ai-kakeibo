@@ -141,6 +141,9 @@ if '_init_done' not in st.session_state:
     
     if need_rerun:
         st.query_params.clear()
+        # ログイン状態が保持されている場合はURLにユーザー名を残す（スマホブラウザの再読込対策）
+        if st.session_state.get('logged_in') and st.session_state.get('username'):
+            st.query_params['user'] = st.session_state['username']
         st.rerun()
 
 if 'logged_in' not in st.session_state:
@@ -4276,6 +4279,8 @@ MBTI: {mbti}
                         if authenticate_user(login_username, login_password):
                             st.session_state['logged_in'] = True
                             st.session_state['username'] = login_username.strip().lower()
+                            if remember_me:
+                                st.query_params['user'] = st.session_state['username']
                             st.rerun()
                         else:
                             st.error("ユーザー名またはパスワードが間違っています。")
