@@ -186,20 +186,27 @@ def get_gspread_client():
 
 # --- リトライ可能なAPI呼び出しヘルパー ---
 
-def safe_gspread_call(func, *args, max_retries=3, delay=2, **kwargs):
-    """API呼び出しをリトライする関数"""
+def safe_gspread_call(func, *args, max_retries=5, delay=2, **kwargs):
+    """API呼び出しをリトライする関数（429等のAPIError対応）"""
     last_error = None
     for i in range(max_retries):
         try:
             return func(*args, **kwargs)
         except Exception as e:
             last_error = e
-            # 一時的な接続エラーの場合にリトライ
-            if "RemoteDisconnected" in str(e) or "Connection aborted" in str(e) or "TimeoutError" in str(e):
-                time.sleep(delay * (i + 1)) # 指数バックオフ的に待機
+            err_msg = str(e)
+            # 一時的な接続エラーや、API制限(429), サーバーエラー(500系)の場合にリトライ
+            should_retry = any(keyword in err_msg for keyword in [
+                "RemoteDisconnected", "Connection aborted", "TimeoutError",
+                "429", "Quota exceeded", "APIError", "500", "502", "503"
+            ])
+            
+            if should_retry:
+                wait_time = delay * (2 ** i) # 指数バックオフ
+                time.sleep(wait_time)
                 continue
             else:
-                # 致命的なエラー（認証等）はすぐに上げる
+                # 致命的なエラー（認証等、その他）はすぐに上げる
                 raise e
     raise last_error
 
