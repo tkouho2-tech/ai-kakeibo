@@ -542,6 +542,27 @@ def register_user(username, password):
     
     # 登録データの追加
     sheet.append_row([username, hashed_password])
+    
+    # --- 新規ユーザー向け：デフォルトの支払い方法を自動登録 ---
+    import uuid
+    default_methods = [
+        {"name": "未設定", "type": "未設定"},
+        {"name": "現金", "type": "現金"},
+        {"name": "PayPay", "type": "電子マネー"}
+    ]
+    for method in default_methods:
+        payment_data = {
+            "payment_id": str(uuid.uuid4()),
+            "name": method["name"],
+            "type": method["type"],
+            "closing_date": "",
+            "payment_month": "",
+            "payment_date": "",
+            "is_credit_card": False,
+            "credit_limit": ""
+        }
+        save_payment_method(username, payment_data)
+        
     return True, "登録が完了しました。ログインタブからログインしてください。"
 
 def authenticate_user(username, password):
@@ -2481,7 +2502,7 @@ def main():
                 .block-container h5 { font-size: calc(1.00rem + 2pt) !important; }
                 </style>
             """, unsafe_allow_html=True)
-            st.subheader("マイニー [Ver 4.4.6]")
+            st.subheader("マイニー [Ver 4.4.7]")
             st.write(f"🔑 ユーザー: **{st.session_state['username']}**")
             st.markdown("---")
             if 'menu_selection' not in st.session_state:
@@ -2958,6 +2979,9 @@ def main():
                     
                     if "未設定" not in method_options:
                         method_options = ["未設定"] + method_options
+                    else:
+                        # 確実に未設定を先頭あるいは初期選択位置に持っていくために、インデックスを取得
+                        pass
                         
                     default_idx = method_options.index("未設定") if "未設定" in method_options else 0
                     selected_payment = st.selectbox("支払い方法", options=method_options, index=default_idx)
@@ -3177,7 +3201,13 @@ def main():
                 st.write("---")
                 methods = get_payment_methods(st.session_state['username'])
                 method_options = [m["name"] for m in methods] if methods else ["現金"]
-                selected_payment_manual = st.selectbox("支払い方法", options=method_options, key=f"mi_pay_{fid}")
+                
+                # 「未設定」を確実に追加し、デフォルトとして選択させる
+                if "未設定" not in method_options:
+                    method_options = ["未設定"] + method_options
+                
+                default_manual_idx = method_options.index("未設定") if "未設定" in method_options else 0
+                selected_payment_manual = st.selectbox("支払い方法", options=method_options, index=default_manual_idx, key=f"mi_pay_{fid}")
                 
                 # ボタン類
                 st.markdown("<br>", unsafe_allow_html=True) 
@@ -3367,109 +3397,12 @@ def main():
                                         "payment_method": payment_m
                                     }
 
-                            # --- レシートヘッダー（日付・店舗名）の修正エリア ---
-                            st.write(f"##### レシート修正（金額：￥{int(selected_receipt['金額合計']):,}）")
-                            with st.container(border=True):
-                                # 1行目：日付
-                                c1, c2, c3 = st.columns([1.5, 8.5, 2])
-                                with c1:
-                                    st.markdown("<p style='margin-top: 8px; font-weight: bold;'>日付</p>", unsafe_allow_html=True)
-                                with c2:
-                                    new_date = st.date_input("日付", value=st.session_state['edit_header']['date'], key=f"edit_header_date_{receipt_key}", label_visibility="collapsed")
-                                
-                                # 2行目：店舗名
-                                c1, c2, c3 = st.columns([1.5, 8.5, 2])
-                                with c1:
-                                    st.markdown("<p style='margin-top: 8px; font-weight: bold;'>店舗名</p>", unsafe_allow_html=True)
-                                with c2:
-                                    new_store = st.text_input("店舗名", value=st.session_state['edit_header']['store'], key=f"edit_header_store_{receipt_key}", label_visibility="collapsed")
-                                
-                                # 3行目：支払い方法
-                                c1, c2, c3 = st.columns([1.5, 8.5, 2])
-                                with c1:
-                                    st.markdown("<p style='margin-top: 8px; font-weight: bold;'>支払い方法</p>", unsafe_allow_html=True)
-                                with c2:
-                                    methods = get_payment_methods(st.session_state['username'])
-                                    method_options = [m["name"] for m in methods] if methods else ["現金"]
-                                    
-                                    # 「未設定」を先頭に追加（重複を避ける）
-                                    if "未設定" not in method_options:
-                                        method_options = ["未設定"] + method_options
+                            # 編集中の状態を事前に取得してヘッダーをロックするか判定
+                            # --- レシートヘッダー（日付・店舗名）の修正エリア用プレースホルダー ---
+                            header_placeholder = st.container()
 
-                                    current_payment = str(st.session_state['edit_header'].get('payment_method', '未設定')).strip()
-                                    if not current_payment or str(current_payment).lower() == 'nan':
-                                        current_payment = '未設定'
-                                        
-                                    if current_payment not in method_options:
-                                        method_options.append(current_payment)
-                                        
-                                    payment_idx = method_options.index(current_payment)
-                                    new_payment = st.selectbox("支払い方法", method_options, index=payment_idx, key=f"edit_header_payment_{receipt_key}", label_visibility="collapsed")
-                                
-                                # ヘッダー情報を更新
-                                st.session_state['edit_header']['date'] = new_date
-                                st.session_state['edit_header']['store'] = new_store
-                                st.session_state['edit_header']['payment_method'] = new_payment
-
-                            # --- アクションボタンエリア（上部） ---
-                            action_col1, action_col2 = st.columns(2)
-                            
-                            with action_col1:
-                                if st.button("日付・店舗名・支払更新", use_container_width=True, type="primary"):
-                                    try:
-                                        with st.spinner("一括更新中..."):
-                                            sheet = get_sheet(TRANSACTIONS_WORKSHEET_NAME)
-                                            target_date_str = st.session_state['edit_header']['date'].strftime("%Y-%m-%d")
-                                            target_store = st.session_state['edit_header']['store']
-                                            target_payment = st.session_state['edit_header']['payment_method']
-                                            
-                                            # 既存の全明細行をループして日付と店舗を更新
-                                            existing_indices = [int(k) for k in st.session_state['edit_data'].keys() if not str(k).startswith("new_")]
-                                            current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                                            
-                                            p_type, p_close, p_month, p_date = get_payment_details_for_transaction(st.session_state['username'], target_payment)
-                                            batch_updates = []
-                                            for r_idx in existing_indices:
-                                                batch_updates.append({"range": f"B{r_idx}:C{r_idx}", "values": [[target_date_str, target_store]]})
-                                                batch_updates.append({"range": f"H{r_idx}:M{r_idx}", "values": [[current_time, target_payment, str(p_type), str(p_close), str(p_month), str(p_date)]]})
-                                                
-                                            if batch_updates:
-                                                safe_gspread_call(sheet.batch_update, batch_updates)
-                                                
-                                            st.success("✅ レシート情報を一括更新しました")
-                                            st.session_state.receipt_list_version += 1
-                                            time.sleep(1)
-                                            st.rerun()
-                                    except Exception as e:
-                                        st.error(f"更新エラー: {e}")
-                            
-                            with action_col2:
-                                with st.popover("このレシートを全削除", use_container_width=True):
-                                    st.warning("このレシート（全明細）を完全に削除します。")
-                                    if st.button("レシート削除を実行", use_container_width=True, type="primary"):
-                                        try:
-                                            with st.spinner("削除中..."):
-                                                sheet = get_sheet(TRANSACTIONS_WORKSHEET_NAME)
-                                                user_name = st.session_state['username']
-                                                existing_indices = [int(k) for k in st.session_state['edit_data'].keys() if not str(k).startswith("new_")]
-                                                
-                                                # 削除実行
-                                                for r_idx in sorted(existing_indices, reverse=True):
-                                                    # 削除直前の安全チェック
-                                                    current_row_values = sheet.row_values(r_idx)
-                                                    if len(current_row_values) < 1 or current_row_values[0].lower() != user_name.lower():
-                                                        st.error(f"🚨 エラー: 行 {r_idx} の削除中に不整合を検知しました。処理を中断します。リロードしてください。")
-                                                        st.stop()
-                                                    sheet.delete_rows(r_idx)
-                                                st.success("✅ レシートを削除しました")
-                                                st.session_state.receipt_list_version += 1
-                                                st.session_state['edit_data'] = None
-                                                st.session_state['selected_receipt_info'] = None # レシートごと消えたのでクリア
-                                                st.session_state['editing_gs_idx'] = None
-                                                time.sleep(1)
-                                                st.rerun()
-                                        except Exception as e:
-                                            st.error(f"削除エラー: {e}")
+                            # -- 明細データ構築 --
+                            action_placeholder = st.container()
 
                             st.markdown("<br>", unsafe_allow_html=True)
 
@@ -3537,6 +3470,117 @@ def main():
                                 st.session_state.item_list_version += 1
                                 st.rerun()
 
+                            # -----------------------------------------------------------
+                            # ここで最新の current_editing_id 状態を使って is_item_editing を判定
+                            is_item_editing = bool(current_editing_id)
+
+                            # 遅延描画したプレースホルダーにヘッダーとボタンを出力
+                            with header_placeholder:
+                                st.write(f"##### レシート修正（金額：￥{int(selected_receipt['金額合計']):,}）")
+                                with st.container(border=True):
+                                    # 1行目：日付
+                                    c1, c2, c3 = st.columns([1.5, 8.5, 2])
+                                    with c1:
+                                        st.markdown("<p style='margin-top: 8px; font-weight: bold;'>日付</p>", unsafe_allow_html=True)
+                                    with c2:
+                                        new_date = st.date_input("日付", value=st.session_state['edit_header']['date'], key=f"edit_header_date_{receipt_key}", label_visibility="collapsed", disabled=is_item_editing)
+                                    
+                                    # 2行目：店舗名
+                                    c1, c2, c3 = st.columns([1.5, 8.5, 2])
+                                    with c1:
+                                        st.markdown("<p style='margin-top: 8px; font-weight: bold;'>店舗名</p>", unsafe_allow_html=True)
+                                    with c2:
+                                        new_store = st.text_input("店舗名", value=st.session_state['edit_header']['store'], key=f"edit_header_store_{receipt_key}", label_visibility="collapsed", disabled=is_item_editing)
+                                    
+                                    # 3行目：支払い方法
+                                    c1, c2, c3 = st.columns([1.5, 8.5, 2])
+                                    with c1:
+                                        st.markdown("<p style='margin-top: 8px; font-weight: bold;'>支払い方法</p>", unsafe_allow_html=True)
+                                    with c2:
+                                        methods = get_payment_methods(st.session_state['username'])
+                                        method_options = [m["name"] for m in methods] if methods else ["現金"]
+                                        
+                                        # 「未設定」を先頭に追加（重複を避ける）
+                                        if "未設定" not in method_options:
+                                            method_options = ["未設定"] + method_options
+
+                                        current_payment = str(st.session_state['edit_header'].get('payment_method', '未設定')).strip()
+                                        if not current_payment or str(current_payment).lower() == 'nan':
+                                            current_payment = '未設定'
+                                            
+                                        if current_payment not in method_options:
+                                            method_options.append(current_payment)
+                                            
+                                        payment_idx = method_options.index(current_payment)
+                                        new_payment = st.selectbox("支払い方法", method_options, index=payment_idx, key=f"edit_header_payment_{receipt_key}", label_visibility="collapsed", disabled=is_item_editing)
+                                    
+                                    # ヘッダー情報を更新
+                                    st.session_state['edit_header']['date'] = new_date
+                                    st.session_state['edit_header']['store'] = new_store
+                                    st.session_state['edit_header']['payment_method'] = new_payment
+
+                            with action_placeholder:
+                                # --- アクションボタンエリア（上部） ---
+                                action_col1, action_col2 = st.columns(2)
+                                
+                                with action_col1:
+                                    if st.button("日付・店舗名・支払更新", use_container_width=True, type="primary", disabled=is_item_editing):
+                                        try:
+                                            with st.spinner("一括更新中..."):
+                                                sheet = get_sheet(TRANSACTIONS_WORKSHEET_NAME)
+                                                target_date_str = st.session_state['edit_header']['date'].strftime("%Y-%m-%d")
+                                                target_store = st.session_state['edit_header']['store']
+                                                target_payment = st.session_state['edit_header']['payment_method']
+                                                
+                                                # 既存の全明細行をループして日付と店舗を更新
+                                                existing_indices = [int(k) for k in st.session_state['edit_data'].keys() if not str(k).startswith("new_")]
+                                                current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                                                
+                                                p_type, p_close, p_month, p_date = get_payment_details_for_transaction(st.session_state['username'], target_payment)
+                                                batch_updates = []
+                                                for r_idx in existing_indices:
+                                                    batch_updates.append({"range": f"B{r_idx}:C{r_idx}", "values": [[target_date_str, target_store]]})
+                                                    batch_updates.append({"range": f"H{r_idx}:M{r_idx}", "values": [[current_time, target_payment, str(p_type), str(p_close), str(p_month), str(p_date)]]})
+                                                    
+                                                if batch_updates:
+                                                    safe_gspread_call(sheet.batch_update, batch_updates)
+                                                    
+                                                st.success("✅ レシート情報を一括更新しました")
+                                                st.session_state.receipt_list_version += 1
+                                                time.sleep(1)
+                                                st.rerun()
+                                        except Exception as e:
+                                            st.error(f"更新エラー: {e}")
+                                
+                                with action_col2:
+                                    with st.popover("このレシートを全削除", use_container_width=True, disabled=is_item_editing):
+                                        st.warning("このレシート（全明細）を完全に削除します。")
+                                        if st.button("レシート削除を実行", use_container_width=True, type="primary"):
+                                            try:
+                                                with st.spinner("削除中..."):
+                                                    sheet = get_sheet(TRANSACTIONS_WORKSHEET_NAME)
+                                                    user_name = st.session_state['username']
+                                                    existing_indices = [int(k) for k in st.session_state['edit_data'].keys() if not str(k).startswith("new_")]
+                                                    
+                                                    # 削除実行
+                                                    for r_idx in sorted(existing_indices, reverse=True):
+                                                        # 削除直前の安全チェック
+                                                        current_row_values = sheet.row_values(r_idx)
+                                                        if len(current_row_values) < 1 or current_row_values[0].lower() != user_name.lower():
+                                                            st.error(f"🚨 エラー: 行 {r_idx} の削除中に不整合を検知しました。処理を中断します。リロードしてください。")
+                                                            st.stop()
+                                                        sheet.delete_rows(r_idx)
+                                                    st.success("✅ レシートを削除しました")
+                                                    st.session_state.receipt_list_version += 1
+                                                    st.session_state['edit_data'] = None
+                                                    st.session_state['selected_receipt_info'] = None # レシートごと消えたのでクリア
+                                                    st.session_state['editing_gs_idx'] = None
+                                                    time.sleep(1)
+                                                    st.rerun()
+                                            except Exception as e:
+                                                st.error(f"削除エラー: {e}")
+                            # -----------------------------------------------------------
+
                             # --- 個別修正フォーム (選択されている場合のみ表示) ---
                             if current_editing_id:
                                 st.markdown("---")
@@ -3550,19 +3594,7 @@ def main():
                                     edit_name = st.text_input("商品名", value=target_item["name"], key=f"edit_name_{receipt_key}_{current_editing_id}")
                                     edit_amount = st.number_input("金額", value=int(target_item["amount"]), step=1, key=f"edit_amount_{receipt_key}_{current_editing_id}")
                                     
-                                    # 🎯 支払い方法のUIを追加
-                                    methods = get_payment_methods(st.session_state['username'])
-                                    method_options = [m["name"] for m in methods] if methods else ["現金"]
-                                    
-                                    current_payment = target_item.get("payment_method", "現金")
-                                    if current_payment not in method_options:
-                                        if method_options:
-                                            current_payment = method_options[0]
-                                        else:
-                                            # 現金だけの場合は必ずそれが選ばれる
-                                            current_payment = "現金"
-                                            
-                                    edit_payment = st.selectbox("支払い方法", options=method_options, index=method_options.index(current_payment) if current_payment in method_options else 0, key=f"edit_payment_{receipt_key}_{current_editing_id}")
+                                    # --- 支払い方法のUIを削除し、大分類と小分類のみに変更 ---
                                     
                                     # 大分類
                                     current_major = target_item["major"]
@@ -3592,10 +3624,11 @@ def main():
                                                         target_date_str = st.session_state['edit_header']['date'].strftime("%Y-%m-%d")
                                                         target_store = st.session_state['edit_header']['store']
                                                         
-                                                        p_type, p_close, p_month, p_date = get_payment_details_for_transaction(user_name, edit_payment)
+                                                        target_payment = st.session_state['edit_header']['payment_method']
+                                                        p_type, p_close, p_month, p_date = get_payment_details_for_transaction(user_name, target_payment)
                                                         if str(current_editing_id).startswith("new_"):
                                                             # 新規追加
-                                                            new_row = [user_name, target_date_str, target_store, edit_name, edit_major, edit_minor, edit_amount, datetime.now().strftime("%Y-%m-%d %H:%M:%S"), edit_payment, str(p_type), str(p_close), str(p_month), str(p_date)]
+                                                            new_row = [user_name, target_date_str, target_store, edit_name, edit_major, edit_minor, edit_amount, datetime.now().strftime("%Y-%m-%d %H:%M:%S"), target_payment, str(p_type), str(p_close), str(p_month), str(p_date)]
                                                             sheet.append_row(new_row)
                                                         else:
                                                             # 既存更新: 安全装置（行データの検証）
@@ -3613,7 +3646,7 @@ def main():
                                                             # A:username, B:date, C:store, D:item, E:major, F:minor, G:amount, H:update, I:payment_method, J:type, K:close_date, L:pay_month, M:pay_date
                                                             # 更新範囲: B (Col 2) から M (Col 13)
                                                             update_range = f"B{r_idx}:M{r_idx}"
-                                                            update_values = [[target_date_str, target_store, edit_name, edit_major, edit_minor, edit_amount, datetime.now().strftime("%Y-%m-%d %H:%M:%S"), edit_payment, str(p_type), str(p_close), str(p_month), str(p_date)]]
+                                                            update_values = [[target_date_str, target_store, edit_name, edit_major, edit_minor, edit_amount, datetime.now().strftime("%Y-%m-%d %H:%M:%S"), target_payment, str(p_type), str(p_close), str(p_month), str(p_date)]]
                                                             sheet.update(range_name=update_range, values=update_values)
                                                         
                                                         st.success("✅ 修正を登録しました")
@@ -3976,9 +4009,9 @@ MBTI: {mbti}
 ・クレジットカード：登録した全カードの今月利用額（次回支払）や、当月支払予定額、対象期間、限度額到達率を表示します。データの反映には「支払方法マスター」での締日・支払日設定が必要です。
 
 【レシート管理】（支出データを登録・修正するメニュー）
-・レシート取込：写真をアップロードし、AIで店舗名・金額などを自動解析。自動消費税追加機能も搭載されています。
-・レシート手入力：キーボード操作で画面上の表に高速連続入力が可能です。
-・レシート修正：過去データの検索・修正・削除、対象レシートの一括更新が行えます。
+・レシート取込：写真をアップロードし、AIで店舗名・金額などを自動解析。自動消費税追加機能も搭載されています。支払い方法の初期値は常に「未設定」となるため、確実に正しいものを選択して登録できます。
+・レシート手入力：キーボード操作で画面上の表に高速連続入力が可能です。こちらも支払い方法の初期値は「未設定」です。
+・レシート修正：過去データの検索・修正・削除、対象レシートの一括更新が行えます。個別の明細を修正中（選択中）のときは、誤操作を防ぐためにレシート全体の日付や店舗名などのヘッダーがロックされる仕組みがあります。
 
 【相談・サポート】（使い方や家計の悩みを解決するメニュー）
 ・マニュアル：このアプリの全機能と使い方の一覧です。
@@ -3986,7 +4019,7 @@ MBTI: {mbti}
 ・AI相談（専属FP）：ユーザーの実際の家計データを元に、AIがFPとして個別アドバイスを行います。
 
 【マスター設定】（アプリの基本設定を行うメニュー）
-・支払方法マスター：クレジットカードや現金などの支払い手段を登録、修正、削除します。ここで登録したものはレシート登録等で利用できます。
+・支払方法マスター：クレジットカードや現金などの支払い手段を登録、修正、削除します。新規アカウント登録時には自動で「未設定」「現金」「PayPay」の3件が登録されます。ここで登録したものはレシート登録等で利用できます。
 ・プロフィール設定：AI相談用など、ユーザー自身の基本情報を登録・管理し、パーソナライズされたアドバイスを得るための設定です。
 
 【その他の便利機能】
@@ -4082,7 +4115,7 @@ MBTI: {mbti}
                 - **自動向き補正**: アップロードされた画像の向きをEXIF情報に基づいて自動的に正しく（縦向きに）調整します。
                 - **自動解析**: 店舗名、商品名、金額、カテゴリをAIが自動で推測して入力します。
                 - **自動消費税追加**: 解析結果に消費税が含まれていない場合、システムが自動的に内税10%の消費税項目を計算して追加します。
-                - **編集と登録**: 解析完了後の確認画面で、「日付」をカレンダーから、「店舗名」をテキスト入力で直感的に修正できます。支払い方法は初期状態で「未設定」が選ばれるため、任意に正しいものを選んでください。未入力での誤登録を防ぐチェック機能も搭載しています。
+                - **編集と登録**: 解析完了後の確認画面で、「日付」をカレンダーから、「店舗名」をテキスト入力で直感的に修正できます。支払い方法は初期状態で「未設定」が選ばれるため、任意に正しいものを選んでください（未入力での誤登録を防ぐチェック機能も搭載しています）。
                 """)
 
             with st.expander("⌨️ レシート手入力（高速入力）"):
@@ -4090,6 +4123,7 @@ MBTI: {mbti}
                 **概要**: キーボード操作で素早く支出を入力できます。
                 - **自動行追加**: 金額を入力して `Enter` または `Tab` キーを押すと、自動で次の行が作成されます。
                 - **柔軟な登録**: 空白の行があっても、入力済みのデータのみを正確に登録します。
+                - **初期選択**: 支払い方法のドロップダウンは常に「未設定」からスタートするため、誤入力による登録を防げます。
                 - **行削除**: 右端の `✕` ボタンで、特定の行だけを削除できます。
                 """)
 
@@ -4098,7 +4132,7 @@ MBTI: {mbti}
                 **概要**: 過去に登録した全てのデータを一覧・検索・編集できます。
                 - **一覧管理**: 全ての支出データが時系列で表示され、対象一覧には「支払い方法」列も加わり一目で情報を把握できます。
                 - **かんたん修正**: 修正内容（日付、店舗名、支払い方法、金額、カテゴリ等）を入力して「更新」または「登録実行」を押すだけ。
-                - **一括更新**: レシート全体の日付、店舗名、支払い方法を一括で変更できるようになりました。
+                - **安全な編集中ロック**: 明細行を選択して個別の修正を行っている最中は、誤操作を防ぐためにレシート全体のヘッダー（日付、店舗名、支払い方法の一括更新や削除）が自動的にロックされます。
                 - **遷移改善**: 明細の修正・削除後も対象レシートの選択が維持され、続けて次の修正が行えます。
                 - **自動リロード**: 個別明細の操作後、一覧の合計表示などが自動的に最新の状態に更新されます。
                 - **安全な削除**: 削除時は再確認が出るため、誤操作を防げます。
@@ -4133,7 +4167,7 @@ MBTI: {mbti}
             st.caption("アプリ全体の基本設定や、あなたに合わせたカスタマイズを行うメニューです。")
             with st.expander("💳 支払方法マスター"):
                 st.markdown("""
-                **概要**: アプリ全体で利用する「支払い方法（クレジットカード、現金、電子マネーなど）」を管理します。
+                **概要**: アプリ全体で利用する「支払い方法（クレジットカード、現金、電子マネーなど）」を管理します。新規登録時には「未設定」「現金」「PayPay」が自動で作成されます。
                 - **登録・修正・削除**: 自分が使っている決済手段を自由に登録し、不要になったら削除できます。
                 - **種類と詳細設定**: 「クレジットカード」を選ぶと、締日や支払日、限度額などの詳細情報も設定可能です。
                 - **アプリ内連携**: マスターに登録した支払い方法は、そのままレシート取込・手入力・修正の各画面で選択できるようになります。
@@ -4163,7 +4197,7 @@ MBTI: {mbti}
         elif menu_selection == "プロフィール設定":
             show_profile_settings()
 
-        st.caption("マイニー Ver 4.4.6 - ユーザー: %s" % st.session_state['username'])
+        st.caption("マイニー Ver 4.4.7 - ユーザー: %s" % st.session_state['username'])
             
     # 未ログインの状態 (ログイン・登録画面)
     else:
