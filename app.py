@@ -198,11 +198,14 @@ def safe_gspread_call(func, *args, max_retries=5, delay=2, **kwargs):
         except Exception as e:
             last_error = e
             err_msg = str(e)
+            err_type = type(e).__name__
             # 一時的な接続エラーや、API制限(429), サーバーエラー(500系)の場合にリトライ
+            # Streamlit Cloud環境ではエラーメッセージがマスクされるため、例外の型名でも判定する
             should_retry = any(keyword in err_msg for keyword in [
                 "RemoteDisconnected", "Connection aborted", "TimeoutError",
-                "429", "Quota exceeded", "APIError", "500", "502", "503"
-            ])
+                "429", "Quota exceeded", "APIError", "500", "502", "503",
+                "This app has encountered an error" # Streamlit Cloudのマスクメッセージ
+            ]) or err_type == "APIError"
             
             if should_retry:
                 wait_time = delay * (2 ** i) # 指数バックオフ
@@ -222,8 +225,17 @@ def safe_gemini_call(func, *args, max_retries=5, initial_delay=2, **kwargs):
         except Exception as e:
             last_error = e
             err_msg = str(e)
+            err_type = type(e).__name__
             # 429 RESOURCE_EXHAUSTED または 500/503 系エラーの場合にリトライ
-            if "429" in err_msg or "RESOURCE_EXHAUSTED" in err_msg or "500" in err_msg or "503" in err_msg:
+            # Streamlit Cloud環境でのメッセージマスクにも対応
+            should_retry = (
+                "429" in err_msg or "RESOURCE_EXHAUSTED" in err_msg or 
+                "500" in err_msg or "503" in err_msg or
+                "This app has encountered an error" in err_msg or
+                err_type in ["ResourceExhausted", "InternalServerError", "ServiceUnavailable"]
+            )
+            
+            if should_retry:
                 wait_time = initial_delay * (2 ** i) # 指数バックオフ
                 st.warning(f"現在混み合っています（{i+1}/{max_retries}回目）。{wait_time}秒後に再試行します...")
                 time.sleep(wait_time)
@@ -275,7 +287,7 @@ def init_users_sheet(sheet):
 
 def init_transactions_sheet(sheet):
     """初期セットアップ：取引シートのヘッダーがない場合に作成する"""
-    expected_headers = ["username", "date", "store_name", "item_name", "category", "subcategory", "amount", "update", "payment_method", "payment_type", "closing_date", "payment_month", "payment_date"]
+    expected_headers = ["username", "date", "store_name", "item_name", "category", "subcategory", "amount", "update", "payment_method", "payment_type", "closing_date", "payment_month", "payment_date", "receipt_id"]
     try:
         headers = sheet.row_values(1)
         if not headers or headers[0] != "username":
@@ -646,7 +658,9 @@ def get_clean_df(records, username):
         "大分類": "category",
         "小分類": "subcategory",
         "支払い方法": "payment_method",
-        "payment_method": "payment_method"
+        "payment_method": "payment_method",
+        "receipt_id": "receipt_id",
+        "レシートid": "receipt_id"
     }
     
     actual_rename = {}
@@ -1138,6 +1152,9 @@ AIが辻褄を合わせるために勝手に商品金額を調整（減額・増
 抽出した明細の最後に、必ず「レシートの最終合計金額」を示す特別な明細を1つ追加してください。
 その際、"major_category" は "合計"、"minor_category" は "総合計"、"item_name" は "合計金額" とし、"amount" にはレシートに印字された最終的な支払い合計額を設定してください。
 
+【支払い方法・お釣りの除外ルール】（最重要）:
+レシートの下部に記載される「現金」「お預り」「お釣り」「クレジットカード」「カード払い」「PayPay」「ポイント」「クーポン」などの【支払い方法・お釣り等】に関する行や金額は、購入した商品ではないため、明細として*絶対に*抽出しないでください。抽出すると金額合算エラーの原因となります。
+
 それ以外の場合は、以下のカテゴリ体系に厳密に従って、明細ごとに適切に分類してください。
 {get_categories_prompt_text()}
 
@@ -1307,42 +1324,77 @@ def render_transaction_breakdown(df, key_prefix):
                 
                 with st.expander(f"{store}：{total_amt_str}"):
                     store_df = df[df[store_col] == store].copy()
-                    # 内訳（大分類・小分類）は内税を含めて集計する
-                    cat_grouped = store_df.groupby("category", as_index=False)["amount"].sum()
-                    cat_grouped = cat_grouped.sort_values(by="amount", ascending=False)
                     
-                    for _, cat_row in cat_grouped.iterrows():
-                        cat = cat_row["category"]
-                        cat_amt_str = f"￥{int(cat_row['amount']):,}"
-                        
-                        # 2段階目：大分類アコーディオン
-                        sub_df = store_df[store_df["category"] == cat].copy()
-                        sub_col = None
-                        for col_name in ["subcategory", "sub_category", "小分類"]:
-                            if col_name in sub_df.columns:
-                                sub_col = col_name
-                                break
-                        
-                        if sub_col:
-                            sub_grouped = sub_df.groupby(sub_col, as_index=False)["amount"].sum()
-                            sub_grouped = sub_grouped.sort_values(by="amount", ascending=False)
+                    if key_prefix == "calendar":
+                        # 2段階目：支払い方法アコーディオン
+                        if "payment_method" not in store_df.columns:
+                            store_df["payment_method"] = "未設定"
                             
-                            with st.expander(f"  └ {cat}：{cat_amt_str}"):
-                                if key_prefix == "calendar":
-                                    # カレンダー詳細（店舗別）のみ 3階層目以降をカスタムHTMLで極薄表示
-                                    for _, sub_row in sub_grouped.iterrows():
-                                        sub_name = sub_row[sub_col]
-                                        sub_amt_str = f"￥{int(sub_row['amount']):,}"
+                        pay_grouped = store_df.groupby("payment_method", as_index=False)["amount"].sum()
+                        pay_grouped = pay_grouped.sort_values(by="amount", ascending=False)
+                        
+                        for _, pay_row in pay_grouped.iterrows():
+                            payment = pay_row["payment_method"]
+                            pay_amt_str = f"￥{int(pay_row['amount']):,}"
+                            
+                            with st.expander(f"  └ 💳 {payment}：{pay_amt_str}"):
+                                pay_df = store_df[store_df["payment_method"] == payment].copy()
+                                
+                                # 3段階目：大分類（カスタムHTML化）
+                                cat_grouped = pay_df.groupby("category", as_index=False)["amount"].sum()
+                                cat_grouped = cat_grouped.sort_values(by="amount", ascending=False)
+                                
+                                for _, cat_row in cat_grouped.iterrows():
+                                    cat = cat_row["category"]
+                                    cat_amt_str = f"￥{int(cat_row['amount']):,}"
+                                    
+                                    html_str = f'<details style="margin: 4px 0;">'
+                                    html_str += f'<summary style="background-color: #ffffff; padding: 6px 10px; margin: 0; border: 1px solid #e0e0e0; border-radius: 4px; font-size: 0.95rem; font-weight: bold; list-style: none; cursor: pointer;">'
+                                    html_str += f'📁 {cat}：{cat_amt_str}</summary>'
+                                    html_str += f'<div style="padding-left: 15px; margin-top: 4px;">'
+                                    
+                                    sub_df = pay_df[pay_df["category"] == cat].copy()
+                                    sub_col = None
+                                    for col_name in ["subcategory", "sub_category", "小分類"]:
+                                        if col_name in sub_df.columns:
+                                            sub_col = col_name
+                                            break
+                                            
+                                    if sub_col:
+                                        sub_grouped = sub_df.groupby(sub_col, as_index=False)["amount"].sum()
+                                        sub_grouped = sub_grouped.sort_values(by="amount", ascending=False)
                                         
-                                        # 3階層目（小分類）と4階層目（商品名）を一つのdetailsタグにまとめる
-                                        # インデントがあるとMarkdownのコードブロックと誤認されるため、左詰めにする
-                                        html_str = f'<details style="margin: 1px 0;">'
-                                        html_str += f'<summary style="background-color: #f0f2f6; padding: 2px 8px; margin: 0; border-left: 5px solid #007bff; font-size: 0.9rem; line-height: 1.2; list-style: none; cursor: pointer;">'
-                                        html_str += f'L {sub_name}：{sub_amt_str}</summary>'
-                                        html_str += f'<div style="padding-left: 10px;">'
-                                        
-                                        # 4階層目：商品名（詳細）
-                                        item_df = sub_df[sub_df[sub_col] == sub_name].copy()
+                                        # 4階層目以降（小分類、商品名）はカスタムHTMLで極薄表示
+                                        for _, sub_row in sub_grouped.iterrows():
+                                            sub_name = sub_row[sub_col]
+                                            sub_amt_str = f"￥{int(sub_row['amount']):,}"
+                                            
+                                            html_str += f'<details style="margin: 2px 0;">'
+                                            html_str += f'<summary style="background-color: #f9fafb; padding: 3px 8px; margin: 0; border-left: 3px solid #007bff; font-size: 0.9rem; line-height: 1.2; list-style: none; cursor: pointer;">'
+                                            html_str += f'L {sub_name}：{sub_amt_str}</summary>'
+                                            html_str += f'<div style="padding-left: 10px; margin-top: 2px;">'
+                                            
+                                            # 5階層目：商品名（詳細）
+                                            item_df = sub_df[sub_df[sub_col] == sub_name].copy()
+                                            item_col = "item_name" if "item_name" in item_df.columns else "item" if "item" in item_df.columns else None
+                                            
+                                            if item_col:
+                                                item_grouped = item_df.groupby(item_col, as_index=False)["amount"].sum()
+                                                item_grouped = item_grouped.sort_values(by="amount", ascending=False)
+                                                for _, i_row in item_grouped.iterrows():
+                                                    i_name = i_row[item_col]
+                                                    i_amt = f"￥{int(i_row['amount']):,}"
+                                                    html_str += f'<div style="padding-left: 10px; font-size: 0.85rem; line-height: 1.2; margin: 2px 0; color: #555;">└ {i_name}：{i_amt}</div>'
+                                            else:
+                                                for _, i_row in item_df.iterrows():
+                                                    i_amt = f"￥{int(i_row['amount']):,}"
+                                                    html_str += f'<div style="padding-left: 10px; font-size: 0.85rem; line-height: 1.2; margin: 2px 0; color: #555;">└ {i_amt}</div>'
+                                            
+                                            html_str += "</div></details>"
+                                    else:
+                                        # 小分類がない場合は明細だけ表示
+                                        item_cols = [c for c in ["item_name", "item", "amount"] if c in sub_df.columns]
+                                        item_df = sub_df[item_cols].copy()
                                         item_col = "item_name" if "item_name" in item_df.columns else "item" if "item" in item_df.columns else None
                                         
                                         if item_col:
@@ -1351,28 +1403,43 @@ def render_transaction_breakdown(df, key_prefix):
                                             for _, i_row in item_grouped.iterrows():
                                                 i_name = i_row[item_col]
                                                 i_amt = f"￥{int(i_row['amount']):,}"
-                                                html_str += f'<div style="padding-left: 10px; font-size: 0.85rem; line-height: 1.1; margin: 0; color: #555;">└ {i_name}：{i_amt}</div>'
+                                                html_str += f'<div style="padding-left: 10px; font-size: 0.85rem; line-height: 1.2; margin: 2px 0; color: #555;">└ {i_name}：{i_amt}</div>'
                                         else:
                                             for _, i_row in item_df.iterrows():
                                                 i_amt = f"￥{int(i_row['amount']):,}"
-                                                html_str += f'<div style="padding-left: 10px; font-size: 0.85rem; line-height: 1.1; margin: 0; color: #555;">└ {i_amt}</div>'
-                                        
-                                        html_str += "</div></details>"
-                                        st.markdown(html_str, unsafe_allow_html=True)
-                                else:
-                                    # その他（ダッシュボード等）は 3階層のまま（大分類 > 小分類リスト）
+                                                html_str += f'<div style="padding-left: 10px; font-size: 0.85rem; line-height: 1.2; margin: 2px 0; color: #555;">└ {i_amt}</div>'
+                                                
+                                    html_str += "</div></details>"
+                                    st.markdown(html_str, unsafe_allow_html=True)
+                    else:
+                        # カレンダー以外（ダッシュボード等）は従来通り Store -> Major -> Minor の階層
+                        cat_grouped = store_df.groupby("category", as_index=False)["amount"].sum()
+                        cat_grouped = cat_grouped.sort_values(by="amount", ascending=False)
+                        
+                        for _, cat_row in cat_grouped.iterrows():
+                            cat = cat_row["category"]
+                            cat_amt_str = f"￥{int(cat_row['amount']):,}"
+                            
+                            with st.expander(f"  └ {cat}：{cat_amt_str}"):
+                                sub_df = store_df[store_df["category"] == cat].copy()
+                                sub_col = None
+                                for col_name in ["subcategory", "sub_category", "小分類"]:
+                                    if col_name in sub_df.columns:
+                                        sub_col = col_name
+                                        break
+                                
+                                if sub_col:
+                                    sub_grouped = sub_df.groupby(sub_col, as_index=False)["amount"].sum()
+                                    sub_grouped = sub_grouped.sort_values(by="amount", ascending=False)
                                     sub_grouped_disp = sub_grouped.copy()
                                     sub_grouped_disp["amount"] = sub_grouped_disp["amount"].apply(lambda x: f"￥{int(x):,}")
                                     sub_grouped_disp.columns = ["小分類", "金額"]
                                     st.dataframe(sub_grouped_disp, use_container_width=True, hide_index=True)
-                        else:
-                            # 小分類がない場合は明細
-                            item_cols = [c for c in ["item_name", "item", "amount"] if c in sub_df.columns]
-                            display_items = sub_df[item_cols].copy()
-                            display_items["amount"] = display_items["amount"].apply(lambda x: f"￥{int(x):,}")
-                            
-                            with st.expander(f"  └ {cat}：{cat_amt_str}"):
-                                st.dataframe(display_items, use_container_width=True, hide_index=True)
+                                else:
+                                    item_cols = [c for c in ["item_name", "item", "amount"] if c in sub_df.columns]
+                                    display_items = sub_df[item_cols].copy()
+                                    display_items["amount"] = display_items["amount"].apply(lambda x: f"￥{int(x):,}")
+                                    st.dataframe(display_items, use_container_width=True, hide_index=True)
         else:
             st.info("店舗情報がありません。")
 
@@ -2566,7 +2633,7 @@ def main():
                 .block-container h5 { font-size: calc(1.00rem + 2pt) !important; }
                 </style>
             """, unsafe_allow_html=True)
-            st.subheader("マイニー [Ver 4.4.9]")
+            st.subheader("マイニー [Ver 4.5.0]")
             st.write(f"🔑 ユーザー: **{st.session_state['username']}**")
             st.markdown("---")
             if 'menu_selection' not in st.session_state:
@@ -3078,6 +3145,7 @@ def main():
                                     init_transactions_sheet(sheet)
                                     
                                     written_count = 0
+                                    new_receipt_id = datetime.now().strftime("%Y%m%d%H%M%S")
                                     for item in results:
                                         # カテゴリの正規化（14カテゴリ体系に強制）
                                         majors = list(EXPENSE_CATEGORIES.keys())
@@ -3117,7 +3185,8 @@ def main():
                                             str(p_type),
                                             str(p_close),
                                             str(p_month),
-                                            str(p_date)
+                                            str(p_date),
+                                            new_receipt_id
                                         ]
                                         sheet.append_row(row_data)
                                         written_count += 1
@@ -3307,6 +3376,7 @@ def main():
                                 sheet = get_sheet(TRANSACTIONS_WORKSHEET_NAME)
                                 init_transactions_sheet(sheet)
                                 
+                                new_receipt_id = datetime.now().strftime("%Y%m%d%H%M%S")
                                 for itm, cat in zip(valid_items, categories):
                                     major = cat.get("major_category", "その他")
                                     minor = cat.get("minor_category", "📁未分類")
@@ -3325,7 +3395,8 @@ def main():
                                         str(p_type),
                                         str(p_close),
                                         str(p_month),
-                                        str(p_date)
+                                        str(p_date),
+                                        new_receipt_id
                                     ]
                                     safe_gspread_call(sheet.append_row, row_data)
                                 
@@ -3356,6 +3427,13 @@ def main():
                 if not store_col:
                     st.warning("スプレッドシートに店舗名（'store_name' または 'store'）の列が見つかりません。")
                 else:
+                    if "receipt_id" not in df.columns:
+                        df["receipt_id"] = "不明_" + df["date"].dt.strftime('%Y%m%d') + "_" + df[store_col].astype(str)
+                    empty_mask = df["receipt_id"].isna() | (df["receipt_id"] == "")
+                    if empty_mask.any():
+                        fallback_ids = "不明_" + df["date"].dt.strftime('%Y%m%d') + "_" + df[store_col].astype(str)
+                        df.loc[empty_mask, "receipt_id"] = fallback_ids[empty_mask]
+
                     # レシート単位に集約（内税を金額から除外して集計）
                     df_agg = df.copy()
                     if "category" in df_agg.columns:
@@ -3366,12 +3444,14 @@ def main():
                     else:
                         df_agg["payment_method"] = df_agg["payment_method"].fillna("未設定")
                     
-                    receipts_df = df_agg.groupby(["date", store_col], as_index=False).agg(
+                    receipts_df = df_agg.groupby(["receipt_id"], as_index=False).agg(
+                        date=("date", "first"),
+                        store_name=(store_col, "first"),
                         payment_method=("payment_method", "first"),
                         amount=("amount", "sum"),
                         明細数=("amount", "count")
                     )
-                    receipts_df.columns = ["日付", "店舗名", "支払い方法", "金額合計", "明細数"]
+                    receipts_df.columns = ["receipt_id", "日付", "店舗名", "支払い方法", "金額合計", "明細数"]
                     # 店舗名が空欄の場合は「店舗不明」とする
                     receipts_df["店舗名"] = receipts_df["店舗名"].replace("", "店舗不明")
                     receipts_df["日付"] = receipts_df["日付"].dt.strftime('%Y-%m-%d')
@@ -3391,6 +3471,7 @@ def main():
                         selection_mode="single-row",
                         on_select="rerun",
                         column_config={
+                            "receipt_id": None, # IDは非表示
                             "店舗名": st.column_config.TextColumn("店舗名", width="medium"),
                         },
                         key=f"receipt_list_df_{st.session_state.receipt_list_version}"
@@ -3402,6 +3483,7 @@ def main():
                         if sel_rec["日付"] != "総合計":
                             # 選択されたレシート情報をセッションに保存して永続化
                             st.session_state['selected_receipt_info'] = {
+                                "receipt_id": sel_rec["receipt_id"],
                                 "date": sel_rec["日付"],
                                 "store": sel_rec["店舗名"]
                             }
@@ -3410,12 +3492,10 @@ def main():
                     receipt_info = st.session_state.get('selected_receipt_info')
                     if receipt_info:
                         # 表示中のリストにまだ存在するか確認（削除対策）
-                        target_date_str = receipt_info["date"]
-                        target_store = receipt_info["store"]
+                        target_receipt_id = receipt_info.get("receipt_id", "")
                         
                         selected_receipt_matches = receipts_df[
-                            (receipts_df["日付"] == target_date_str) & 
-                            (receipts_df["店舗名"] == target_store)
+                            (receipts_df["receipt_id"] == target_receipt_id)
                         ]
                         
                         if not selected_receipt_matches.empty:
@@ -3427,14 +3507,15 @@ def main():
                             st.write(f"##### 対象レシート明細： {selected_receipt['日付']} - {target_store}")
                             
                             # 該当レシートの明細を取得
-                            details = df[(df["date"] == target_date) & (df[store_col] == target_store)].copy()
+                            details = df[df["receipt_id"] == target_receipt_id].copy()
                             
-                            receipt_key = f"{selected_receipt['日付']}_{target_store}"
+                            receipt_key = f"{target_receipt_id}"
                             if st.session_state.get('current_receipt_key') != receipt_key or st.session_state.get('edit_data') is None:
                                 st.session_state['current_receipt_key'] = receipt_key
                                 st.session_state['edit_data'] = {}
                                 first_payment = details.iloc[0].get("payment_method", "現金") if not details.empty else "現金"
                                 st.session_state['edit_header'] = {
+                                    "receipt_id": target_receipt_id,
                                     "date": target_date.date(),
                                     "store": target_store,
                                     "payment_method": first_payment
@@ -3692,7 +3773,7 @@ def main():
                                                         p_type, p_close, p_month, p_date = get_payment_details_for_transaction(user_name, target_payment)
                                                         if str(current_editing_id).startswith("new_"):
                                                             # 新規追加
-                                                            new_row = [user_name, target_date_str, target_store, edit_name, edit_major, edit_minor, edit_amount, datetime.now().strftime("%Y-%m-%d %H:%M:%S"), target_payment, str(p_type), str(p_close), str(p_month), str(p_date)]
+                                                            new_row = [user_name, target_date_str, target_store, edit_name, edit_major, edit_minor, edit_amount, datetime.now().strftime("%Y-%m-%d %H:%M:%S"), target_payment, str(p_type), str(p_close), str(p_month), str(p_date), st.session_state['edit_header'].get('receipt_id', '')]
                                                             sheet.append_row(new_row)
                                                         else:
                                                             # 既存更新: 安全装置（行データの検証）
@@ -3707,10 +3788,10 @@ def main():
                                                                 st.stop()
                                                             
                                                             # バッチ更新（1回のAPI呼び出しで範囲を更新）
-                                                            # A:username, B:date, C:store, D:item, E:major, F:minor, G:amount, H:update, I:payment_method, J:type, K:close_date, L:pay_month, M:pay_date
-                                                            # 更新範囲: B (Col 2) から M (Col 13)
-                                                            update_range = f"B{r_idx}:M{r_idx}"
-                                                            update_values = [[target_date_str, target_store, edit_name, edit_major, edit_minor, edit_amount, datetime.now().strftime("%Y-%m-%d %H:%M:%S"), target_payment, str(p_type), str(p_close), str(p_month), str(p_date)]]
+                                                            # A:username, B:date, C:store, D:item, E:major, F:minor, G:amount, H:update, I:payment_method, J:type, K:close_date, L:pay_month, M:pay_date, N:receipt_id
+                                                            # 更新範囲: B (Col 2) から N (Col 14)
+                                                            update_range = f"B{r_idx}:N{r_idx}"
+                                                            update_values = [[target_date_str, target_store, edit_name, edit_major, edit_minor, edit_amount, datetime.now().strftime("%Y-%m-%d %H:%M:%S"), target_payment, str(p_type), str(p_close), str(p_month), str(p_date), st.session_state['edit_header'].get('receipt_id', '')]]
                                                             sheet.update(range_name=update_range, values=update_values)
                                                         
                                                         st.success("✅ 修正を登録しました")
@@ -4159,6 +4240,7 @@ MBTI: {mbti}
                 **概要**: 日付ごとの支出額をカレンダー形式で一覧できます。
                 - **詳細確認**: 日付をクリックすると、その日の「支出明細」が下に表示されます。
                 - **多角的な分析**: カレンダー内でも「店舗別」「大分類別」「小分類別」の切り替えが可能です。
+                - **詳細な階層表示**: 「店舗別」を選ぶと、「店舗名 ＞ 💳 支払い方法 ＞ 📁 大分類 ＞ 小分類 ＞ 商品（明細）」という5階層でデータを深く掘り下げられます。
                 - **カラー表示**: 土曜日は青、日曜・祝日は赤で表示され、視認性を高めています。
                 """)
                 
@@ -4194,12 +4276,11 @@ MBTI: {mbti}
             with st.expander("✏️ レシート修正・履歴管理"):
                 st.markdown("""
                 **概要**: 過去に登録した全てのデータを一覧・検索・編集できます。
-                - **一覧管理**: 全ての支出データが時系列で表示され、対象一覧には「支払い方法」列も加わり一目で情報を把握できます。
-                - **かんたん修正**: 修正内容（日付、店舗名、支払い方法、金額、カテゴリ等）を入力して「更新」または「登録実行」を押すだけ。
-                - **安全な編集中ロック**: 明細行を選択して個別の修正を行っている最中は、誤操作を防ぐためにレシート全体のヘッダー（日付、店舗名、支払い方法の一括更新や削除）が自動的にロックされます。
-                - **遷移改善**: 明細の修正・削除後も対象レシートの選択が維持され、続けて次の修正が行えます。
-                - **自動リロード**: 個別明細の操作後、一覧の合計表示などが自動的に最新の状態に更新されます。
-                - **安全な削除**: 削除時は再確認が出るため、誤操作を防げます。
+                - **独立したレシート管理**: 同じ日の同じ店舗での買い物であっても、取り込んだ単位（Receipt ID）ごとに別々のレシートとして完全に独立して一覧表示・管理されます。支払い方法が異なる場合でも混ざりません。
+                - **一覧表示**: 一覧表には「支払い方法」列があり、一目で情報を把握できます。
+                - **かんたん修正**: 対象のレシートを選び、修正内容（日付、店舗名、支払い方法、金額、カテゴリ等）を入力して「更新」または「登録実行」を押すだけ。
+                - **安全な編集中ロック**: 明細行を選択して個別の修正を行っている最中は、誤操作を防ぐためにレシート全体のヘッダー（日付、店舗名、支払い方法）の一括更新や削除が自動的にロックされます。
+                - **自動リロードと安全な削除**: 個別明細の操作後、一覧の合計表示などが自動的に最新状態に更新されます。また、削除時は再確認が出るため、誤操作を防げます。
                 """)
 
             st.markdown("<h4 style='color: navy; margin-top: 30px;'>【相談・サポート】</h4>", unsafe_allow_html=True)
