@@ -1970,7 +1970,7 @@ def show_dashboard():
         st.warning(f"分析に必要な列（{analysis_axis[:-1]}）がありません。")
 
 def show_credit_card_dashboard():
-    st.markdown("<h2 style='font-size: calc(1.75rem - 1pt) !important; margin-bottom: 20px;'>💳 クレジットカード利用状況</h2>", unsafe_allow_html=True)
+    st.markdown("#### 💳 クレジットカード利用状況")
     
     render_month_navigation()
     target_date = st.session_state.current_month
@@ -2060,10 +2060,12 @@ def show_credit_card_dashboard():
         # 限度額の表示（設定されている場合）
         if limit_str and str(limit_str).isdigit():
             limit = int(limit_str)
-            current_next_amt = periods[1]["total"] # 次回支払額（今月の利用分）をゲージにする
-            ratio = min(current_next_amt / limit, 1.0)
+            total_unpaid = sum(p["total"] for p in periods if p.get("status_text") != "支払済")
+            ratio = min(total_unpaid / limit, 1.0) if limit > 0 else 0.0
             st.progress(ratio)
-            st.caption(f"限度額: ¥{limit:,} に対する今月利用率: {int(ratio*100)}%")
+            st.caption(f"限度額: ¥{limit:,} に対する現在の利用率: {int(ratio*100)}%")
+            remaining = limit - total_unpaid
+            st.caption(f"現在の利用額合計: ¥{int(total_unpaid):,}　｜　残額: ¥{int(remaining):,}")
 
         st.markdown("<hr style='margin: 1.5em 0;'>", unsafe_allow_html=True)
         
@@ -2076,8 +2078,8 @@ def show_credit_card_dashboard():
         # 選択された期間のデータを特定
         selected_period = next(p for p in periods if p["label"] == view_mode)
         target_df = selected_period["df"]
-
-        st.markdown(f"#### 📄 {view_mode} 内訳")
+        period_total = selected_period["total"]
+        st.markdown(f"##### {view_mode} 内訳　小計：¥{int(period_total):,}")
 
         # ---------------------------------------------------------
         # ④ 5階層のドリルダウン表示 (日付 > 店舗 > 大分類 > 小分類 > 商標名)
@@ -2094,40 +2096,37 @@ def show_credit_card_dashboard():
                 "amount": 0
             })
             
-            # 第1階層: 日付 (pandas dt.date を使って日付ごとにマージ)
+            # 第1階層: 日付＋店舗名 (pandas dt.date と store_name でマルチグループ化)
             target_df["date_str"] = target_df["date"].dt.strftime('%Y/%m/%d')
-            for date_str, date_df in target_df.groupby("date_str"):
-                date_total = date_df["amount"].sum()
-                with st.expander(f"📅 **{date_str}** （小計: ¥{int(date_total):,}）"):
+            target_df["date_disp"] = target_df["date"].dt.strftime('%m/%d')
+            for (date_str, store), store_df in target_df.groupby(["date_str", "store_name"]):
+                date_disp = store_df.iloc[0]["date_disp"]
+                store_total = store_df["amount"].sum()
+                store_name_disp = store if store else "不明な店舗"
+                with st.expander(f"**{date_disp} 🏪 {store_name_disp}** （¥{int(store_total):,}）"):
                     
-                    # 第2階層: 店舗名
-                    for store, store_df in date_df.groupby("store_name"):
-                        store_total = store_df["amount"].sum()
-                        store_name_disp = store if store else "不明な店舗"
-                        with st.expander(f"🏪 **{store_name_disp}** （小計: ¥{int(store_total):,}）"):
+                    # 第2階層: 大分類
+                    for major, major_df in store_df.groupby("category"):
+                        major_total = major_df["amount"].sum()
+                        major_disp = major if major else "その他"
+                        with st.expander(f"📂 {major_disp} （¥{int(major_total):,}）"):
                             
-                            # 第3階層: 大分類
-                            for major, major_df in store_df.groupby("category"):
-                                major_total = major_df["amount"].sum()
-                                major_disp = major if major else "その他"
-                                with st.expander(f"📂 {major_disp} （小計: ¥{int(major_total):,}）"):
+                            # 第3階層: 小分類
+                            for minor, minor_df in major_df.groupby("subcategory"):
+                                minor_total = minor_df["amount"].sum()
+                                minor_disp = minor if minor else "未分類"
+                                with st.expander(f"📁 {minor_disp} （¥{int(minor_total):,}）"):
                                     
-                                    # 第4階層: 小分類
-                                    for minor, minor_df in major_df.groupby("subcategory"):
-                                        minor_total = minor_df["amount"].sum()
-                                        minor_disp = minor if minor else "未分類"
-                                        with st.expander(f"📁 {minor_disp} （小計: ¥{int(minor_total):,}）"):
-                                            
-                                            # 第5階層: 商標名（商品名）の一覧
-                                            for _, row in minor_df.iterrows():
-                                                item = row["item_name"]
-                                                amt = row["amount"]
-                                                st.markdown(
-                                                    f"<div style='margin-left: 10px; padding: 4px 0; border-bottom: 1px dashed #eee;'>"
-                                                    f"・ <b>{item}</b> "
-                                                    f"<span style='float:right;'>¥{int(amt):,}</span></div>", 
-                                                    unsafe_allow_html=True
-                                                )
+                                    # 第4階層: 商標名（商品名）の一覧
+                                    for _, row in minor_df.iterrows():
+                                        item = row["item_name"]
+                                        amt = row["amount"]
+                                        st.markdown(
+                                            f"<div style='margin-left: 10px; padding: 4px 0; border-bottom: 1px dashed #eee;'>"
+                                            f"・ <b>{item}</b> "
+                                            f"<span style='float:right;'>¥{int(amt):,}</span></div>", 
+                                            unsafe_allow_html=True
+                                        )
                             
     st.markdown("---")
 
@@ -2633,7 +2632,7 @@ def main():
                 .block-container h5 { font-size: calc(1.00rem + 2pt) !important; }
                 </style>
             """, unsafe_allow_html=True)
-            st.subheader("マイニー [Ver 4.5.0]")
+            st.subheader("マイニー [Ver 4.5.1]")
             st.write(f"🔑 ユーザー: **{st.session_state['username']}**")
             st.markdown("---")
             if 'menu_selection' not in st.session_state:
@@ -3432,6 +3431,8 @@ def main():
                     empty_mask = df["receipt_id"].isna() | (df["receipt_id"] == "")
                     if empty_mask.any():
                         fallback_ids = "不明_" + df["date"].dt.strftime('%Y%m%d') + "_" + df[store_col].astype(str)
+                        if "payment_method" in df.columns:
+                            fallback_ids += "_" + df["payment_method"].astype(str)
                         df.loc[empty_mask, "receipt_id"] = fallback_ids[empty_mask]
 
                     # レシート単位に集約（内税を金額から除外して集計）
@@ -3451,11 +3452,11 @@ def main():
                         amount=("amount", "sum"),
                         明細数=("amount", "count")
                     )
-                    receipts_df.columns = ["receipt_id", "日付", "店舗名", "支払い方法", "金額合計", "明細数"]
+                    receipts_df.columns = ["receipt_id", "日付", "店舗名", "支払い方法", "金額", "明細数"]
                     # 店舗名が空欄の場合は「店舗不明」とする
                     receipts_df["店舗名"] = receipts_df["店舗名"].replace("", "店舗不明")
                     receipts_df["日付"] = receipts_df["日付"].dt.strftime('%Y-%m-%d')
-                    receipts_df["金額合計"] = receipts_df["金額合計"].apply(lambda x: int(x))
+                    receipts_df["金額"] = receipts_df["金額"].apply(lambda x: int(x))
                     receipts_df = receipts_df.sort_values(by="日付", ascending=False).reset_index(drop=True)
                     
                     if "receipt_list_version" not in st.session_state:
@@ -3621,7 +3622,7 @@ def main():
 
                             # 遅延描画したプレースホルダーにヘッダーとボタンを出力
                             with header_placeholder:
-                                st.write(f"##### レシート修正（金額：￥{int(selected_receipt['金額合計']):,}）")
+                                st.write(f"##### レシート修正（金額：￥{int(selected_receipt['金額']):,}）")
                                 with st.container(border=True):
                                     # 1行目：日付
                                     c1, c2, c3 = st.columns([1.5, 8.5, 2])
@@ -4151,7 +4152,7 @@ MBTI: {mbti}
 ・ダッシュボード（月次集計）：月間の総支出、予算の残り、日別の支出推移をグラフで確認できます。カテゴリ別内訳は「店舗別」「大分類別」「小分類別」に切り替え可能。
 ・ダッシュボード（年次集計）：選択した年の支出を月ごとに集計・表示し、前年対比棒グラフなどを確認できます。
 ・カレンダー：月間カレンダー上で日々の支出額を一覧でき、日付クリックで明細が表示されます。
-・クレジットカード：登録したカードの利用状況を「当月支払」「次回支払額」「次回以降支払額」の3つの期間に分けて表示します。それぞれの期間の明細は、日付＞店舗＞大分類＞小分類＞商品名の5階層のドリルダウンで詳細を確認できます。データの反映には「支払方法マスター」での正確な締日・支払日設定が必要です。
+・クレジットカード：登録したカードの利用状況を「当月支払」「次回支払額」「次回以降支払額」の3つの期間に分けて表示します。それぞれの期間の明細は、日付＋店舗名＞大分類＞小分類＞商品名の4階層のドリルダウンで詳細を確認できます。未払い金額に対して現在の利用率や残高も表示されます。
 
 【レシート管理】（支出データを登録・修正するメニュー）
 ・レシート取込：写真をアップロードし、AIで店舗名・金額などを自動解析。自動消費税追加機能も搭載されています。支払い方法の初期値は常に「未設定」となるため、確実に正しいものを選択して登録できます。
@@ -4217,121 +4218,144 @@ MBTI: {mbti}
             st.markdown("<h4 style='color: navy; margin-top: 30px;'>【表示・分析系】</h4>", unsafe_allow_html=True)
             st.caption("入力された家計データを様々な角度から確認・分析するためのメニューです。")
             with st.expander("📊 ダッシュボード（月次集計）", expanded=True):
-                st.markdown("""
+                text_dash_month = """
                 **概要**: 月間の総支出、予算、日別の推移をグラフで可視化します。
                 - **3つの分析パターン**: 画面中央のボタンで「店舗別」「大分類別」「小分類別」を切り替え可能です。
                 - **2段階表示**: 項目をクリックすると、さらに詳細な内訳が表示されます。
                 - **並び替え**: 常に「金額の高い順」に並ぶため、節約ポイントがすぐに見つかります。
                 - **カラー同期**: 円グラフと積上げ棒グラフで同じカテゴリには同じ色が適用されます。
                 - **絞り込み**: 月次ナビゲーションで過去のデータも簡単に振り返れます。
-                """)
+                """
+                st.markdown(text_dash_month)
+                render_speech_synthesis_button(text_dash_month.replace("**", "").replace("-", ""), "sp_dash_mon")
 
             with st.expander("📊 ダッシュボード（年次集計）"):
-                st.markdown("""
+                text_dash_year = """
                 **概要**: 選択した「年」全体の支出データを集計・分析します。
-                - **前年対比棒グラフ**: 今年度と前年度の支出を月ごとに並べて、支出の増減を視覚的に把握できます。
+                - **前年対比棒グラフ**: 今年度と前年度の支出を月ごとに並べて、支出の増减を視覚的に把握できます。
                 - **年次大分類別シェア**: 1年間の総支出における各カテゴリの割合を円グラフで確認できます。
-                - **リンク形式の年選択**: 「◀ 前年」「翌年 ▶」のリンクで、簡単に集計対象の年を切り替えられます。
+                - **リンク形式の年選択**: 「前年」「翌年」のリンクで、簡単に集計対象の年を切り替えられます。
                 - **年次カテゴリ別内訳**: 年間を通した支出の詳細を、月次と同様のアコーディオン形式で追跡できます。
-                """)
+                """
+                st.markdown(text_dash_year)
+                render_speech_synthesis_button(text_dash_year.replace("**", "").replace("-", ""), "sp_dash_yr")
                 
             with st.expander("📅 カレンダー"):
-                st.markdown("""
+                text_calendar = """
                 **概要**: 日付ごとの支出額をカレンダー形式で一覧できます。
                 - **詳細確認**: 日付をクリックすると、その日の「支出明細」が下に表示されます。
                 - **多角的な分析**: カレンダー内でも「店舗別」「大分類別」「小分類別」の切り替えが可能です。
-                - **詳細な階層表示**: 「店舗別」を選ぶと、「店舗名 ＞ 💳 支払い方法 ＞ 📁 大分類 ＞ 小分類 ＞ 商品（明細）」という5階層でデータを深く掘り下げられます。
+                - **詳細な階層表示**: 「店舗別」を選ぶと、「店舗名 ＞ 支払い方法 ＞ 大分類 ＞ 小分類 ＞ 商品（明細）」という5階層でデータを深く掘り下げられます。
                 - **カラー表示**: 土曜日は青、日曜・祝日は赤で表示され、視認性を高めています。
-                """)
+                """
+                st.markdown(text_calendar)
+                render_speech_synthesis_button(text_calendar.replace("**", "").replace("-", ""), "sp_cal")
                 
             with st.expander("💳 クレジットカード"):
-                st.markdown("""
+                text_cc = """
                 **概要**: 登録したクレジットカードの利用状況や引き落としスケジュールを管理します。
-                - **3つの期間表示**: 「当月支払」「次回支払額」「次回以降支払額」の3つの期間に分けて、利用額と支払日（支払済/支払予定）を表示します。
-                - **5階層のドリルダウン明細**: ラジオボタンで期間を切り替えると、その期間の明細を「日付 ＞ 店舗 ＞ 大分類 ＞ 小分類 ＞ 商品名」の5階層で深掘りして確認できます。
-                - **限度額管理**: 限度額を設定したカードは、利用割合をプログレスバーで可視化します。
-                - ※正しい期間や金額を表示するためには、【マスター設定】の「支払方法マスター」で該当カードの「締日」と「支払日」を正確に登録しておく必要があります。
-                """)
+                - **3つの期間表示**: 「当月支払」「次回支払額」「次回以降支払額」の3つの期間に分けて、各期間の合計利用額と支払日を表示します。
+                - **4階層のドリルダウン明細**: ラジオボタンで期間を切り替えると、その期間の内訳を「日付＋店舗名 ＞ 大分類 ＞ 小分類 ＞ 商品」の4階層で深掘りして確認できます。
+                - **限度額管理**: 限度額を設定したカードは、未払い合計額に対する現在の利用割合や残額をプログレスバー等で可視化します。
+                """
+                st.markdown(text_cc)
+                render_speech_synthesis_button(text_cc.replace("**", "").replace("-", ""), "sp_cc")
 
             st.markdown("<h4 style='color: navy; margin-top: 30px;'>【レシート管理】</h4>", unsafe_allow_html=True)
             st.caption("日々の買い物や支出の記録を追加・修正するためのメニューです。")
             with st.expander("📸 レシート取込（AI解析）"):
-                st.markdown("""
+                text_ai_receipt = """
                 **概要**: レシートの写真を撮ってアップロードするだけで、AIが内容を読み取ります。
-                - **自動向き補正**: アップロードされた画像の向きをEXIF情報に基づいて自動的に正しく（縦向きに）調整します。
+                - **自動向き補正**: アップロードされた画像の向きを自動的に正しく調整します。
                 - **自動解析**: 店舗名、商品名、金額、カテゴリをAIが自動で推測して入力します。
-                - **自動消費税追加**: 解析結果に消費税が含まれていない場合、システムが自動的に内税10%の消費税項目を計算して追加します。
-                - **編集と登録**: 解析完了後の確認画面で、「日付」をカレンダーから、「店舗名」をテキスト入力で直感的に修正できます。支払い方法は初期状態で「未設定」が選ばれるため、任意に正しいものを選んでください（未入力での誤登録を防ぐチェック機能も搭載しています）。
-                """)
+                - **自動消費税追加**: 解析結果に消費税が含まれていない場合、システムが自動的に内税10パーセントの消費税項目を計算して追加します。
+                - **編集と登録**: 解析完了後の確認画面で修正できます。支払い方法は初期状態で「未設定」が選ばれるため、正しいものを選んでください。
+                """
+                st.markdown(text_ai_receipt)
+                render_speech_synthesis_button(text_ai_receipt.replace("**", "").replace("-", ""), "sp_ai_rec")
 
             with st.expander("⌨️ レシート手入力（高速入力）"):
-                st.markdown("""
+                text_manual_receipt = """
                 **概要**: キーボード操作で素早く支出を入力できます。
-                - **自動行追加**: 金額を入力して `Enter` または `Tab` キーを押すと、自動で次の行が作成されます。
+                - **自動行追加**: 金額を入力してエンターキーを押すと、自動で次の行が作成されます。
                 - **柔軟な登録**: 空白の行があっても、入力済みのデータのみを正確に登録します。
                 - **初期選択**: 支払い方法のドロップダウンは常に「未設定」からスタートするため、誤入力による登録を防げます。
-                - **行削除**: 右端の `✕` ボタンで、特定の行だけを削除できます。
-                """)
+                - **行削除**: 右端のバツボタンで、特定の行だけを削除できます。
+                """
+                st.markdown(text_manual_receipt)
+                render_speech_synthesis_button(text_manual_receipt.replace("**", "").replace("-", ""), "sp_man_rec")
 
             with st.expander("✏️ レシート修正・履歴管理"):
-                st.markdown("""
+                text_edit_receipt = """
                 **概要**: 過去に登録した全てのデータを一覧・検索・編集できます。
-                - **独立したレシート管理**: 同じ日の同じ店舗での買い物であっても、取り込んだ単位（Receipt ID）ごとに別々のレシートとして完全に独立して一覧表示・管理されます。支払い方法が異なる場合でも混ざりません。
+                - **独立したレシート管理**: 同じ日の同じ店舗での買い物であっても、取り込んだ単位ごとに別々のレシートとして完全に独立して一覧表示・管理されます。
                 - **一覧表示**: 一覧表には「支払い方法」列があり、一目で情報を把握できます。
-                - **かんたん修正**: 対象のレシートを選び、修正内容（日付、店舗名、支払い方法、金額、カテゴリ等）を入力して「更新」または「登録実行」を押すだけ。
-                - **安全な編集中ロック**: 明細行を選択して個別の修正を行っている最中は、誤操作を防ぐためにレシート全体のヘッダー（日付、店舗名、支払い方法）の一括更新や削除が自動的にロックされます。
-                - **自動リロードと安全な削除**: 個別明細の操作後、一覧の合計表示などが自動的に最新状態に更新されます。また、削除時は再確認が出るため、誤操作を防げます。
-                """)
+                - **かんたん修正**: 対象のレシートを選び、修正内容を入力して更新ボタンを押すだけ。
+                - **安全な編集中ロック**: 明細行を選択して個別の修正を行っている最中は、誤操作を防ぐためにレシート全体のヘッダー更新や削除が自動的にロックされます。
+                - **安全な削除**: 削除時は再確認が出るため、誤操作を防げます。
+                """
+                st.markdown(text_edit_receipt)
+                render_speech_synthesis_button(text_edit_receipt.replace("**", "").replace("-", ""), "sp_edit_rec")
 
             st.markdown("<h4 style='color: navy; margin-top: 30px;'>【相談・サポート】</h4>", unsafe_allow_html=True)
             st.caption("アプリの使い方に困った時や、家計改善のアドバイスが欲しい時のメニューです。")
             with st.expander("📗 マニュアル"):
-                st.markdown("**概要**: 今ご覧いただいているこの画面です。全機能の概要と使い方を確認できます。")
+                text_manual = "**概要**: 今ご覧いただいているこの画面です。全機能の概要と使い方を確認できます。"
+                st.markdown(text_manual)
+                render_speech_synthesis_button(text_manual.replace("**", ""), "sp_manual")
+                
             with st.expander("❓ ヘルプチャット"):
-                st.markdown("""
+                text_help = """
                 **概要**: アプリの使い方で困ったら、チャットで何でも質問できます。
                 - **操作相談**: 「レシートの修正はどうやるの？」など、操作に関する疑問を即座にAIアシスタントが解決します。
-                """)
-            with st.expander("🤖 AI相談（専属FP）"):
-                st.markdown("""
-                **概要**: あなたの実際の支出データを基に、AIがプロのファイナンシャルプランナーとして分析やアドバイスを行います。
-                - **音声入力**: 入力欄右側のマイクボタンで、タイピング不要で声による相談が可能です。
-                本アプリで最も活用していただきたい、パーソナライズされたコンサルティング機能です。
-
-                - **✨ あなたのデータを深く理解**:
-                    - 「先月と比べて外食費が増えた理由は？」といった分析。
-                    - 「今のペースで使うと、今月の残予算はどうなる？」といった予測。
-                    - 「どこを削れば、もっと趣味にお金を回せる？」といった具体的な改善提案。
+                """
+                st.markdown(text_help)
+                render_speech_synthesis_button(text_help.replace("**", "").replace("-", ""), "sp_help")
                 
-                - **👤 プロフィール連動型の回答**:
-                    - 設定した「職業」「趣味」「ライフスタンス」に加えて、新機能の「AI相談の基本指示」をAIが常に把握しています。
+            with st.expander("🤖 AI相談（専属FP）"):
+                text_ai_fp = """
+                **概要**: あなたの実際の支出データを基に、AIがプロのファイナンシャルプランナーとして分析やアドバイスを行います。
+                本アプリで最も活用していただきたい、パーソナライズされたコンサルティング機能です。
+                - **音声入力**: 入力欄右側のマイクボタンで、声による相談が可能です。
+                - **あなたのデータを深く理解**:
+                    - 「先月と比べて外食費が増えた理由は？」といった分析。
+                    - 「どこを削れば、もっと趣味にお金を回せる？」といった改善提案。
+                - **プロフィール連動型の回答**:
+                    - 設定した「職業」「趣味」「ライフスタンス」などをAIが常に把握しています。
                     - 一般論ではなく、「あなたならこうすべき」というユーザーの好みに寄り添ったアドバイスを提供します。
-                """)
+                """
+                st.markdown(text_ai_fp)
+                render_speech_synthesis_button(text_ai_fp.replace("**", "").replace("-", ""), "sp_ai_fp")
                 
             st.markdown("<h4 style='color: navy; margin-top: 30px;'>【マスター設定】</h4>", unsafe_allow_html=True)
             st.caption("アプリ全体の基本設定や、あなたに合わせたカスタマイズを行うメニューです。")
             with st.expander("💳 支払方法マスター"):
-                st.markdown("""
-                **概要**: アプリ全体で利用する「支払い方法（クレジットカード、現金、電子マネーなど）」を管理します。新規登録時には「未設定」「現金」「PayPay」が自動で作成されます。
+                text_pay_master = """
+                **概要**: アプリ全体で利用する「支払い方法」を管理します。新規登録時には「未設定」「現金」「PayPay」が自動で作成されます。
                 - **登録・修正・削除**: 自分が使っている決済手段を自由に登録し、不要になったら削除できます。
                 - **種類と詳細設定**: 「クレジットカード」を選ぶと、締日や支払日、限度額などの詳細情報も設定可能です。
-                - **アプリ内連携**: マスターに登録した支払い方法は、そのままレシート取込・手入力・修正の各画面で選択できるようになります。
-                """)
+                - **アプリ内連携**: マスターに登録した支払い方法は、システム全体で利用できるようになります。
+                """
+                st.markdown(text_pay_master)
+                render_speech_synthesis_button(text_pay_master.replace("**", "").replace("-", ""), "sp_pay_master")
 
             with st.expander("⚙️ プロフィール設定"):
-                st.markdown("""
+                text_profile = """
                 **概要**: AI相談のアドバイスをよりパーソナライズするための情報を登録・管理します。
-                - **パーソナライズ**: 入力した情報（職業、趣味、大切にしていること等）をAIが事前に把握し、一般的なアドバイスではなく「あなたのため」の親身なコンサルティングを実現します。
-                """)
+                - **パーソナライズ**: 入力したプロフィールの情報をAIが事前に把握し、一般的なアドバイスではなく「あなたのため」の親身なコンサルティングを実現します。
+                """
+                st.markdown(text_profile)
+                render_speech_synthesis_button(text_profile.replace("**", "").replace("-", ""), "sp_profile")
                 
             st.markdown("<h4 style='color: navy; margin-top: 30px;'>その他の便利機能</h4>", unsafe_allow_html=True)
             with st.expander("📥 データのダウンロード"):
-                st.markdown("""
+                text_download = """
                 **概要**: 登録したすべての支出データを、自分の端末に保存できます。
-                - **2つの形式**: 「Excel（.xlsx）」または「CSV（.csv）」から選択可能です。
-                - **保存場所**: サイドバーの一番下に専用のボタンがあります。
+                - **2つの形式**: 「Excel（エクセル）」または「CSV（シーエスブイ）」から選択可能です。
                 - **活用方法**: 表計算ソフトでの詳細な分析や、万が一のためのバックアップに活用してください。
-                """)
+                """
+                st.markdown(text_download)
+                render_speech_synthesis_button(text_download.replace("**", "").replace("-", ""), "sp_dl")
 
         elif menu_selection == "クレジットカード":
             show_credit_card_dashboard()
@@ -4342,7 +4366,7 @@ MBTI: {mbti}
         elif menu_selection == "プロフィール設定":
             show_profile_settings()
 
-        st.caption("マイニー Ver 4.4.8 - ユーザー: %s" % st.session_state['username'])
+        st.caption("マイニー Ver 4.5.1 - ユーザー: %s" % st.session_state['username'])
             
     # 未ログインの状態 (ログイン・登録画面)
     else:
