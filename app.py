@@ -3439,7 +3439,46 @@ def show_fixed_cost_dashboard():
             data.append(row)
             
         import pandas as pd
-        df = pd.DataFrame(data)
+        raw_df = pd.DataFrame(data)
+        
+        # Sort by 固定支払１
+        raw_df = raw_df.sort_values(by="固定支払１")
+        
+        final_rows = []
+        grand_totals = {tm: 0 for tm in target_months}
+        
+        for p1, group in raw_df.groupby("固定支払１", sort=False):
+            # Append each row in the group
+            for _, row_s in group.iterrows():
+                final_rows.append(row_s.to_dict())
+            
+            # Subtotal row for this group
+            subtotal_row = {
+                "固定支払１": f"【{p1} 小計】",
+                "固定支払２": "",
+                "科目": "",
+                "有限/無限": ""
+            }
+            for tm in target_months:
+                val_sum = int(group[tm].sum())
+                subtotal_row[tm] = val_sum
+                grand_totals[tm] += val_sum
+                
+            final_rows.append(subtotal_row)
+            
+        # Grand total row
+        grand_total_row = {
+            "固定支払１": "【総合計】",
+            "固定支払２": "",
+            "科目": "",
+            "有限/無限": ""
+        }
+        for tm in target_months:
+            grand_total_row[tm] = grand_totals[tm]
+            
+        final_rows.append(grand_total_row)
+        
+        df = pd.DataFrame(final_rows)
         
         st.dataframe(df, use_container_width=True)
         
