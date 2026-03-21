@@ -2903,7 +2903,7 @@ def main():
             st.session_state["menu_g5"] = current_sel if current_sel in group5_opts else None
             
             # ＝＝＝ 変動費管理セクション ＝＝＝
-            st.markdown("<h3 style='color: #007bff; border-bottom: 2px solid #007bff; padding-bottom: 5px;'>🔵 変動費管理</h3>", unsafe_allow_html=True)
+            st.markdown("<div style='padding-bottom: 30px;'><h3 style='color: #007bff; border-bottom: 2px solid #007bff; padding-bottom: 5px; margin: 0;'>🔵 変動費管理</h3></div>", unsafe_allow_html=True)
             
             st.markdown("【表示・分析系】")
             st.radio("g1", group1_opts, key="menu_g1", 
@@ -2922,7 +2922,7 @@ def main():
                      on_change=on_menu_change, args=("menu_g4",), label_visibility="collapsed")
 
             # ＝＝＝ 固定費管理セクション ＝＝＝
-            st.markdown("<br><h3 style='color: #ff6b6b; border-bottom: 2px solid #ff6b6b; padding-bottom: 5px; margin-top: 10px;'>🔴 固定費管理</h3>", unsafe_allow_html=True)
+            st.markdown("<div style='padding-top: 10px; padding-bottom: 30px;'><h3 style='color: #ff6b6b; border-bottom: 2px solid #ff6b6b; padding-bottom: 5px; margin: 0;'>🔴 固定費管理</h3></div>", unsafe_allow_html=True)
             
             st.markdown("【固定費・分析設定】")
             st.radio("g5", group5_opts, key="menu_g5", 
