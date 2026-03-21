@@ -2889,6 +2889,9 @@ def main():
             group4_opts = ["支払方法マスター", "プロフィール設定"]
             if st.session_state.get('username', '').lower() == 'tkouho':
                 group4_opts.append("カテゴリマスター")
+                
+            # 固定費管理用のプレースホルダ
+            group5_opts = ["固定費ダッシュボード（準備中）", "固定費設定（準備中）"]
             
             current_sel = st.session_state['menu_selection']
             
@@ -2897,6 +2900,10 @@ def main():
             st.session_state["menu_g2"] = current_sel if current_sel in group2_opts else None
             st.session_state["menu_g3"] = current_sel if current_sel in group3_opts else None
             st.session_state["menu_g4"] = current_sel if current_sel in group4_opts else None
+            st.session_state["menu_g5"] = current_sel if current_sel in group5_opts else None
+            
+            # ＝＝＝ 変動費管理セクション ＝＝＝
+            st.markdown("<h3 style='color: #007bff; border-bottom: 2px solid #007bff; padding-bottom: 5px;'>🔵 変動費管理</h3>", unsafe_allow_html=True)
             
             st.markdown("【表示・分析系】")
             st.radio("g1", group1_opts, key="menu_g1", 
@@ -2913,6 +2920,13 @@ def main():
             st.markdown("【マスター設定】")
             st.radio("g4", group4_opts, key="menu_g4", 
                      on_change=on_menu_change, args=("menu_g4",), label_visibility="collapsed")
+
+            # ＝＝＝ 固定費管理セクション ＝＝＝
+            st.markdown("<br><h3 style='color: #ff6b6b; border-bottom: 2px solid #ff6b6b; padding-bottom: 5px; margin-top: 10px;'>🔴 固定費管理</h3>", unsafe_allow_html=True)
+            
+            st.markdown("【固定費・分析設定】")
+            st.radio("g5", group5_opts, key="menu_g5", 
+                     on_change=on_menu_change, args=("menu_g5",), label_visibility="collapsed")
 
                         
             menu_selection = st.session_state['menu_selection']
@@ -4688,6 +4702,10 @@ MBTI: {mbti}
 
         elif menu_selection == "プロフィール設定":
             show_profile_settings()
+            
+        elif menu_selection in ["固定費ダッシュボード（準備中）", "固定費設定（準備中）"]:
+            st.markdown(f"### 🚧 {menu_selection}")
+            st.info("こちらの機能は現在開発中です。今後のアップデートで順次公開予定ですので、今しばらくお待ちください。")
 
         st.caption("マイニー Ver 4.7.0 - ユーザー: %s" % st.session_state['username'])
             
