@@ -381,7 +381,7 @@ def init_fixed_cost_master_sheet(sheet):
 
 
 def init_bank_master_sheet(sheet):
-    expected_headers = ["username", "bank_id", "bank_name"]
+    expected_headers = ["username", "bank_id", "bank_name", "balance"]
     try:
         headers = safe_gspread_call(sheet.row_values, 1)
         if not headers or headers[0] != "username":
@@ -401,6 +401,11 @@ def get_banks(username):
         if records:
             for row in records:
                 if str(row.get("username", "")).lower() == username.lower():
+                    try:
+                        b_val = row.get("balance", 0)
+                        row["balance"] = int(float(str(b_val).replace(',', '').replace('¥', '').replace('￥', ''))) if b_val != "" else 0
+                    except ValueError:
+                        row["balance"] = 0
                     banks.append(row)
         return banks
     except Exception as e:
@@ -408,11 +413,11 @@ def get_banks(username):
         st.error(f"銀行マスター取得エラー: {e}")
         return []
 
-def add_bank(username, bank_id, bank_name):
+def add_bank(username, bank_id, bank_name, balance=0):
     try:
         sheet = get_sheet(BANK_MASTER_WORKSHEET_NAME, create_if_not_found=True)
         init_bank_master_sheet(sheet)
-        safe_gspread_call(sheet.append_row, [username, bank_id, bank_name])
+        safe_gspread_call(sheet.append_row, [username, bank_id, bank_name, balance])
         return True
     except Exception as e:
         import streamlit as st
@@ -2960,12 +2965,16 @@ def show_bank_master():
     
     with st.expander("➕ 新規銀行の追加", expanded=True):
         with st.form("add_bank_form"):
-            new_bank_name = st.text_input("銀行名*", placeholder="例：りそな銀行")
+            c1, c2 = st.columns(2)
+            with c1:
+                new_bank_name = st.text_input("銀行名*", placeholder="例：りそな銀行")
+            with c2:
+                new_bank_balance = st.number_input("初期残高", value=0, step=1000)
             if st.form_submit_button("追加する", type="primary"):
                 if new_bank_name:
                     import time
                     bid = f"bank_{int(time.time())}"
-                    if add_bank(username, bid, new_bank_name):
+                    if add_bank(username, bid, new_bank_name, new_bank_balance):
                         st.success(f"「{new_bank_name}」を追加しました！")
                         time.sleep(1)
                         st.rerun()
@@ -2977,7 +2986,7 @@ def show_bank_master():
     if banks:
         import pandas as pd
         df = pd.DataFrame(banks)
-        st.dataframe(df[["bank_name"]].rename(columns={"bank_name": "銀行名"}), use_container_width=True)
+        st.dataframe(df[["bank_name", "balance"]].rename(columns={"bank_name": "銀行名", "balance": "残高"}), use_container_width=True)
         
         st.markdown("#### 🗑️ 銀行の削除")
         del_target = st.selectbox("削除する銀行を選択", options=[(b["bank_id"], b["bank_name"]) for b in banks], format_func=lambda x: x[1])
