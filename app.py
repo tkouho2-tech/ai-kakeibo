@@ -28,6 +28,7 @@ WORKSHEET_NAME = "users"
 TRANSACTIONS_WORKSHEET_NAME = "transactions"
 USER_MASTER_WORKSHEET_NAME = "User_Master"
 PAYMENT_MASTER_WORKSHEET_NAME = "Payment_Master"
+BANK_MASTER_WORKSHEET_NAME = "Bank_Master"
 CATEGORY_MASTER_WORKSHEET_NAME = "Category_Master"
 FIXED_COST_MASTER_WORKSHEET_NAME = "Fixed_Cost_Master"
 
@@ -376,6 +377,66 @@ def init_fixed_cost_master_sheet(sheet):
                 safe_gspread_call(sheet.update_cell, 1, i + 1, expected_headers[i])
     except Exception:
         safe_gspread_call(sheet.insert_row, expected_headers, 1)
+
+
+
+def init_bank_master_sheet(sheet):
+    expected_headers = ["username", "bank_id", "bank_name"]
+    try:
+        headers = safe_gspread_call(sheet.row_values, 1)
+        if not headers or headers[0] != "username":
+            safe_gspread_call(sheet.insert_row, expected_headers, 1)
+        elif len(headers) < len(expected_headers):
+            for i in range(len(headers), len(expected_headers)):
+                safe_gspread_call(sheet.update_cell, 1, i + 1, expected_headers[i])
+    except Exception:
+        safe_gspread_call(sheet.insert_row, expected_headers, 1)
+
+def get_banks(username):
+    try:
+        sheet = get_sheet(BANK_MASTER_WORKSHEET_NAME, create_if_not_found=True)
+        init_bank_master_sheet(sheet)
+        records = safe_gspread_call(sheet.get_all_records)
+        banks = []
+        if records:
+            for row in records:
+                if str(row.get("username", "")).lower() == username.lower():
+                    banks.append(row)
+        return banks
+    except Exception as e:
+        import streamlit as st
+        st.error(f"銀行マスター取得エラー: {e}")
+        return []
+
+def add_bank(username, bank_id, bank_name):
+    try:
+        sheet = get_sheet(BANK_MASTER_WORKSHEET_NAME, create_if_not_found=True)
+        init_bank_master_sheet(sheet)
+        safe_gspread_call(sheet.append_row, [username, bank_id, bank_name])
+        return True
+    except Exception as e:
+        import streamlit as st
+        st.error(f"銀行登録エラー: {e}")
+        return False
+
+def delete_bank(username, bank_id):
+    try:
+        sheet = get_sheet(BANK_MASTER_WORKSHEET_NAME, create_if_not_found=True)
+        init_bank_master_sheet(sheet)
+        records = safe_gspread_call(sheet.get_all_records)
+        row_idx = -1
+        for i, row in enumerate(records):
+            if str(row.get("username", "")).lower() == username.lower() and str(row.get("bank_id", "")) == str(bank_id):
+                row_idx = i + 2
+                break
+        if row_idx > 1:
+            safe_gspread_call(sheet.delete_rows, row_idx)
+            return True
+        return False
+    except Exception as e:
+        import streamlit as st
+        st.error(f"銀行削除エラー: {e}")
+        return False
 
 def get_fixed_costs(username):
     """ユーザーの固定費リストを取得する"""
@@ -2891,6 +2952,44 @@ def handle_menu_change():
     # サイドバーを閉じるフラグ
     st.session_state["collapse_sidebar_flag"] = True
 
+
+def show_bank_master():
+    st.markdown("## 🏦 銀行マスター")
+    st.caption("口座引落や銀行振込で利用する銀行名を登録・管理します。")
+    username = st.session_state['username']
+    
+    with st.expander("➕ 新規銀行の追加", expanded=True):
+        with st.form("add_bank_form"):
+            new_bank_name = st.text_input("銀行名*", placeholder="例：りそな銀行")
+            if st.form_submit_button("追加する", type="primary"):
+                if new_bank_name:
+                    import time
+                    bid = f"bank_{int(time.time())}"
+                    if add_bank(username, bid, new_bank_name):
+                        st.success(f"「{new_bank_name}」を追加しました！")
+                        time.sleep(1)
+                        st.rerun()
+                else:
+                    st.error("銀行名を入力してください。")
+                    
+    st.markdown("### 📋 登録済みの銀行一覧")
+    banks = get_banks(username)
+    if banks:
+        import pandas as pd
+        df = pd.DataFrame(banks)
+        st.dataframe(df[["bank_name"]].rename(columns={"bank_name": "銀行名"}), use_container_width=True)
+        
+        st.markdown("#### 🗑️ 銀行の削除")
+        del_target = st.selectbox("削除する銀行を選択", options=[(b["bank_id"], b["bank_name"]) for b in banks], format_func=lambda x: x[1])
+        if st.button("削除する", key="del_bank_btn"):
+            if delete_bank(username, del_target[0]):
+                st.success("削除しました！")
+                import time
+                time.sleep(1)
+                st.rerun()
+    else:
+        st.info("登録されている銀行はありません。")
+
 def show_fixed_cost_settings():
     st.markdown("## 🔴 固定費設定マスター")
     st.caption("毎月の固定費や長期間（有限回数）の支払設定を管理します。")
@@ -2910,7 +3009,11 @@ def show_fixed_cost_settings():
                     cc_names = ["(カード未登録)"]
                 payment_2 = st.selectbox("固定費支払２（カード選択）*", cc_names)
             else:
-                payment_2 = st.text_input("固定費支払２（銀行名など）", placeholder="例：りそな銀行")
+                banks = get_banks(username)
+                b_names = [b["bank_name"] for b in banks]
+                if not b_names:
+                    b_names = ["(銀行未登録)"]
+                payment_2 = st.selectbox("固定費支払２（銀行選択）*", b_names)
 
         col4, col5 = st.columns(2)
         with col4:
@@ -3086,7 +3189,7 @@ def main():
             group1_opts = ["ダッシュボード（月次集計）", "ダッシュボード（年次集計）", "カレンダー", "クレジットカード"]
             group2_opts = ["レシート取込", "レシート手入力", "レシート修正"]
             group3_opts = ["マニュアル", "ヘルプ", "AI相談"]
-            group4_opts = ["支払方法マスター", "プロフィール設定"]
+            group4_opts = ["支払方法マスター", "銀行マスター", "プロフィール設定"]
             if st.session_state.get('username', '').lower() == 'tkouho':
                 group4_opts.append("カテゴリマスター")
                 
@@ -4897,6 +5000,8 @@ MBTI: {mbti}
 
         elif menu_selection == "支払方法マスター":
             show_payment_master()
+        elif menu_selection == "銀行マスター":
+            show_bank_master()
         elif menu_selection == "カテゴリマスター":
             show_category_master()
 
