@@ -3349,6 +3349,13 @@ def show_fixed_cost_dashboard():
     except:
         idx_end = min(idx_start + 12, len(month_opts) - 1)
 
+    c_load, c_dummy = st.columns([1, 1])
+    with c_load:
+        if st.button("前回保存したスプレッドシートを読み込む", use_container_width=True):
+            st.session_state["dashboard_sim_params"] = "LOAD_SAVED"
+            
+    st.markdown("---")
+
     with st.form("dashboard_filter_form"):
         col1, col2 = st.columns(2)
         with col1:
@@ -3363,7 +3370,24 @@ def show_fixed_cost_dashboard():
         
     params = st.session_state.get("dashboard_sim_params")
     
-    if params:
+    if params == "LOAD_SAVED":
+        sheet_name = f"FC_Sim_{username}"
+        try:
+            sheet = get_sheet(sheet_name, create_if_not_found=False)
+            records = safe_gspread_call(sheet.get_all_records)
+            if records:
+                import pandas as pd
+                df_saved = pd.DataFrame(records)
+                st.success("前回保存したデータを読み込みました！")
+                st.dataframe(df_saved, use_container_width=True)
+                url = sheet.url
+                st.markdown(f"**[🔗 保存先スプレッドシートをブラウザで開く]({url})**")
+            else:
+                st.info("保存されたデータが空です。")
+        except Exception as e:
+            st.info("まだ保存されたデータがありません。「実行する」を押してシミュレーションを作り、表の下にある保存ボタンを押してください。")
+            
+    elif isinstance(params, tuple):
         p_start_str, p_end_str = params
         start_y, start_m = _get_year_month(p_start_str)
         end_y, end_m = _get_year_month(p_end_str)
@@ -3482,14 +3506,30 @@ def show_fixed_cost_dashboard():
         
         st.dataframe(df, use_container_width=True)
         
-        # Download button
-        csv = df.to_csv(index=False).encode('utf-8_sig')
-        st.download_button(
-            label="📥 CSVをダウンロード",
-            data=csv,
-            file_name=f"固定費シミュレーション_{p_start_str}_{p_end_str}.csv",
-            mime="text/csv",
-        )
+        col_dl, col_save = st.columns(2)
+        with col_dl:
+            csv = df.to_csv(index=False).encode('utf-8_sig')
+            st.download_button(
+                label="📥 CSVをダウンロード",
+                data=csv,
+                file_name=f"固定費シミュレーション_{p_start_str}_{p_end_str}.csv",
+                mime="text/csv",
+                use_container_width=True
+            )
+        with col_save:
+            if st.button("💾 この表をGoogle Sheetsに保存", use_container_width=True):
+                with st.spinner("スプレッドシートへ保存中..."):
+                    try:
+                        sheet_name = f"FC_Sim_{username}"
+                        sheet = get_sheet(sheet_name, create_if_not_found=True)
+                        safe_gspread_call(sheet.clear)
+                        df_list = [df.columns.values.tolist()] + df.fillna("").astype(str).values.tolist()
+                        safe_gspread_call(sheet.update, "A1", df_list)
+                        st.success("スプレッドシートに保存しました！次回以降「前回保存したスプレッドシートを読み込む」から確認できます。")
+                        url = sheet.url
+                        st.markdown(f"**[🔗 スプレッドシートをブラウザで引らく場合はこちらをクリックして下さい]({url})**")
+                    except Exception as e:
+                        st.error(f"保存エラー: {e}")
 
 def main():
     # --- 初期化 ---
