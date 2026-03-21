@@ -3322,6 +3322,24 @@ def _get_year_month(ym_str):
     except:
         return (9999, 12)
 
+def _style_simulation_df(df):
+    def highlight_totals(row):
+        val = str(row.get("固定支払１", ""))
+        if "小計】" in val:
+            return ["background-color: rgba(173, 216, 230, 0.3)"] * len(row)
+        elif "【総合計】" in val:
+            return ["background-color: rgba(255, 182, 193, 0.4)"] * len(row)
+        return [""] * len(row)
+        
+    num_cols = [c for c in df.columns if "年" in c and "月" in c]
+    # Check if they are actually numeric
+    import pandas as pd
+    for c in num_cols:
+        df[c] = pd.to_numeric(df[c], errors="coerce")
+        
+    format_dict = {c: "{:,.0f}" for c in num_cols}
+    return df.style.apply(highlight_totals, axis=1).format(format_dict, na_rep="")
+
 def show_fixed_cost_dashboard():
     st.markdown("## 📊 固定費ダッシュボード（シミュレーション）")
     st.caption("指定した期間における月別の固定費発生を予測・展開したスプレッドシートを作成します。")
@@ -3379,7 +3397,7 @@ def show_fixed_cost_dashboard():
                 import pandas as pd
                 df_saved = pd.DataFrame(records)
                 st.success("前回保存したデータを読み込みました！")
-                st.dataframe(df_saved, use_container_width=True)
+                st.dataframe(_style_simulation_df(df_saved), use_container_width=True)
                 url = sheet.url
                 st.markdown(f"**[🔗 保存先スプレッドシートをブラウザで開く]({url})**")
             else:
@@ -3504,7 +3522,7 @@ def show_fixed_cost_dashboard():
         
         df = pd.DataFrame(final_rows)
         
-        st.dataframe(df, use_container_width=True)
+        st.dataframe(_style_simulation_df(df), use_container_width=True)
         
         col_dl, col_save = st.columns(2)
         with col_dl:
