@@ -504,6 +504,27 @@ def add_fixed_cost(username, fixed_cost_id, major_category, payment_1, payment_2
         st.error(f"固定費登録エラー: {e}")
         return False
 
+def update_fixed_cost(username, fixed_cost_id, major_category, payment_1, payment_2, is_finite, item_name, amount, fixed_or_variable, payment_month, final_amount=0, transfer_fee=0, start_month="", completion_month=""):
+    try:
+        sheet = get_sheet(FIXED_COST_MASTER_WORKSHEET_NAME, create_if_not_found=True)
+        init_fixed_cost_master_sheet(sheet)
+        records = safe_gspread_call(sheet.get_all_records)
+        row_idx = -1
+        for i, row in enumerate(records):
+            if str(row.get("username", "")).lower() == username.lower() and str(row.get("fixed_cost_id", "")) == str(fixed_cost_id):
+                row_idx = i + 2
+                break
+        
+        if row_idx > 1:
+            row_data = [username, fixed_cost_id, major_category, payment_1, payment_2, is_finite, item_name, amount, fixed_or_variable, payment_month, final_amount, transfer_fee, start_month, completion_month]
+            safe_gspread_call(sheet.update, f"A{row_idx}:N{row_idx}", [row_data])
+            return True
+        return False
+    except Exception as e:
+        import streamlit as st
+        st.error(f"固定費更新エラー: {e}")
+        return False
+
 def delete_fixed_cost(username, fixed_cost_id):
     """固定費を削除する"""
     try:
@@ -2983,83 +3004,226 @@ def show_bank_master():
     st.caption("口座引落や銀行振込で利用する銀行名を登録・管理します。")
     username = st.session_state['username']
     
-    with st.expander("➕ 新規銀行の追加", expanded=True):
-        with st.form("add_bank_form"):
-            c1, c2 = st.columns(2)
-            with c1:
-                new_bank_name = st.text_input("銀行名*", placeholder="例：りそな銀行")
-            with c2:
-                new_bank_balance = st.number_input("初期残高", value=0, step=1000)
-            if st.form_submit_button("追加する", type="primary"):
-                if new_bank_name:
-                    import time
-                    bid = f"bank_{int(time.time())}"
-                    if add_bank(username, bid, new_bank_name, new_bank_balance):
-                        st.success(f"「{new_bank_name}」を追加しました！")
-                        time.sleep(1)
-                        st.rerun()
-                else:
-                    st.error("銀行名を入力してください。")
-                    
-    st.markdown("### 📋 登録済みの銀行一覧と編集・削除")
+    st.markdown("### 📋 登録済みの銀行一覧")
     banks = get_banks(username)
     if banks:
         import pandas as pd
         df = pd.DataFrame(banks)
         st.dataframe(df[["bank_name", "balance"]].rename(columns={"bank_name": "銀行名", "balance": "残高"}), use_container_width=True)
-        
-        st.markdown("#### ✏️ 編集または削除する銀行を選択")
-        edit_target = st.selectbox("対象銀行", options=banks, format_func=lambda b: f"{b['bank_name']} (残高: ￥{b['balance']:,})", label_visibility="collapsed")
-        
-        if edit_target:
-            confirm_key = "confirm_del_bank"
-            target_id = edit_target["bank_id"]
-            
-            if st.session_state.get(confirm_key) == target_id:
-                st.warning(f"「{edit_target['bank_name']}」を本当に削除しますか？この操作は取り消せません。")
-                c_yes, c_no = st.columns(2)
-                with c_yes:
-                    if st.button("はい、削除します", type="primary", use_container_width=True):
-                        import time
-                        if delete_bank(username, target_id):
-                            st.success(f"「{edit_target['bank_name']}」を削除しました！")
-                            st.session_state[confirm_key] = None
-                            time.sleep(1)
-                            st.rerun()
-                with c_no:
-                    if st.button("キャンセル", use_container_width=True):
-                        st.session_state[confirm_key] = None
-                        st.rerun()
-            else:
-                with st.form(f"edit_bank_form_{target_id}"):
-                    col1, col2 = st.columns(2)
-                    with col1:
-                        edit_name = st.text_input("銀行名*", value=edit_target["bank_name"])
-                    with col2:
-                        edit_balance = st.number_input("残高", value=int(edit_target["balance"]), step=1000)
-                    
-                    # ボタン配置
-                    col_upd, col_del = st.columns([2, 1])
-                    with col_upd:
-                        update_submitted = st.form_submit_button("情報を更新する", type="primary", use_container_width=True)
-                    with col_del:
-                        delete_submitted = st.form_submit_button("削除する", use_container_width=True)
-                    
-                    if update_submitted:
-                        if edit_name:
-                            import time
-                            if update_bank(username, target_id, edit_name, edit_balance):
-                                st.success(f"「{edit_name}」の情報を更新しました！")
-                                time.sleep(1)
-                                st.rerun()
-                        else:
-                            st.error("銀行名を入力してください。")
-                    
-                    if delete_submitted:
-                        st.session_state[confirm_key] = target_id
-                        st.rerun()
     else:
         st.info("登録されている銀行はありません。")
+        
+    st.markdown("### ✏️ 編集・追加")
+    options = [{"bank_id": "new", "bank_name": "➕ 新規追加（新しく情報を入力する）", "balance": 0}] + banks
+    
+    edit_target = st.selectbox(
+        "編集する銀行を選択、または「新規追加」を選んでください", 
+        options=options, 
+        format_func=lambda b: b['bank_name'] if b['bank_id'] == 'new' else f"{b['bank_name']} (残高: ￥{b['balance']:,})"
+    )
+    
+    if edit_target["bank_id"] == "new":
+        st.markdown("#### 新規登録")
+        with st.form("add_bank_form"):
+            c1, c2 = st.columns(2)
+            with c1:
+                new_name = st.text_input("銀行名*", placeholder="例：りそな銀行")
+            with c2:
+                new_balance = st.number_input("初期残高", value=0, step=1000)
+            
+            if st.form_submit_button("登録する", type="primary"):
+                if new_name:
+                    import time
+                    bid = f"bank_{int(time.time())}"
+                    if add_bank(username, bid, new_name, new_balance):
+                        st.success(f"「{new_name}」を登録しました！")
+                        time.sleep(1)
+                        st.rerun()
+                else:
+                    st.error("銀行名を入力してください。")
+    else:
+        target_id = edit_target["bank_id"]
+        confirm_key = "confirm_del_bank"
+        
+        if st.session_state.get(confirm_key) == target_id:
+            st.warning(f"「{edit_target['bank_name']}」を本当に削除しますか？この操作は取り消せません。")
+            c_yes, c_no = st.columns(2)
+            with c_yes:
+                if st.button("はい、削除します", type="primary", use_container_width=True):
+                    import time
+                    if delete_bank(username, target_id):
+                        st.success(f"「{edit_target['bank_name']}」を削除しました！")
+                        st.session_state[confirm_key] = None
+                        time.sleep(1)
+                        st.rerun()
+            with c_no:
+                if st.button("キャンセル", use_container_width=True):
+                    st.session_state[confirm_key] = None
+                    st.rerun()
+        else:
+            st.markdown("#### 編集")
+            with st.form(f"edit_bank_form_{target_id}"):
+                col1, col2 = st.columns(2)
+                with col1:
+                    edit_name = st.text_input("銀行名*", value=edit_target["bank_name"])
+                with col2:
+                    edit_balance = st.number_input("残高", value=int(edit_target["balance"]), step=1000)
+                
+                col_upd, col_del = st.columns([2, 1])
+                with col_upd:
+                    update_submitted = st.form_submit_button("情報を更新する", type="primary", use_container_width=True)
+                with col_del:
+                    delete_submitted = st.form_submit_button("削除する", use_container_width=True)
+                
+                if update_submitted:
+                    if edit_name:
+                        import time
+                        if update_bank(username, target_id, edit_name, edit_balance):
+                            st.success(f"「{edit_name}」の情報を更新しました！")
+                            time.sleep(1)
+                            st.rerun()
+                    else:
+                        st.error("銀行名を入力してください。")
+                if delete_submitted:
+                    st.session_state[confirm_key] = target_id
+                    st.rerun()
+
+def _render_fixed_cost_form(action_type, username, target_data=None):
+    if target_data is None:
+        target_data = {
+            "fixed_cost_id": "new", "item_name": "", "amount": 0, "major_category": "固定費",
+            "payment_1": "口座引落", "payment_2": "", "is_finite": "無限", "fixed_or_variable": "固定",
+            "payment_month": "毎月", "final_amount": 0, "transfer_fee": 0, "start_month": "", "completion_month": ""
+        }
+        
+    p1_opts = ["口座引落", "クレジットカード", "銀行振込"]
+    idx_p1 = p1_opts.index(target_data["payment_1"]) if target_data["payment_1"] in p1_opts else 0
+
+    col1, col2 = st.columns(2)
+    with col1:
+        payment_1 = st.selectbox("固定費支払１*", p1_opts, index=idx_p1)
+    
+    with col2:
+        if payment_1 == "クレジットカード":
+            methods = get_payment_methods(username)
+            cc_names = [m["name"] for m in methods if m.get("is_credit_card") or m.get("type") == "クレジットカード"]
+            if not cc_names: cc_names = ["(カード未登録)"]
+            idx_p2 = cc_names.index(target_data["payment_2"]) if target_data["payment_2"] in cc_names else 0
+            payment_2 = st.selectbox("固定費支払２（カード選択）*", cc_names, index=idx_p2)
+        else:
+            banks = get_banks(username)
+            b_names = [b["bank_name"] for b in banks]
+            if not b_names: b_names = ["(銀行未登録)"]
+            idx_p2 = b_names.index(target_data["payment_2"]) if target_data["payment_2"] in b_names else 0
+            payment_2 = st.selectbox("固定費支払２（銀行選択）*", b_names, index=idx_p2)
+
+    col4, col5 = st.columns(2)
+    with col4:
+        item_name = st.text_input("科目（支払いの名前）*", value=target_data["item_name"], placeholder="例：住宅ローン")
+    with col5:
+        try:
+            amt_val = int(target_data["amount"])
+        except:
+            amt_val = 0
+        amount = st.number_input("支払額*", value=amt_val, min_value=0, step=100)
+
+    col_a, col_b, col_c = st.columns(3)
+    with col_a:
+        fv_opts = ["固定", "変動"]
+        idx_fv = fv_opts.index(target_data["fixed_or_variable"]) if target_data["fixed_or_variable"] in fv_opts else 0
+        fixed_or_variable = st.selectbox("変動or固定*", fv_opts, index=idx_fv)
+    with col_b:
+        if_opts = ["無限", "有限"]
+        idx_if = if_opts.index(target_data["is_finite"]) if target_data["is_finite"] in if_opts else 0
+        is_finite = st.selectbox("有限or無限*", if_opts, index=idx_if)
+    with col_c:
+        pm_opts = ["毎月"] + [f"{i}月" for i in range(1, 13)]
+        idx_pm = pm_opts.index(target_data["payment_month"]) if target_data["payment_month"] in pm_opts else 0
+        payment_month = st.selectbox("支払月*", pm_opts, index=idx_pm)
+        
+    final_amount = 0
+    transfer_fee = 0
+    start_month = ""
+    completion_month = ""
+    
+    if is_finite == "有限" or payment_1 == "銀行振込":
+        if is_finite == "有限":
+            import datetime
+            now = datetime.datetime.now()
+            start_month_opts = []
+            prev_m = now.month - 1
+            prev_y = now.year
+            if prev_m == 0:
+                prev_m = 12
+                prev_y -= 1
+            start_month_opts.append(f"{prev_y}年{prev_m}月")
+            for i in range(13):
+                moff = now.month + i
+                mv = (moff - 1) % 12 + 1
+                yv = now.year + (moff - 1) // 12
+                start_month_opts.append(f"{yv}年{mv}月")
+            
+            c_start, c_dummy = st.columns(2)
+            with c_start:
+                s_idx = start_month_opts.index(target_data["start_month"]) if target_data["start_month"] in start_month_opts else 0
+                start_month = st.selectbox("開始月", start_month_opts, index=s_idx)
+            
+            comp_years = [f"{now.year + i}年" for i in range(30)]
+            comp_months = [f"{i}月" for i in range(1, 13)]    
+            c_cy, c_cm = st.columns(2)
+            cur_cy = target_data["completion_month"][:5] if target_data["completion_month"] and "年" in target_data["completion_month"] else comp_years[0]
+            cur_cm = target_data["completion_month"][5:] if target_data["completion_month"] and "年" in target_data["completion_month"] else comp_months[0]
+            with c_cy:
+                cy_idx = comp_years.index(cur_cy) if cur_cy in comp_years else 0
+                c_year = st.selectbox("完済年", comp_years, index=cy_idx)
+            with c_cm:
+                cm_idx = comp_months.index(cur_cm) if cur_cm in comp_months else 0
+                c_month = st.selectbox("完済月", comp_months, index=cm_idx)
+            completion_month = f"{c_year}{c_month}" 
+            
+        c_amt, c_fee = st.columns(2)
+        with c_amt:
+            if is_finite == "有限":
+                try: fa_val = int(target_data.get("final_amount", 0))
+                except: fa_val = 0
+                final_amount = st.number_input("最終月額", value=fa_val, min_value=0, step=100)
+        with c_fee:
+            if payment_1 == "銀行振込":
+                try: tf_val = int(target_data.get("transfer_fee", 0))
+                except: tf_val = 0
+                transfer_fee = st.number_input("振込手数料", value=tf_val, min_value=0, step=10)
+
+    if action_type == "add":
+        if st.button("登録する", type="primary"):
+            if item_name and payment_1 and payment_month:
+                import time
+                fixed_cost_id = f"fc_{int(time.time())}"
+                success = add_fixed_cost(username, fixed_cost_id, "固定費", payment_1, payment_2, is_finite, item_name, amount, fixed_or_variable, payment_month, final_amount, transfer_fee, start_month, completion_month)
+                if success:
+                    st.success(f"「{item_name}」を登録しました！")
+                    time.sleep(1)
+                    st.rerun()
+            else:
+                st.error("必須項目を入力してください。")
+    elif action_type == "update":
+        col_u, col_d = st.columns([2, 1])
+        with col_u:
+            update_btn = st.button("情報を更新する", type="primary", use_container_width=True)
+        with col_d:
+            delete_btn = st.button("削除する", use_container_width=True)
+            
+        if update_btn:
+            if item_name and payment_1 and payment_month:
+                import time
+                success = update_fixed_cost(username, target_data["fixed_cost_id"], "固定費", payment_1, payment_2, is_finite, item_name, amount, fixed_or_variable, payment_month, final_amount, transfer_fee, start_month, completion_month)
+                if success:
+                    st.success(f"「{item_name}」の情報を更新しました！")
+                    time.sleep(1)
+                    st.rerun()
+            else:
+                st.error("必須項目を入力してください。")
+        return delete_btn
+    return False
 
 def show_fixed_cost_settings():
     st.markdown("## 🔴 固定費設定マスター")
@@ -3067,126 +3231,54 @@ def show_fixed_cost_settings():
     
     username = st.session_state['username']
     
-    with st.expander("➕ 新規固定費の登録", expanded=True):
-        col1, col2 = st.columns(2)
-        with col1:
-            payment_1 = st.selectbox("固定費支払１*", ["口座引落", "クレジットカード", "銀行振込"])
-        
-        with col2:
-            if payment_1 == "クレジットカード":
-                methods = get_payment_methods(username)
-                cc_names = [m["name"] for m in methods if m.get("is_credit_card") or m.get("type") == "クレジットカード"]
-                if not cc_names:
-                    cc_names = ["(カード未登録)"]
-                payment_2 = st.selectbox("固定費支払２（カード選択）*", cc_names)
-            else:
-                banks = get_banks(username)
-                b_names = [b["bank_name"] for b in banks]
-                if not b_names:
-                    b_names = ["(銀行未登録)"]
-                payment_2 = st.selectbox("固定費支払２（銀行選択）*", b_names)
-
-        col4, col5 = st.columns(2)
-        with col4:
-            item_name = st.text_input("科目（支払いの名前）*", placeholder="例：住宅ローン、家賃、電気代")
-        with col5:
-            amount = st.number_input("支払額*", min_value=0, step=100)
-
-        col_a, col_b, col_c = st.columns(3)
-        with col_a:
-            fixed_or_variable = st.selectbox("変動or固定*", ["固定", "変動"])
-        with col_b:
-            is_finite = st.selectbox("有限or無限*", ["無限", "有限"])
-        with col_c:
-            payment_month_opts = ["毎月"] + [f"{i}月" for i in range(1, 13)]
-            payment_month = st.selectbox("支払月*", payment_month_opts)
-            
-        final_amount = 0
-        transfer_fee = 0
-        start_month = ""
-        completion_month = ""
-        
-        if is_finite == "有限" or payment_1 == "銀行振込":
-            if is_finite == "有限":
-                import datetime
-                now = datetime.datetime.now()
-                start_month_opts = []
-                prev_m = now.month - 1
-                prev_y = now.year
-                if prev_m == 0:
-                    prev_m = 12
-                    prev_y -= 1
-                start_month_opts.append(f"{prev_y}年{prev_m}月")
-                for i in range(13):
-                    moff = now.month + i
-                    mv = (moff - 1) % 12 + 1
-                    yv = now.year + (moff - 1) // 12
-                    start_month_opts.append(f"{yv}年{mv}月")
-                
-                c_start, c_dummy = st.columns(2)
-                with c_start:
-                    start_month = st.selectbox("開始月", start_month_opts)
-                
-                comp_years = [f"{now.year + i}年" for i in range(30)]
-                comp_months = [f"{i}月" for i in range(1, 13)]    
-                c_cy, c_cm = st.columns(2)
-                with c_cy:
-                    c_year = st.selectbox("完済年", comp_years)
-                with c_cm:
-                    c_month = st.selectbox("完済月", comp_months)
-                completion_month = f"{c_year}{c_month}" 
-                
-            c_amt, c_fee = st.columns(2)
-            with c_amt:
-                if is_finite == "有限":
-                    final_amount = st.number_input("最終月額", min_value=0, step=100)
-            with c_fee:
-                if payment_1 == "銀行振込":
-                    transfer_fee = st.number_input("振込手数料", min_value=0, step=10)
-        
-        if st.button("登録する", type="primary"):
-            if item_name and payment_1 and payment_month:
-                fixed_cost_id = f"fc_{int(time.time())}"
-                success = add_fixed_cost(
-                    username=username,
-                    fixed_cost_id=fixed_cost_id,
-                    major_category="固定費",
-                    payment_1=payment_1,
-                    payment_2=payment_2,
-                    is_finite=is_finite,
-                    item_name=item_name,
-                    amount=amount,
-                    fixed_or_variable=fixed_or_variable,
-                    payment_month=payment_month,
-                    final_amount=final_amount,
-                    transfer_fee=transfer_fee,
-                    start_month=start_month,
-                    completion_month=completion_month
-                )
-                if success:
-                    st.success(f"「{item_name}」を登録しました！")
-                    time.sleep(1)
-                    st.rerun()
-            else:
-                st.error("必須項目を入力してください。")
-
     st.markdown("### 📋 登録済みの固定費一覧")
     costs = get_fixed_costs(username)
     if costs:
+        import pandas as pd
         df = pd.DataFrame(costs)
         display_df = df[["major_category", "payment_1", "payment_2", "is_finite", "item_name", "amount", "fixed_or_variable", "payment_month", "final_amount", "transfer_fee", "start_month", "completion_month"]]
         display_df.columns = ["大科目", "支払方法1", "支払方法2", "有限/無限", "科目", "支払額", "変動/固定", "支払月", "最終月額", "振込手数料", "開始月", "完済月"]
         st.dataframe(display_df, use_container_width=True)
-        
-        st.markdown("#### 🗑️ データの削除")
-        del_target = st.selectbox("削除する固定費を選択", options=[(r["fixed_cost_id"], f"{r['item_name']} - ￥{r['amount']}") for r in costs], format_func=lambda x: x[1])
-        if st.button("削除する"):
-            if delete_fixed_cost(username, del_target[0]):
-                st.success("削除しました！")
-                time.sleep(1)
-                st.rerun()
     else:
         st.info("登録されている固定費はありません。")
+
+    st.markdown("### ✏️ 編集・追加")
+    options = [{"fixed_cost_id": "new", "item_name": "➕ 新規追加（新しく情報を入力する）"}] + costs
+    
+    edit_target = st.selectbox(
+        "編集する固定費を選択、または「新規追加」を選んでください",
+        options=options,
+        format_func=lambda c: c["item_name"] if c["fixed_cost_id"] == "new" else f"{c['item_name']} (￥{c.get('amount', 0):,})"
+    )
+
+    if edit_target["fixed_cost_id"] == "new":
+        st.markdown("#### 新規登録")
+        _render_fixed_cost_form("add", username)
+    else:
+        target_id = edit_target["fixed_cost_id"]
+        confirm_key = "confirm_del_fc"
+        
+        if st.session_state.get(confirm_key) == target_id:
+            st.warning(f"「{edit_target['item_name']}」を本当に削除しますか？この操作は取り消せません。")
+            c_yes, c_no = st.columns(2)
+            with c_yes:
+                if st.button("はい、削除します", type="primary", use_container_width=True):
+                    import time
+                    if delete_fixed_cost(username, target_id):
+                        st.success(f"「{edit_target['item_name']}」を削除しました！")
+                        st.session_state[confirm_key] = None
+                        time.sleep(1)
+                        st.rerun()
+            with c_no:
+                if st.button("キャンセル", use_container_width=True):
+                    st.session_state[confirm_key] = None
+                    st.rerun()
+        else:
+            st.markdown("#### 編集")
+            delete_clicked = _render_fixed_cost_form("update", username, edit_target)
+            if delete_clicked:
+                st.session_state[confirm_key] = target_id
+                st.rerun()
 
 def main():
     # --- 初期化 ---
