@@ -3012,41 +3012,52 @@ def show_bank_master():
         edit_target = st.selectbox("対象銀行", options=banks, format_func=lambda b: f"{b['bank_name']} (残高: ￥{b['balance']:,})", label_visibility="collapsed")
         
         if edit_target:
-            with st.form(f"edit_bank_form_{edit_target['bank_id']}"):
-                col1, col2 = st.columns(2)
-                with col1:
-                    edit_name = st.text_input("銀行名*", value=edit_target["bank_name"])
-                with col2:
-                    edit_balance = st.number_input("残高", value=int(edit_target["balance"]), step=1000)
-                
-                # ボタン配置
-                col_upd, col_del, col_confirm = st.columns([2, 1, 1])
-                with col_upd:
-                    update_submitted = st.form_submit_button("情報を更新する", type="primary", use_container_width=True)
-                with col_del:
-                    delete_submitted = st.form_submit_button("削除する", use_container_width=True)
-                with col_confirm:
-                    confirm_del = st.checkbox("本当に削除する", help="削除する場合はチェックを入れてから削除ボタンを押してください。")
-                
-                if update_submitted:
-                    if edit_name:
+            confirm_key = "confirm_del_bank"
+            target_id = edit_target["bank_id"]
+            
+            if st.session_state.get(confirm_key) == target_id:
+                st.warning(f"「{edit_target['bank_name']}」を本当に削除しますか？この操作は取り消せません。")
+                c_yes, c_no = st.columns(2)
+                with c_yes:
+                    if st.button("はい、削除します", type="primary", use_container_width=True):
                         import time
-                        if update_bank(username, edit_target["bank_id"], edit_name, edit_balance):
-                            st.success(f"「{edit_name}」の情報を更新しました！")
-                            time.sleep(1)
-                            st.rerun()
-                    else:
-                        st.error("銀行名を入力してください。")
-                
-                if delete_submitted:
-                    if confirm_del:
-                        import time
-                        if delete_bank(username, edit_target["bank_id"]):
+                        if delete_bank(username, target_id):
                             st.success(f"「{edit_target['bank_name']}」を削除しました！")
+                            st.session_state[confirm_key] = None
                             time.sleep(1)
                             st.rerun()
-                    else:
-                        st.error("削除する場合は、右側の「本当に削除する」にチェックを入れてからボタンを押してください。")
+                with c_no:
+                    if st.button("キャンセル", use_container_width=True):
+                        st.session_state[confirm_key] = None
+                        st.rerun()
+            else:
+                with st.form(f"edit_bank_form_{target_id}"):
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        edit_name = st.text_input("銀行名*", value=edit_target["bank_name"])
+                    with col2:
+                        edit_balance = st.number_input("残高", value=int(edit_target["balance"]), step=1000)
+                    
+                    # ボタン配置
+                    col_upd, col_del = st.columns([2, 1])
+                    with col_upd:
+                        update_submitted = st.form_submit_button("情報を更新する", type="primary", use_container_width=True)
+                    with col_del:
+                        delete_submitted = st.form_submit_button("削除する", use_container_width=True)
+                    
+                    if update_submitted:
+                        if edit_name:
+                            import time
+                            if update_bank(username, target_id, edit_name, edit_balance):
+                                st.success(f"「{edit_name}」の情報を更新しました！")
+                                time.sleep(1)
+                                st.rerun()
+                        else:
+                            st.error("銀行名を入力してください。")
+                    
+                    if delete_submitted:
+                        st.session_state[confirm_key] = target_id
+                        st.rerun()
     else:
         st.info("登録されている銀行はありません。")
 
