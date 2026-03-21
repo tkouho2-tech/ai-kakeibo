@@ -5340,9 +5340,8 @@ MBTI: {mbti}
         elif menu_selection == "固定費設定マスター":
             show_fixed_cost_settings()
             
-        elif menu_selection in ["固定費ダッシュボード"]:
-            st.markdown(f"### 🚧 {menu_selection}")
-            st.info("こちらの機能は現在開発中です。今後のアップデートで順次公開予定ですので、今しばらくお待ちください。")
+        elif menu_selection in ["固定費ダッシュボード（シミュレーション）"]:
+            show_fixed_cost_dashboard()
 
         st.caption("マイニー Ver 4.7.0 - ユーザー: %s" % st.session_state['username'])
             
