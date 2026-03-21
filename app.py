@@ -3096,36 +3096,40 @@ def show_fixed_cost_settings():
         completion_month = ""
         
         if is_finite == "有限" or payment_1 == "銀行振込":
-            col_L, col_R = st.columns(2)
-            with col_L:
-                if is_finite == "有限":
-                    import datetime
-                    now = datetime.datetime.now()
-                    start_month_opts = []
-                    prev_m = now.month - 1
-                    prev_y = now.year
-                    if prev_m == 0:
-                        prev_m = 12
-                        prev_y -= 1
-                    start_month_opts.append(f"{prev_y}年{prev_m}月")
-                    for i in range(13):
-                        moff = now.month + i
-                        mv = (moff - 1) % 12 + 1
-                        yv = now.year + (moff - 1) // 12
-                        start_month_opts.append(f"{yv}年{mv}月")
+            if is_finite == "有限":
+                import datetime
+                now = datetime.datetime.now()
+                start_month_opts = []
+                prev_m = now.month - 1
+                prev_y = now.year
+                if prev_m == 0:
+                    prev_m = 12
+                    prev_y -= 1
+                start_month_opts.append(f"{prev_y}年{prev_m}月")
+                for i in range(13):
+                    moff = now.month + i
+                    mv = (moff - 1) % 12 + 1
+                    yv = now.year + (moff - 1) // 12
+                    start_month_opts.append(f"{yv}年{mv}月")
+                
+                c_start, c_dummy = st.columns(2)
+                with c_start:
                     start_month = st.selectbox("開始月", start_month_opts)
-                    
-                    cy_col, cm_col = st.columns(2)
-                    comp_years = [f"{now.year + i}年" for i in range(30)]
-                    comp_months = [f"{i}月" for i in range(1, 13)]
-                    with cy_col:
-                        c_year = st.selectbox("完済年", comp_years)
-                    with cm_col:
-                        c_month = st.selectbox("完済月", comp_months)
-                    completion_month = f"{c_year}{c_month}" 
-            with col_R:
+                
+                comp_years = [f"{now.year + i}年" for i in range(30)]
+                comp_months = [f"{i}月" for i in range(1, 13)]    
+                c_cy, c_cm = st.columns(2)
+                with c_cy:
+                    c_year = st.selectbox("完済年", comp_years)
+                with c_cm:
+                    c_month = st.selectbox("完済月", comp_months)
+                completion_month = f"{c_year}{c_month}" 
+                
+            c_amt, c_fee = st.columns(2)
+            with c_amt:
                 if is_finite == "有限":
                     final_amount = st.number_input("最終月額", min_value=0, step=100)
+            with c_fee:
                 if payment_1 == "銀行振込":
                     transfer_fee = st.number_input("振込手数料", min_value=0, step=10)
         
