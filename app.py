@@ -3536,18 +3536,88 @@ def show_fixed_cost_dashboard():
             )
         with col_save:
             if st.button("💾 この表をGoogle Sheetsに保存", use_container_width=True):
-                with st.spinner("スプレッドシートへ保存中..."):
+                with st.spinner("スプレッドシートへ保存・書式設定中..."):
                     try:
                         sheet_name = f"FC_Sim_{username}"
                         sheet = get_sheet(sheet_name, create_if_not_found=True)
                         safe_gspread_call(sheet.clear)
-                        df_list = [df.columns.values.tolist()] + df.fillna("").astype(str).values.tolist()
+                        
+                        # Use raw numbers instead of strings for numeric columns so sheets recognizes them as numbers!
+                        df_for_sheet = df.copy()
+                        for c in df_for_sheet.columns:
+                            if "年" in c and "月" in c:
+                                df_for_sheet[c] = pd.to_numeric(df_for_sheet[c], errors="coerce")
+                        
+                        # Replace NaNs with empty strings
+                        df_list = [df_for_sheet.columns.values.tolist()] + df_for_sheet.fillna("").values.tolist()
                         safe_gspread_call(sheet.update, "A1", df_list)
-                        st.success("スプレッドシートに保存しました！次回以降「前回保存したスプレッドシートを読み込む」から確認できます。")
+                        
+                        # --- Apply Formatting using gspread batch_update ---
+                        requests = []
+                        sheet_id = sheet.id
+                        num_rows = len(df_list)
+                        num_cols = len(df_list[0])
+                        
+                        # 1. Number format (comma) and align right for target_months
+                        requests.append({
+                            "repeatCell": {
+                                "range": {
+                                    "sheetId": sheet_id,
+                                    "startRowIndex": 1,
+                                    "endRowIndex": num_rows,
+                                    "startColumnIndex": 4, # '固定支払１', '固定支払２', '科目', '有限/無限' = 4 cols
+                                    "endColumnIndex": num_cols
+                                },
+                                "cell": {
+                                    "userEnteredFormat": {
+                                        "numberFormat": {
+                                            "type": "NUMBER",
+                                            "pattern": "#,##0"
+                                        },
+                                        "horizontalAlignment": "RIGHT"
+                                    }
+                                },
+                                "fields": "userEnteredFormat.numberFormat,userEnteredFormat.horizontalAlignment"
+                            }
+                        })
+                        
+                        # 2. Add row coloring for subtotals and grand totals
+                        for i in range(len(df_for_sheet)):
+                            val = str(df_for_sheet.iloc[i].get("固定支払１", ""))
+                            bg_color = None
+                            if "小計】" in val:
+                                bg_color = {"red": 0.85, "green": 0.92, "blue": 1.0} # Light Blue
+                            elif "【総合計】" in val:
+                                bg_color = {"red": 1.0, "green": 0.85, "blue": 0.88} # Light Red/Pink
+                                
+                            if bg_color:
+                                requests.append({
+                                    "repeatCell": {
+                                        "range": {
+                                            "sheetId": sheet_id,
+                                            "startRowIndex": i + 1, # +1 for header
+                                            "endRowIndex": i + 2,
+                                            "startColumnIndex": 0,
+                                            "endColumnIndex": num_cols
+                                        },
+                                        "cell": {
+                                            "userEnteredFormat": {
+                                                "backgroundColor": bg_color
+                                            }
+                                        },
+                                        "fields": "userEnteredFormat.backgroundColor"
+                                    }
+                                })
+                        
+                        # Execute formatting
+                        if requests:
+                            safe_gspread_call(sheet.spreadsheet.batch_update, {"requests": requests})
+                            
+                        st.success("スプレッドシートへの保存・書式反映が完了しました！")
                         url = sheet.url
-                        st.markdown(f"**[🔗 スプレッドシートをブラウザで引らく場合はこちらをクリックして下さい]({url})**")
+                        st.markdown(f"**[🔗 自動で色付けされたスプレッドシートをブラウザで開く]({url})**")
                     except Exception as e:
-                        st.error(f"保存エラー: {e}")
+                        st.error(f"保存・書式エラー: {e}")
 
 def main():
     # --- 初期化 ---
