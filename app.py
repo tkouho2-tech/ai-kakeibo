@@ -29,6 +29,7 @@ TRANSACTIONS_WORKSHEET_NAME = "transactions"
 USER_MASTER_WORKSHEET_NAME = "User_Master"
 PAYMENT_MASTER_WORKSHEET_NAME = "Payment_Master"
 CATEGORY_MASTER_WORKSHEET_NAME = "Category_Master"
+FIXED_COST_MASTER_WORKSHEET_NAME = "Fixed_Cost_Master"
 
 # ---------- カテゴリ定義 ----------
 # AI判別やセレクトボックスで利用するための大分類・小分類の親子関係定義
@@ -358,6 +359,84 @@ def init_payment_master_sheet(sheet):
                 safe_gspread_call(sheet.update_cell, 1, i + 1, expected_headers[i])
     except Exception:
         safe_gspread_call(sheet.insert_row, expected_headers, 1)
+
+def init_fixed_cost_master_sheet(sheet):
+    """初期セットアップ：Fixed_Cost_Masterシートのヘッダーがない場合に作成する"""
+    expected_headers = [
+        "username", "fixed_cost_id", "major_category", "payment_1", "payment_2", 
+        "payment_3", "is_finite", "item_name", "amount", "fixed_or_variable", 
+        "payment_month", "final_amount", "transfer_fee", "start_month", "completion_month"
+    ]
+    try:
+        headers = safe_gspread_call(sheet.row_values, 1)
+        if not headers or headers[0] != "username":
+            safe_gspread_call(sheet.insert_row, expected_headers, 1)
+        elif len(headers) < len(expected_headers):
+            for i in range(len(headers), len(expected_headers)):
+                safe_gspread_call(sheet.update_cell, 1, i + 1, expected_headers[i])
+    except Exception:
+        safe_gspread_call(sheet.insert_row, expected_headers, 1)
+
+def get_fixed_costs(username):
+    """ユーザーの固定費リストを取得する"""
+    try:
+        sheet = get_sheet(FIXED_COST_MASTER_WORKSHEET_NAME, create_if_not_found=True)
+        init_fixed_cost_master_sheet(sheet)
+        records = safe_gspread_call(sheet.get_all_records)
+        costs = []
+        if records:
+            for row in records:
+                if str(row.get("username", "")).lower() == username.lower():
+                    # 数値パース
+                    for col in ["amount", "final_amount", "transfer_fee"]:
+                        try:
+                            val = row.get(col, "")
+                            row[col] = int(float(str(val).replace(',', '').replace('¥', '').replace('￥', ''))) if val != "" else 0
+                        except ValueError:
+                            row[col] = 0
+                    costs.append(row)
+        return costs
+    except Exception as e:
+        st.error(f"固定費マスター取得エラー: {e}")
+        return []
+
+def add_fixed_cost(username, fixed_cost_id, major_category, payment_1, payment_2, payment_3, 
+                   is_finite, item_name, amount, fixed_or_variable, payment_month, 
+                   final_amount, transfer_fee, start_month, completion_month):
+    """新しい固定費を登録する"""
+    try:
+        sheet = get_sheet(FIXED_COST_MASTER_WORKSHEET_NAME, create_if_not_found=True)
+        init_fixed_cost_master_sheet(sheet)
+        new_row = [
+            username, fixed_cost_id, major_category, payment_1, payment_2, payment_3,
+            is_finite, item_name, amount, fixed_or_variable, payment_month, 
+            final_amount, transfer_fee, start_month, completion_month
+        ]
+        safe_gspread_call(sheet.append_row, new_row)
+        return True
+    except Exception as e:
+        st.error(f"固定費登録エラー: {e}")
+        return False
+
+def delete_fixed_cost(username, fixed_cost_id):
+    """固定費を削除する"""
+    try:
+        sheet = get_sheet(FIXED_COST_MASTER_WORKSHEET_NAME, create_if_not_found=True)
+        init_fixed_cost_master_sheet(sheet)
+        records = safe_gspread_call(sheet.get_all_records)
+        row_idx = -1
+        for i, row in enumerate(records):
+            if str(row.get("username", "")).lower() == username.lower() and str(row.get("fixed_cost_id", "")) == str(fixed_cost_id):
+                row_idx = i + 2
+                break
+        
+        if row_idx > 1:
+            safe_gspread_call(sheet.delete_rows, row_idx)
+            return True
+        return False
+    except Exception as e:
+        st.error(f"固定費削除エラー: {e}")
+        return False
 
 def get_payment_methods(username):
     """ユーザーの支払い方法リストを取得する"""
@@ -2812,6 +2891,107 @@ def handle_menu_change():
     # サイドバーを閉じるフラグ
     st.session_state["collapse_sidebar_flag"] = True
 
+def show_fixed_cost_settings():
+    st.markdown("## 🔴 固定費設定マスター")
+    st.caption("毎月の固定費や長期間（有限回数）の支払設定を管理します。")
+    
+    username = st.session_state['username']
+    
+    with st.expander("➕ 新規固定費の登録", expanded=True):
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            payment_1 = st.selectbox("固定費支払１*", ["口座引落", "クレジットカード", "銀行振込"])
+        
+        with col2:
+            if payment_1 == "クレジットカード":
+                methods = get_payment_methods(username)
+                cc_names = [m["name"] for m in methods if m.get("is_credit_card") or m.get("type") == "クレジットカード"]
+                if not cc_names:
+                    cc_names = ["(カード未登録)"]
+                payment_2 = st.selectbox("固定費支払２（カード選択）*", cc_names)
+            else:
+                payment_2 = st.text_input("固定費支払２（銀行名など）", placeholder="例：りそな銀行")
+                
+        with col3:
+            payment_3 = st.text_input("固定費支払３（支店名・ブランドなど）", placeholder="例：新都心営業部 / VISA")
+
+        col4, col5 = st.columns(2)
+        with col4:
+            item_name = st.text_input("科目（支払いの名前）*", placeholder="例：住宅ローン、家賃、電気代")
+        with col5:
+            amount = st.number_input("支払額*", min_value=0, step=100)
+
+        col_a, col_b, col_c = st.columns(3)
+        with col_a:
+            fixed_or_variable = st.selectbox("変動or固定*", ["固定", "変動"])
+        with col_b:
+            is_finite = st.selectbox("有限or無限*", ["無限", "有限"])
+        with col_c:
+            payment_month = st.text_input("支払月*", value="毎月")
+            
+        final_amount = 0
+        transfer_fee = 0
+        start_month = ""
+        completion_month = ""
+        
+        if is_finite == "有限" or payment_1 == "銀行振込":
+            col_x, col_y, col_z = st.columns(3)
+            with col_x:
+                if is_finite == "有限":
+                    final_amount = st.number_input("最終月額", min_value=0, step=100)
+            with col_y:
+                if is_finite == "有限":
+                    start_month = st.text_input("開始月", placeholder="例：2026年4月")
+                    completion_month = st.text_input("完済月", placeholder="例：2029年8月")
+            with col_z:
+                if payment_1 == "銀行振込":
+                    transfer_fee = st.number_input("振込手数料", min_value=0, step=10)
+        
+        if st.button("登録する", type="primary"):
+            if item_name and payment_1 and payment_month:
+                fixed_cost_id = f"fc_{int(time.time())}"
+                success = add_fixed_cost(
+                    username=username,
+                    fixed_cost_id=fixed_cost_id,
+                    major_category="固定費",
+                    payment_1=payment_1,
+                    payment_2=payment_2,
+                    payment_3=payment_3,
+                    is_finite=is_finite,
+                    item_name=item_name,
+                    amount=amount,
+                    fixed_or_variable=fixed_or_variable,
+                    payment_month=payment_month,
+                    final_amount=final_amount,
+                    transfer_fee=transfer_fee,
+                    start_month=start_month,
+                    completion_month=completion_month
+                )
+                if success:
+                    st.success(f"「{item_name}」を登録しました！")
+                    time.sleep(1)
+                    st.rerun()
+            else:
+                st.error("必須項目を入力してください。")
+
+    st.markdown("### 📋 登録済みの固定費一覧")
+    costs = get_fixed_costs(username)
+    if costs:
+        df = pd.DataFrame(costs)
+        display_df = df[["major_category", "payment_1", "payment_2", "payment_3", "is_finite", "item_name", "amount", "fixed_or_variable", "payment_month", "final_amount", "transfer_fee", "start_month", "completion_month"]]
+        display_df.columns = ["大科目", "支払方法1", "支払方法2", "支払方法3", "有限/無限", "科目", "支払額", "変動/固定", "支払月", "最終月額", "振込手数料", "開始月", "完済月"]
+        st.dataframe(display_df, use_container_width=True)
+        
+        st.markdown("#### 🗑️ データの削除")
+        del_target = st.selectbox("削除する固定費を選択", options=[(r["fixed_cost_id"], f"{r['item_name']} - ￥{r['amount']}") for r in costs], format_func=lambda x: x[1])
+        if st.button("削除する"):
+            if delete_fixed_cost(username, del_target[0]):
+                st.success("削除しました！")
+                time.sleep(1)
+                st.rerun()
+    else:
+        st.info("登録されている固定費はありません。")
+
 def main():
     # --- 初期化 ---
     if 'logged_in' not in st.session_state:
@@ -2891,7 +3071,7 @@ def main():
                 group4_opts.append("カテゴリマスター")
                 
             # 固定費管理用のプレースホルダ
-            group5_opts = ["固定費ダッシュボード（準備中）", "固定費設定（準備中）"]
+            group5_opts = ["固定費ダッシュボード（準備中）", "固定費設定マスター"]
             
             current_sel = st.session_state['menu_selection']
             
@@ -4703,7 +4883,10 @@ MBTI: {mbti}
         elif menu_selection == "プロフィール設定":
             show_profile_settings()
             
-        elif menu_selection in ["固定費ダッシュボード（準備中）", "固定費設定（準備中）"]:
+        elif menu_selection == "固定費設定マスター":
+            show_fixed_cost_settings()
+            
+        elif menu_selection in ["固定費ダッシュボード（準備中）"]:
             st.markdown(f"### 🚧 {menu_selection}")
             st.info("こちらの機能は現在開発中です。今後のアップデートで順次公開予定ですので、今しばらくお待ちください。")
 
@@ -4718,6 +4901,7 @@ MBTI: {mbti}
         with tab1:
             st.subheader("ログイン")
             
+
             with st.form("login_form"):
                 login_username = st.text_input("ユーザー名", key="login_username_input_v2")
                 login_password = st.text_input("パスワード", type="password", key="login_password_input_v2")
