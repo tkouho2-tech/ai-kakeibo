@@ -3523,7 +3523,7 @@ def main():
                 group4_opts.append("カテゴリマスター")
                 
             # 固定費管理用のプレースホルダ
-            group5_opts = ["固定費ダッシュボード", "固定費設定マスター"]
+            group5_opts = ["固定費ダッシュボード（シミュレーション）", "固定費設定マスター"]
             
             current_sel = st.session_state['menu_selection']
             
