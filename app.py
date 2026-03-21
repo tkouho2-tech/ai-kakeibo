@@ -364,7 +364,7 @@ def init_fixed_cost_master_sheet(sheet):
     """初期セットアップ：Fixed_Cost_Masterシートのヘッダーがない場合に作成する"""
     expected_headers = [
         "username", "fixed_cost_id", "major_category", "payment_1", "payment_2", 
-        "payment_3", "is_finite", "item_name", "amount", "fixed_or_variable", 
+        "is_finite", "item_name", "amount", "fixed_or_variable", 
         "payment_month", "final_amount", "transfer_fee", "start_month", "completion_month"
     ]
     try:
@@ -400,7 +400,7 @@ def get_fixed_costs(username):
         st.error(f"固定費マスター取得エラー: {e}")
         return []
 
-def add_fixed_cost(username, fixed_cost_id, major_category, payment_1, payment_2, payment_3, 
+def add_fixed_cost(username, fixed_cost_id, major_category, payment_1, payment_2, 
                    is_finite, item_name, amount, fixed_or_variable, payment_month, 
                    final_amount, transfer_fee, start_month, completion_month):
     """新しい固定費を登録する"""
@@ -408,7 +408,7 @@ def add_fixed_cost(username, fixed_cost_id, major_category, payment_1, payment_2
         sheet = get_sheet(FIXED_COST_MASTER_WORKSHEET_NAME, create_if_not_found=True)
         init_fixed_cost_master_sheet(sheet)
         new_row = [
-            username, fixed_cost_id, major_category, payment_1, payment_2, payment_3,
+            username, fixed_cost_id, major_category, payment_1, payment_2,
             is_finite, item_name, amount, fixed_or_variable, payment_month, 
             final_amount, transfer_fee, start_month, completion_month
         ]
@@ -2898,7 +2898,7 @@ def show_fixed_cost_settings():
     username = st.session_state['username']
     
     with st.expander("➕ 新規固定費の登録", expanded=True):
-        col1, col2, col3 = st.columns(3)
+        col1, col2 = st.columns(2)
         with col1:
             payment_1 = st.selectbox("固定費支払１*", ["口座引落", "クレジットカード", "銀行振込"])
         
@@ -2911,9 +2911,6 @@ def show_fixed_cost_settings():
                 payment_2 = st.selectbox("固定費支払２（カード選択）*", cc_names)
             else:
                 payment_2 = st.text_input("固定費支払２（銀行名など）", placeholder="例：りそな銀行")
-                
-        with col3:
-            payment_3 = st.text_input("固定費支払３（支店名・ブランドなど）", placeholder="例：新都心営業部 / VISA")
 
         col4, col5 = st.columns(2)
         with col4:
@@ -2927,7 +2924,8 @@ def show_fixed_cost_settings():
         with col_b:
             is_finite = st.selectbox("有限or無限*", ["無限", "有限"])
         with col_c:
-            payment_month = st.text_input("支払月*", value="毎月")
+            payment_month_opts = ["毎月"] + [f"{i}月" for i in range(1, 13)]
+            payment_month = st.selectbox("支払月*", payment_month_opts)
             
         final_amount = 0
         transfer_fee = 0
@@ -2941,8 +2939,31 @@ def show_fixed_cost_settings():
                     final_amount = st.number_input("最終月額", min_value=0, step=100)
             with col_y:
                 if is_finite == "有限":
-                    start_month = st.text_input("開始月", placeholder="例：2026年4月")
-                    completion_month = st.text_input("完済月", placeholder="例：2029年8月")
+                    import datetime
+                    now = datetime.datetime.now()
+                    start_month_opts = []
+                    prev_m = now.month - 1
+                    prev_y = now.year
+                    if prev_m == 0:
+                        prev_m = 12
+                        prev_y -= 1
+                    start_month_opts.append(f"{prev_y}年{prev_m}月")
+                    for i in range(13):
+                        moff = now.month + i
+                        mv = (moff - 1) % 12 + 1
+                        yv = now.year + (moff - 1) // 12
+                        start_month_opts.append(f"{yv}年{mv}月")
+                    start_month = st.selectbox("開始月", start_month_opts)
+                    
+                    st.write("完済月")
+                    cy_col, cm_col = st.columns(2)
+                    comp_years = [f"{now.year + i}年" for i in range(30)]
+                    comp_months = [f"{i}月" for i in range(1, 13)]
+                    with cy_col:
+                        c_year = st.selectbox("完済年", comp_years, label_visibility="collapsed")
+                    with cm_col:
+                        c_month = st.selectbox("完済月", comp_months, label_visibility="collapsed")
+                    completion_month = f"{c_year}{c_month}" 
             with col_z:
                 if payment_1 == "銀行振込":
                     transfer_fee = st.number_input("振込手数料", min_value=0, step=10)
@@ -2956,7 +2977,6 @@ def show_fixed_cost_settings():
                     major_category="固定費",
                     payment_1=payment_1,
                     payment_2=payment_2,
-                    payment_3=payment_3,
                     is_finite=is_finite,
                     item_name=item_name,
                     amount=amount,
@@ -2978,8 +2998,8 @@ def show_fixed_cost_settings():
     costs = get_fixed_costs(username)
     if costs:
         df = pd.DataFrame(costs)
-        display_df = df[["major_category", "payment_1", "payment_2", "payment_3", "is_finite", "item_name", "amount", "fixed_or_variable", "payment_month", "final_amount", "transfer_fee", "start_month", "completion_month"]]
-        display_df.columns = ["大科目", "支払方法1", "支払方法2", "支払方法3", "有限/無限", "科目", "支払額", "変動/固定", "支払月", "最終月額", "振込手数料", "開始月", "完済月"]
+        display_df = df[["major_category", "payment_1", "payment_2", "is_finite", "item_name", "amount", "fixed_or_variable", "payment_month", "final_amount", "transfer_fee", "start_month", "completion_month"]]
+        display_df.columns = ["大科目", "支払方法1", "支払方法2", "有限/無限", "科目", "支払額", "変動/固定", "支払月", "最終月額", "振込手数料", "開始月", "完済月"]
         st.dataframe(display_df, use_container_width=True)
         
         st.markdown("#### 🗑️ データの削除")
