@@ -3330,8 +3330,6 @@ def show_fixed_cost_dashboard():
     import datetime
     now = datetime.datetime.now()
     
-    col1, col2 = st.columns(2)
-    
     # Generate month options from 2 years ago to 5 years into the future
     month_opts = []
     base_year = now.year - 2
@@ -3346,103 +3344,113 @@ def show_fixed_cost_dashboard():
     except:
         idx_start = 0
         
-    def_end_y = now.year + 1 if now.month == 12 else now.year
-    def_end_m = 1 if now.month == 12 else now.month + 1
-    def_end = f"{def_end_y}年{def_end_m}月" # Just a fallback default end date
     try:
         idx_end = month_opts.index(f"{now.year+1}年{now.month}月") # 1 year later
     except:
         idx_end = min(idx_start + 12, len(month_opts) - 1)
 
-    with col1:
-        start_month_str = st.selectbox("指定開始年月", month_opts, index=idx_start)
-    with col2:
-        end_month_str = st.selectbox("指定最終年月", month_opts, index=idx_end)
-        
-    start_y, start_m = _get_year_month(start_month_str)
-    end_y, end_m = _get_year_month(end_month_str)
-    
-    if (start_y > end_y) or (start_y == end_y and start_m > end_m):
-        st.error("最終年月は開始年月以降に設定してください。")
-        return
-        
-    st.markdown("---")
-    
-    # Generate list of target months
-    target_months = []
-    cy, cm = start_y, start_m
-    while (cy < end_y) or (cy == end_y and cm <= end_m):
-        target_months.append(f"{cy}年{cm}月")
-        cm += 1
-        if cm > 12:
-            cm = 1
-            cy += 1
+    with st.form("dashboard_filter_form"):
+        col1, col2 = st.columns(2)
+        with col1:
+            start_month_str = st.selectbox("指定開始年月", month_opts, index=idx_start)
+        with col2:
+            end_month_str = st.selectbox("指定最終年月", month_opts, index=idx_end)
             
-    costs = get_fixed_costs(username)
-    if not costs:
-        st.info("登録されている固定費はありません。「マスター設定」から固定費を登録してください。")
-        return
+        run_btn = st.form_submit_button("シミュレーションを展開・実行する", type="primary", use_container_width=True)
         
-    # Build data matrix
-    data = []
-    for c in costs:
-        row = {
-            "固定支払１": c.get("payment_1", ""),
-            "固定支払２": c.get("payment_2", ""),
-            "科目": c.get("item_name", "")
-        }
+    if run_btn:
+        st.session_state["dashboard_sim_params"] = (start_month_str, end_month_str)
         
-        is_finite = c.get("is_finite", "無限") == "有限"
-        c_pm = c.get("payment_month", "毎月")
-        cs_ym_str = c.get("start_month", "")
-        ce_ym_str = c.get("completion_month", "")
+    params = st.session_state.get("dashboard_sim_params")
+    
+    if params:
+        p_start_str, p_end_str = params
+        start_y, start_m = _get_year_month(p_start_str)
+        end_y, end_m = _get_year_month(p_end_str)
         
-        cs_y, cs_m = _get_year_month(cs_ym_str) if is_finite else (0, 0)
-        ce_y, ce_m = _get_year_month(ce_ym_str) if is_finite else (9999, 12)
-        
-        try: base_amt = int(c.get("amount", 0))
-        except: base_amt = 0
-        
-        try: final_amt = int(c.get("final_amount", 0))
-        except: final_amt = 0
-        
-        for tm in target_months:
-            tm_y, tm_m = _get_year_month(tm)
-            amount_this_month = 0
+        if (start_y > end_y) or (start_y == end_y and start_m > end_m):
+            st.error("最終年月は開始年月以降に設定してください。")
+            return
             
-            # Check duration
-            is_active = True
-            if is_finite:
-                if (tm_y < cs_y) or (tm_y == cs_y and tm_m < cs_m):
-                    is_active = False
-                if (tm_y > ce_y) or (tm_y == ce_y and tm_m > ce_m):
-                    is_active = False
-                    
-            if is_active:
-                # Check payment month
-                if c_pm == "毎月" or c_pm == f"{tm_m}月":
-                    # Check if finite and is the very last month
-                    if is_finite and tm_y == ce_y and tm_m == ce_m:
-                        amount_this_month = final_amt
-                    else:
-                        amount_this_month = base_amt
+        st.markdown("---")
+        
+        # Generate list of target months
+        target_months = []
+        cy, cm = start_y, start_m
+        while (cy < end_y) or (cy == end_y and cm <= end_m):
+            target_months.append(f"{cy}年{cm}月")
+            cm += 1
+            if cm > 12:
+                cm = 1
+                cy += 1
+                
+        costs = get_fixed_costs(username)
+        if not costs:
+            st.info("登録されている固定費はありません。「マスター設定」から固定費を登録してください。")
+            return
+            
+        # Build data matrix
+        data = []
+        for c in costs:
+            is_finite = c.get("is_finite", "無限") == "有限"
+            
+            row = {
+                "固定支払１": c.get("payment_1", ""),
+                "固定支払２": c.get("payment_2", ""),
+                "科目": c.get("item_name", ""),
+                "有限/無限": "有限" if is_finite else "無限"
+            }
+            
+            c_pm = c.get("payment_month", "毎月")
+            cs_ym_str = c.get("start_month", "")
+            ce_ym_str = c.get("completion_month", "")
+            
+            cs_y, cs_m = _get_year_month(cs_ym_str) if is_finite else (0, 0)
+            ce_y, ce_m = _get_year_month(ce_ym_str) if is_finite else (9999, 12)
+            
+            try: base_amt = int(c.get("amount", 0))
+            except: base_amt = 0
+            
+            try: final_amt = int(c.get("final_amount", 0))
+            except: final_amt = 0
+            
+            for tm in target_months:
+                tm_y, tm_m = _get_year_month(tm)
+                amount_this_month = 0
+                
+                # Check duration
+                is_active = True
+                if is_finite:
+                    if (tm_y < cs_y) or (tm_y == cs_y and tm_m < cs_m):
+                        is_active = False
+                    if (tm_y > ce_y) or (tm_y == ce_y and tm_m > ce_m):
+                        is_active = False
                         
-            row[tm] = amount_this_month
-        data.append(row)
+                if is_active:
+                    # Check payment month
+                    if c_pm == "毎月" or c_pm == f"{tm_m}月":
+                        # Check if finite and is the very last month
+                        if is_finite and tm_y == ce_y and tm_m == ce_m:
+                            amount_this_month = final_amt
+                        else:
+                            amount_this_month = base_amt
+                            
+                row[tm] = amount_this_month
+            data.append(row)
+            
+        import pandas as pd
+        df = pd.DataFrame(data)
         
-    import pandas as pd
-    df = pd.DataFrame(data)
-    
-    st.dataframe(df, use_container_width=True)
-    
-    # Download button
-    csv = df.to_csv(index=False).encode('utf-8_sig')
-    st.download_button(
-        label="📥 CSVをダウンロード",
-        data=csv,
-        file_name=f"固定費シミュレーション_{start_month_str}_{end_month_str}.csv",
-        mime="text/csv",
-    )
+        st.dataframe(df, use_container_width=True)
+        
+        # Download button
+        csv = df.to_csv(index=False).encode('utf-8_sig')
+        st.download_button(
+            label="📥 CSVをダウンロード",
+            data=csv,
+            file_name=f"固定費シミュレーション_{p_start_str}_{p_end_str}.csv",
+            mime="text/csv",
+        )
 
 def main():
     # --- 初期化 ---
