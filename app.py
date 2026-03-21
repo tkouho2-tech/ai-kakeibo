@@ -3005,24 +3005,40 @@ def show_bank_master():
     username = st.session_state['username']
     
     st.markdown("### 📋 登録済みの銀行一覧")
+    st.caption("※左端のチェックボックスを選択すると、そのデータの下に編集フォームが開きます。一番上の「➕ 新規追加」を選ぶと新しく登録できます。")
+    import pandas as pd
     banks = get_banks(username)
-    if banks:
-        import pandas as pd
-        df = pd.DataFrame(banks)
-        st.dataframe(df[["bank_name", "balance"]].rename(columns={"bank_name": "銀行名", "balance": "残高"}), use_container_width=True)
-    else:
-        st.info("登録されている銀行はありません。")
-        
-    st.markdown("### ✏️ 編集・追加")
-    options = [{"bank_id": "new", "bank_name": "➕ 新規追加（新しく情報を入力する）", "balance": 0}] + banks
     
-    edit_target = st.selectbox(
-        "編集する銀行を選択、または「新規追加」を選んでください", 
-        options=options, 
-        format_func=lambda b: b['bank_name'] if b['bank_id'] == 'new' else f"{b['bank_name']} (残高: ￥{b['balance']:,})"
+    df = pd.DataFrame(banks) if banks else pd.DataFrame(columns=["bank_id", "bank_name", "balance"])
+    if not df.empty:
+        df = df[["bank_id", "bank_name", "balance"]].copy()
+    else:
+        df = pd.DataFrame(columns=["bank_id", "bank_name", "balance"])
+    df.rename(columns={"bank_name": "銀行名", "balance": "残高"}, inplace=True)
+    
+    dummy = pd.DataFrame([{"bank_id": "new", "銀行名": "➕ 新規追加（ここを選択して追加）", "残高": 0}])
+    df = pd.concat([dummy, df], ignore_index=True)
+    
+    event = st.dataframe(
+        df[["銀行名", "残高"]],
+        use_container_width=True,
+        on_select="rerun",
+        selection_mode="single-row",
+        hide_index=True
     )
     
-    if edit_target["bank_id"] == "new":
+    selected_rows = event.selection.rows
+    if selected_rows:
+        selected_idx = selected_rows[0]
+        target_id = df.iloc[selected_idx]["bank_id"]
+        if target_id == "new":
+            edit_target = {"bank_id": "new", "bank_name": "", "balance": 0}
+        else:
+            edit_target = next(b for b in banks if b["bank_id"] == target_id)
+            
+    if not selected_rows:
+        st.info("上の表の左端のチェックボックスをクリックして、編集または追加を行ってください。")
+    elif edit_target["bank_id"] == "new":
         st.markdown("#### 新規登録")
         with st.form("add_bank_form"):
             c1, c2 = st.columns(2)
@@ -3232,26 +3248,41 @@ def show_fixed_cost_settings():
     username = st.session_state['username']
     
     st.markdown("### 📋 登録済みの固定費一覧")
+    st.caption("※左端のチェックボックスを選択すると、そのデータの下に編集フォームが開きます。一番上の「➕ 新規追加」を選ぶと新しく登録できます。")
+    import pandas as pd
     costs = get_fixed_costs(username)
-    if costs:
-        import pandas as pd
-        df = pd.DataFrame(costs)
-        display_df = df[["major_category", "payment_1", "payment_2", "is_finite", "item_name", "amount", "fixed_or_variable", "payment_month", "final_amount", "transfer_fee", "start_month", "completion_month"]]
-        display_df.columns = ["大科目", "支払方法1", "支払方法2", "有限/無限", "科目", "支払額", "変動/固定", "支払月", "最終月額", "振込手数料", "開始月", "完済月"]
-        st.dataframe(display_df, use_container_width=True)
-    else:
-        st.info("登録されている固定費はありません。")
-
-    st.markdown("### ✏️ 編集・追加")
-    options = [{"fixed_cost_id": "new", "item_name": "➕ 新規追加（新しく情報を入力する）"}] + costs
     
-    edit_target = st.selectbox(
-        "編集する固定費を選択、または「新規追加」を選んでください",
-        options=options,
-        format_func=lambda c: c["item_name"] if c["fixed_cost_id"] == "new" else f"{c['item_name']} (￥{c.get('amount', 0):,})"
+    df = pd.DataFrame(costs) if costs else pd.DataFrame(columns=["fixed_cost_id", "item_name", "payment_1", "payment_2", "amount", "fixed_or_variable", "is_finite", "payment_month", "final_amount", "transfer_fee", "start_month", "completion_month"])
+    if not df.empty:
+        display_df = df[["fixed_cost_id", "item_name", "payment_1", "payment_2", "amount", "fixed_or_variable", "is_finite", "payment_month", "final_amount", "transfer_fee", "start_month", "completion_month"]].copy()
+    else:
+        display_df = pd.DataFrame(columns=["fixed_cost_id", "item_name", "payment_1", "payment_2", "amount", "fixed_or_variable", "is_finite", "payment_month", "final_amount", "transfer_fee", "start_month", "completion_month"])
+    
+    display_df.columns = ["fixed_cost_id", "科目", "固定支払１", "固定支払２", "支払額", "変動or固定", "有限or無限", "支払月", "最終月額", "振込手数料", "開始月", "完済月"]
+    
+    dummy = pd.DataFrame([{"fixed_cost_id": "new", "科目": "➕ 新規追加（ここを選択して追加）", "固定支払１": "", "固定支払２": "", "支払額": 0, "変動or固定": "", "有限or無限": "", "支払月": "", "最終月額": 0, "振込手数料": 0, "開始月": "", "完済月": ""}])
+    display_df = pd.concat([dummy, display_df], ignore_index=True)
+    
+    event = st.dataframe(
+        display_df.drop(columns=["fixed_cost_id"]),
+        use_container_width=True,
+        on_select="rerun",
+        selection_mode="single-row",
+        hide_index=True
     )
+    
+    selected_rows = event.selection.rows
+    if selected_rows:
+        selected_idx = selected_rows[0]
+        target_id = display_df.iloc[selected_idx]["fixed_cost_id"]
+        if target_id == "new":
+            edit_target = {"fixed_cost_id": "new", "item_name": ""}
+        else:
+            edit_target = next(c for c in costs if c["fixed_cost_id"] == target_id)
 
-    if edit_target["fixed_cost_id"] == "new":
+    if not selected_rows:
+        st.info("上の表の左端のチェックボックスをクリックして、編集または追加を行ってください。")
+    elif edit_target["fixed_cost_id"] == "new":
         st.markdown("#### 新規登録")
         _render_fixed_cost_form("add", username)
     else:
