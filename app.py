@@ -442,6 +442,26 @@ def delete_bank(username, bank_id):
         import streamlit as st
         st.error(f"銀行削除エラー: {e}")
         return False
+def update_bank(username, bank_id, bank_name, balance):
+    try:
+        sheet = get_sheet(BANK_MASTER_WORKSHEET_NAME, create_if_not_found=True)
+        init_bank_master_sheet(sheet)
+        records = safe_gspread_call(sheet.get_all_records)
+        row_idx = -1
+        for i, row in enumerate(records):
+            if str(row.get("username", "")).lower() == username.lower() and str(row.get("bank_id", "")) == str(bank_id):
+                row_idx = i + 2
+                break
+        
+        if row_idx > 1:
+            safe_gspread_call(sheet.update_cell, row_idx, 3, bank_name)
+            safe_gspread_call(sheet.update_cell, row_idx, 4, balance)
+            return True
+        return False
+    except Exception as e:
+        import streamlit as st
+        st.error(f"銀行更新エラー: {e}")
+        return False
 
 def get_fixed_costs(username):
     """ユーザーの固定費リストを取得する"""
@@ -2981,21 +3001,52 @@ def show_bank_master():
                 else:
                     st.error("銀行名を入力してください。")
                     
-    st.markdown("### 📋 登録済みの銀行一覧")
+    st.markdown("### 📋 登録済みの銀行一覧と編集・削除")
     banks = get_banks(username)
     if banks:
         import pandas as pd
         df = pd.DataFrame(banks)
         st.dataframe(df[["bank_name", "balance"]].rename(columns={"bank_name": "銀行名", "balance": "残高"}), use_container_width=True)
         
-        st.markdown("#### 🗑️ 銀行の削除")
-        del_target = st.selectbox("削除する銀行を選択", options=[(b["bank_id"], b["bank_name"]) for b in banks], format_func=lambda x: x[1])
-        if st.button("削除する", key="del_bank_btn"):
-            if delete_bank(username, del_target[0]):
-                st.success("削除しました！")
-                import time
-                time.sleep(1)
-                st.rerun()
+        st.markdown("#### ✏️ 編集または削除する銀行を選択")
+        edit_target = st.selectbox("対象銀行", options=banks, format_func=lambda b: f"{b['bank_name']} (残高: ￥{b['balance']:,})", label_visibility="collapsed")
+        
+        if edit_target:
+            with st.form(f"edit_bank_form_{edit_target['bank_id']}"):
+                col1, col2 = st.columns(2)
+                with col1:
+                    edit_name = st.text_input("銀行名*", value=edit_target["bank_name"])
+                with col2:
+                    edit_balance = st.number_input("残高", value=int(edit_target["balance"]), step=1000)
+                
+                # ボタン配置
+                col_upd, col_del, col_confirm = st.columns([2, 1, 1])
+                with col_upd:
+                    update_submitted = st.form_submit_button("情報を更新する", type="primary", use_container_width=True)
+                with col_del:
+                    delete_submitted = st.form_submit_button("削除する", use_container_width=True)
+                with col_confirm:
+                    confirm_del = st.checkbox("本当に削除する", help="削除する場合はチェックを入れてから削除ボタンを押してください。")
+                
+                if update_submitted:
+                    if edit_name:
+                        import time
+                        if update_bank(username, edit_target["bank_id"], edit_name, edit_balance):
+                            st.success(f"「{edit_name}」の情報を更新しました！")
+                            time.sleep(1)
+                            st.rerun()
+                    else:
+                        st.error("銀行名を入力してください。")
+                
+                if delete_submitted:
+                    if confirm_del:
+                        import time
+                        if delete_bank(username, edit_target["bank_id"]):
+                            st.success(f"「{edit_target['bank_name']}」を削除しました！")
+                            time.sleep(1)
+                            st.rerun()
+                    else:
+                        st.error("削除する場合は、右側の「本当に削除する」にチェックを入れてからボタンを押してください。")
     else:
         st.info("登録されている銀行はありません。")
 
