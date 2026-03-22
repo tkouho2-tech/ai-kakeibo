@@ -2549,6 +2549,83 @@ def show_category_master():
         else:
             st.info("大分類が登録されていません。左側から大分類を追加してください。")
 
+def show_fixed_cost_management():
+    """固定費管理（支払管理）シートの作成とリンク表示"""
+    import streamlit as st
+    import gspread
+    
+    st.markdown("#### 📑 固定費管理（支払管理）")
+    st.info("ログインアカウント専用の「支払管理用スプレッドシート」を作成・管理します。")
+    
+    username = st.session_state.get("username", "")
+    sheet_name = f"{username}_支払管理"
+    
+    client = get_gspread_client()
+    if client is None:
+        st.error("Google Drive / Sheets への接続に失敗しました。")
+        return
+        
+    try:
+        # スプレッドシートが存在するか確認 (サービスアカウントに共有されているか)
+        try:
+            def _open_fixed_sheet():
+                return client.open(sheet_name)
+            sheet = safe_gspread_call(_open_fixed_sheet)
+            url = sheet.url
+            st.success("✅ 専用の固定費管理シート（支払管理シート）と連携済みです。")
+            st.markdown(f"**🔗 [こちらのリンクからスプレッドシートを開いて編集してください]({url})**")
+            st.write("※必要に応じて、スマートフォンやPCのブラウザでブックマークしておくことをおすすめします。")
+            
+        except gspread.exceptions.SpreadsheetNotFound:
+            st.warning(f"現在、あなた（{username}）専用の支払管理シートはアプリと連携されていません。")
+            
+            # Googleサービスアカウントの容量制限を回避するため、
+            # ユーザーの権限で動作する Google Apps Script (GAS) Webアプリを呼び出す
+            if st.button("固定費管理シート（支払管理）を作成する", type="primary"):
+                with st.spinner("シートを作成中...（10秒程度かかる場合があります）"):
+                    try:
+                        import requests
+                        # ユーザーがデプロイしたGASウェブアプリのURL
+                        gas_url = "https://script.google.com/macros/s/AKfycbydYbEYLvidlXeWI8MTcyGx2dC_RUHLnAGR2aDgxWigcpAniHh0izNuaOU_wn7V5PQf/exec"
+                        
+                        # サービスアカウントのアドレスを安全に取得
+                        service_email = ""
+                        try:
+                            if "gcp_service_account" in st.secrets:
+                                service_email = st.secrets["gcp_service_account"].get("client_email", "")
+                            else:
+                                import json, os
+                                if os.path.exists("credentials.json"):
+                                    with open("credentials.json", "r", encoding="utf-8") as f:
+                                        creds_data = json.load(f)
+                                        service_email = creds_data.get("client_email", "")
+                        except:
+                            pass
+                            
+                        # GASを呼び出してコピーと共有を実行させる
+                        res = requests.post(gas_url, data={
+                            "action": "copy",
+                            "newName": sheet_name,
+                            "shareEmail": service_email
+                        }, timeout=45)
+                        
+                        data = res.json()
+                        if data.get("status") == "success":
+                            # 作成が成功したら、少し待機してからリロードを促す（Google Driveの反映待ち）
+                            st.success("🎉 固定費管理シートの作成と連携が完了しました！")
+                            st.markdown(f"**🔗 [こちらのリンクから新しく作成されたスプレッドシートを開いて編集してください]({data.get('url')})**")
+                            st.info("※次回のアクセス時からは、この画面の上部に直接リンクが表示されます。")
+                            import time
+                            time.sleep(2)
+                            st.rerun()
+                        else:
+                            st.error(f"作成エラー: {data.get('message', '不明なエラー')}")
+                    except Exception as e:
+                        st.error(f"通信エラーが発生しました: {e}")
+
+    except Exception as e:
+        st.error(f"Google API 通信中にエラーが発生しました: {e}")
+
 def show_payment_master():
     """支払い方法マスター設定画面"""
     st.markdown("#### 💳 支払い方法マスター")
@@ -3693,7 +3770,7 @@ def main():
             group1_opts = ["ダッシュボード（月次集計）", "ダッシュボード（年次集計）", "カレンダー", "クレジットカード"]
             group2_opts = ["レシート取込", "レシート手入力", "レシート修正"]
             group3_opts = ["マニュアル", "ヘルプ", "AI相談"]
-            group4_opts = ["支払方法マスター", "銀行マスター", "プロフィール設定"]
+            group4_opts = ["支払方法マスター", "銀行マスター", "プロフィール設定", "固定費管理"]
             if st.session_state.get('username', '').lower() == 'tkouho':
                 group4_opts.append("カテゴリマスター")
                 
@@ -5259,6 +5336,7 @@ MBTI: {mbti}
 ・ダッシュボード（年次集計）：選択した年の支出を月ごとに集計・表示し、前年対比棒グラフなどを確認できます。
 ・カレンダー：初期表示で「本日の日付」が自動選択され、本日の支出明細がすぐに見られます。月間カレンダー上の日付クリックでも明細が表示されます。
 ・クレジットカード：登録したカードの利用状況を「当月支払」「次回支払額」「次回以降支払額」の3つの期間に分けて表示します。それぞれの期間の明細は、日付＋店舗名＞大分類＞小分類＞商品名の4階層のドリルダウンで詳細を確認できます。未払い金額に対して現在の利用率や残高も表示されます。
+・固定費管理：毎月の固定費と変動費のシミュレーションを行い、支払い方法別の小計や総合計を確認できます。ワンクリックで支払いスプレッドシートへの連携（GAS連携）も可能です。
 
 【レシート管理】（支出データを登録・修正するメニュー）
 ・レシート取込：写真をアップロードし、AIで自動解析します。「Gift」や「ギフト」のキーワードがあれば自動で「割引・ポイント利用」のマイナス金額として抽出します。解析結果はアコーディオン形式（大分類＞小分類＞商品）で詳細を確認できます。支払い方法が「未設定」のまま登録ボタンを押すと警告が出ますが、そのまま再度押すことで未設定のまま登録も可能です。
@@ -5266,8 +5344,8 @@ MBTI: {mbti}
 ・レシート修正：過去データの検索・修正・削除、対象レシートの一括更新が行えます。個別の明細を修正中（選択中）のときは、誤操作を防ぐためにレシート全体の日付や店舗名などのヘッダーがロックされる仕組みがあります。
 
 【相談・サポート】（使い方や家計の悩みを解決するメニュー）
-・マニュアル：このアプリの全機能と使い方の一覧です。
-・ヘルプチャット：あなた（AIアシ接ント）にアプリの操作方法などを直接質問できる機能です。
+・マニュアル：このアプリの全機能と使い方の一覧です。（※各項目にはテキスト読み上げ機能がついています）
+・ヘルプチャット：あなた（AIアシスタント）にアプリの操作方法などを直接質問できる機能です。
 ・AI相談（専属FP）：ユーザーの実際の家計データを元に、AIがFPとして個別アドバイスを行います。
 
 【マスター設定】（アプリの基本設定を行うメニュー）
@@ -5372,6 +5450,18 @@ MBTI: {mbti}
                 """
                 st.markdown(text_cc)
                 render_speech_synthesis_button(text_cc.replace("**", "").replace("-", ""), "sp_cc")
+
+            with st.expander("📝 固定費管理"):
+                text_fixed = """
+                **概要**: 毎月の固定費と年間の特別出費を入力し、月ごとの支払いシミュレーションを行います。
+                **操作手順**:
+                1. サイドバーから「固定費管理」を選択します。
+                2. 固定費や変動費の項目・金額・支払い方法等を入力して表を完成させます。
+                3. 表の下部には、支払い方法別の小計と総合計が自動計算され表示されます。
+                4. 「シートを作成」ボタンを押すと、GAS連携により専用の支払いスプレッドシートが自動作成されます。
+                """
+                st.markdown(text_fixed)
+                render_speech_synthesis_button(text_fixed.replace("**", "").replace("-", ""), "sp_fixed")
 
             st.markdown("<h4 style='color: navy; margin-top: 30px;'>【レシート管理】</h4>", unsafe_allow_html=True)
             st.caption("日々の買い物や支出の記録を追加・修正するためのメニューです。")
@@ -5508,6 +5598,8 @@ MBTI: {mbti}
             show_bank_master()
         elif menu_selection == "カテゴリマスター":
             show_category_master()
+        elif menu_selection == "固定費管理":
+            show_fixed_cost_management()
 
         elif menu_selection == "プロフィール設定":
             show_profile_settings()
@@ -5518,7 +5610,7 @@ MBTI: {mbti}
         elif menu_selection in ["固定費ダッシュボード（シミュレーション）"]:
             show_fixed_cost_dashboard()
 
-        st.caption("マイニー Ver 4.7.0 - ユーザー: %s" % st.session_state['username'])
+        st.caption("マイニー Ver 4.8.0 - ユーザー: %s" % st.session_state['username'])
             
     # 未ログインの状態 (ログイン・登録画面)
     else:
