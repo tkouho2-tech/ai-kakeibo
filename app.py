@@ -18,8 +18,7 @@ import time
 import re
 import base64
 import xlsxwriter
-
-
+from fixed_cost_expansion import show_fixed_cost_data_expansion, show_open_management_sheet
 # ---------- 構成設定 ----------
 from urllib.parse import urlparse
 
@@ -2554,8 +2553,8 @@ def show_fixed_cost_management():
     import streamlit as st
     import gspread
     
-    st.markdown("#### 📑 固定費管理（支払管理）")
-    st.info("ログインアカウント専用の「支払管理用スプレッドシート」を作成・管理します。")
+    st.markdown("#### 📑 固定費管理シート新規作成")
+    st.info("ログインアカウント専用の「固定費管理シート」を作成します。")
     
     username = st.session_state.get("username", "")
     sheet_name = f"{username}_支払管理"
@@ -2571,10 +2570,7 @@ def show_fixed_cost_management():
             def _open_fixed_sheet():
                 return client.open(sheet_name)
             sheet = safe_gspread_call(_open_fixed_sheet)
-            url = sheet.url
-            st.success("✅ 専用の固定費管理シート（支払管理シート）と連携済みです。")
-            st.markdown(f"**🔗 [こちらのリンクからスプレッドシートを開いて編集してください]({url})**")
-            st.write("※必要に応じて、スマートフォンやPCのブラウザでブックマークしておくことをおすすめします。")
+            st.info(f"固定費管理シート（{sheet_name}）は既に作成済です。")
             
         except gspread.exceptions.SpreadsheetNotFound:
             st.warning(f"現在、あなた（{username}）専用の支払管理シートはアプリと連携されていません。")
@@ -2623,6 +2619,63 @@ def show_fixed_cost_management():
                     except Exception as e:
                         st.error(f"通信エラーが発生しました: {e}")
 
+    except Exception as e:
+        st.error(f"Google API 通信中にエラーが発生しました: {e}")
+
+def show_fixed_cost_master_settings():
+    """固定費マスター設定画面"""
+    import streamlit as st
+    import gspread
+    import pandas as pd
+    
+    st.markdown("#### ⚙️ 固定費マスター設定")
+    
+    username = st.session_state.get("username", "")
+    sheet_name = f"{username}_支払管理"
+    
+    client = get_gspread_client()
+    if client is None:
+        st.error("Google Drive / Sheets への接続に失敗しました。")
+        return
+        
+    try:
+        def _open_fixed_sheet():
+            return client.open(sheet_name)
+        sheet = safe_gspread_call(_open_fixed_sheet)
+        
+        try:
+            worksheet = sheet.worksheet("固定費マスター")
+            url = f"{sheet.url}#gid={worksheet.id}"
+        except gspread.exceptions.WorksheetNotFound:
+            # フォールバック: シートが存在しない場合はスプレッドシート全体のURLを使う
+            url = sheet.url
+            
+        st.info("固定費管理シートの「固定費マスター」シートを開いて直接設定を行います。")
+        if st.link_button("🌐 「固定費マスター」シートを開く", url=url, type="primary"):
+            pass
+            
+        st.markdown("---")
+        st.markdown("##### 📝 「固定費マスター」設定項目説明")
+        
+        data = [
+            {"項目名": "科目１", "説明": "支払手段の大きな分類を設定します。", "入力例・補足": "口座引落、クレジットカード、現金振込 など"},
+            {"項目名": "科目２", "説明": "具体的な支払元（銀行名やカード名）を設定します。", "入力例・補足": "りそな銀行、楽天カード、三井住友銀行 など"},
+            {"項目名": "有限or無限", "説明": "支払に終わりがあるか（ローン等）継続するかを設定します。", "入力例・補足": "有限: ローン、分割払、契約期間あり\\n無限: 公共料金、サブスク、家賃 など"},
+            {"項目名": "科目詳細", "説明": "具体的な支払内容の名称です。支払管理シートとの紐付けに使います。", "入力例・補足": "住宅ローン、ガス代、Netflix、学資保険 など"},
+            {"項目名": "支払額", "説明": "1回あたりの支払金額を入力します。", "入力例・補足": "125567、10000（カンマや￥はなしで数値のみ推奨）"},
+            {"項目名": "変動or固定", "説明": "金額が毎月一定か、月によって変わるかを選択します。", "入力例・補足": "固定: 家賃、保険料、定額サブスク\\n変動: 電気代、水道代、ガス代"},
+            {"項目名": "支払月", "説明": "支払が発生するタイミング（頻度）を設定します。", "入力例・補足": "毎月: 毎月支払\\n数値+月: 「9月」など特定の月のみ（年払など）"},
+            {"項目名": "最終月額", "説明": "ローンの最終回など、通常と金額が異なる場合の額を入力します。", "入力例・補足": "125706（端数調整が必要な場合のみ記入）"},
+            {"項目名": "振込手数料", "説明": "支払時に別途手数料が発生する場合にその額を入力します。", "入力例・補足": "110、220、440 など"},
+            {"項目名": "開始月", "説明": "その支払がいつから始まるかを設定します。", "入力例・補足": "2026年4月（yyyy年m月の形式）"},
+            {"項目名": "完済月", "説明": "「有限」の場合のみ、支払が終わる月を設定します。", "入力例・補足": "2029年8月（無限の場合は空欄）"},
+        ]
+        df = pd.DataFrame(data)
+        st.dataframe(df, hide_index=True, use_container_width=True)
+        
+    except gspread.exceptions.SpreadsheetNotFound:
+        st.warning(f"現在、あなた（{username}）専用の固定費管理シートは作成されていません。")
+        st.info("先に「管理シート新規作成」メニューからシートを作成してください。")
     except Exception as e:
         st.error(f"Google API 通信中にエラーが発生しました: {e}")
 
@@ -3318,384 +3371,6 @@ def _render_fixed_cost_form(action_type, username, target_data=None):
         return delete_btn
     return False
 
-def show_fixed_cost_settings():
-    st.markdown("## 🔴 固定費設定マスター")
-    st.caption("毎月の固定費や長期間（有限回数）の支払設定を管理します。")
-    
-    username = st.session_state['username']
-    
-    st.markdown("### 📋 登録済みの固定費一覧")
-    st.caption("※左端のチェックボックスを選択すると、そのデータの下に編集フォームが開きます。一番上の「➕ 新規追加」を選ぶと新しく登録できます。")
-    import pandas as pd
-    costs = get_fixed_costs(username)
-    
-    df = pd.DataFrame(costs) if costs else pd.DataFrame(columns=["fixed_cost_id", "item_name", "payment_1", "payment_2", "amount", "fixed_or_variable", "is_finite", "payment_month", "final_amount", "transfer_fee", "start_month", "completion_month"])
-    if not df.empty:
-        display_df = df[["fixed_cost_id", "item_name", "payment_1", "payment_2", "amount", "fixed_or_variable", "is_finite", "payment_month", "final_amount", "transfer_fee", "start_month", "completion_month"]].copy()
-    else:
-        display_df = pd.DataFrame(columns=["fixed_cost_id", "item_name", "payment_1", "payment_2", "amount", "fixed_or_variable", "is_finite", "payment_month", "final_amount", "transfer_fee", "start_month", "completion_month"])
-    
-    display_df.columns = ["fixed_cost_id", "科目", "固定支払１", "固定支払２", "支払額", "変動or固定", "有限or無限", "支払月", "最終月額", "振込手数料", "開始月", "完済月"]
-    
-    dummy = pd.DataFrame([{"fixed_cost_id": "new", "科目": "➕ 新規追加（ここを選択して追加）", "固定支払１": "", "固定支払２": "", "支払額": 0, "変動or固定": "", "有限or無限": "", "支払月": "", "最終月額": 0, "振込手数料": 0, "開始月": "", "完済月": ""}])
-    display_df = pd.concat([dummy, display_df], ignore_index=True)
-    
-    event = st.dataframe(
-        display_df.drop(columns=["fixed_cost_id"]),
-        use_container_width=True,
-        on_select="rerun",
-        selection_mode="single-row",
-        hide_index=True
-    )
-    
-    selected_rows = event.selection.rows
-    if selected_rows:
-        selected_idx = selected_rows[0]
-        target_id = display_df.iloc[selected_idx]["fixed_cost_id"]
-        if target_id == "new":
-            edit_target = {"fixed_cost_id": "new", "item_name": ""}
-        else:
-            edit_target = next(c for c in costs if c["fixed_cost_id"] == target_id)
-
-    if not selected_rows:
-        st.info("上の表の左端のチェックボックスをクリックして、編集または追加を行ってください。")
-    elif edit_target["fixed_cost_id"] == "new":
-        st.markdown("#### 新規登録")
-        _render_fixed_cost_form("add", username)
-    else:
-        target_id = edit_target["fixed_cost_id"]
-        confirm_key = "confirm_del_fc"
-        
-        if st.session_state.get(confirm_key) == target_id:
-            st.warning(f"「{edit_target['item_name']}」を本当に削除しますか？この操作は取り消せません。")
-            c_yes, c_no = st.columns(2)
-            with c_yes:
-                if st.button("はい、削除します", type="primary", use_container_width=True):
-                    import time
-                    if delete_fixed_cost(username, target_id):
-                        st.success(f"「{edit_target['item_name']}」を削除しました！")
-                        st.session_state[confirm_key] = None
-                        time.sleep(1)
-                        st.rerun()
-            with c_no:
-                if st.button("キャンセル", use_container_width=True):
-                    st.session_state[confirm_key] = None
-                    st.rerun()
-        else:
-            st.markdown("#### 編集")
-            delete_clicked = _render_fixed_cost_form("update", username, edit_target)
-            if delete_clicked:
-                st.session_state[confirm_key] = target_id
-                st.rerun()
-
-
-def _get_year_month(ym_str):
-    # Parses '2026年4月' into (2026, 4)
-    if not ym_str or "年" not in ym_str or "月" not in ym_str:
-        return (9999, 12)
-    try:
-        y, m = ym_str.replace("月", "").split("年")
-        return (int(y), int(m))
-    except:
-        return (9999, 12)
-
-def _style_simulation_df(df):
-    def highlight_totals(row):
-        val = str(row.get("固定支払１", ""))
-        if "小計】" in val:
-            return ["background-color: rgba(173, 216, 230, 0.3)"] * len(row)
-        elif "【総合計】" in val:
-            return ["background-color: rgba(255, 182, 193, 0.4)"] * len(row)
-        return [""] * len(row)
-        
-    num_cols = [c for c in df.columns if "年" in c and "月" in c]
-    # Check if they are actually numeric
-    import pandas as pd
-    for c in num_cols:
-        df[c] = pd.to_numeric(df[c], errors="coerce")
-        
-    format_dict = {c: "{:,.0f}" for c in num_cols}
-    return df.style.apply(highlight_totals, axis=1).format(format_dict, na_rep="")
-
-def show_fixed_cost_dashboard():
-    st.markdown("## 📊 固定費ダッシュボード（シミュレーション）")
-    st.caption("指定した期間における月別の固定費発生を予測・展開したスプレッドシートを作成します。")
-    username = st.session_state['username']
-    
-    import datetime
-    now = datetime.datetime.now()
-    
-    # Generate month options from 2 years ago to 5 years into the future
-    month_opts = []
-    base_year = now.year - 2
-    for y in range(base_year, base_year + 8):
-        for m in range(1, 13):
-            month_opts.append(f"{y}年{m}月")
-            
-    # Default selection
-    def_start = f"{now.year}年{now.month}月"
-    try:
-        idx_start = month_opts.index(def_start)
-    except:
-        idx_start = 0
-        
-    try:
-        idx_end = month_opts.index(f"{now.year+1}年{now.month}月") # 1 year later
-    except:
-        idx_end = min(idx_start + 12, len(month_opts) - 1)
-
-    c_load, c_dummy = st.columns([1, 1])
-    with c_load:
-        if st.button("前回保存したスプレッドシートを読み込む", use_container_width=True):
-            st.session_state["dashboard_sim_params"] = "LOAD_SAVED"
-            
-    st.markdown("---")
-
-    with st.form("dashboard_filter_form"):
-        col1, col2 = st.columns(2)
-        with col1:
-            start_month_str = st.selectbox("指定開始年月", month_opts, index=idx_start)
-        with col2:
-            end_month_str = st.selectbox("指定最終年月", month_opts, index=idx_end)
-            
-        run_btn = st.form_submit_button("シミュレーションを展開・実行する", type="primary", use_container_width=True)
-        
-    if run_btn:
-        st.session_state["dashboard_sim_params"] = (start_month_str, end_month_str)
-        
-    params = st.session_state.get("dashboard_sim_params")
-    
-    if params == "LOAD_SAVED":
-        sheet_name = f"FC_Sim_{username}"
-        try:
-            sheet = get_sheet(sheet_name, create_if_not_found=False)
-            records = safe_gspread_call(sheet.get_all_records)
-            if records:
-                import pandas as pd
-                df_saved = pd.DataFrame(records)
-                st.success("前回保存したデータを読み込みました！")
-                st.dataframe(_style_simulation_df(df_saved), use_container_width=True)
-                url = sheet.url
-                st.markdown(f"**[🔗 保存先スプレッドシートをブラウザで開く]({url})**")
-            else:
-                st.info("保存されたデータが空です。")
-        except Exception as e:
-            st.info("まだ保存されたデータがありません。「実行する」を押してシミュレーションを作り、表の下にある保存ボタンを押してください。")
-            
-    elif isinstance(params, tuple):
-        p_start_str, p_end_str = params
-        start_y, start_m = _get_year_month(p_start_str)
-        end_y, end_m = _get_year_month(p_end_str)
-        
-        if (start_y > end_y) or (start_y == end_y and start_m > end_m):
-            st.error("最終年月は開始年月以降に設定してください。")
-            return
-            
-        st.markdown("---")
-        
-        # Generate list of target months
-        target_months = []
-        cy, cm = start_y, start_m
-        while (cy < end_y) or (cy == end_y and cm <= end_m):
-            target_months.append(f"{cy}年{cm}月")
-            cm += 1
-            if cm > 12:
-                cm = 1
-                cy += 1
-                
-        costs = get_fixed_costs(username)
-        if not costs:
-            st.info("登録されている固定費はありません。「マスター設定」から固定費を登録してください。")
-            return
-            
-        # Build data matrix
-        data = []
-        for c in costs:
-            is_finite = c.get("is_finite", "無限") == "有限"
-            
-            row = {
-                "固定支払１": c.get("payment_1", ""),
-                "固定支払２": c.get("payment_2", ""),
-                "科目": c.get("item_name", ""),
-                "有限/無限": "有限" if is_finite else "無限"
-            }
-            
-            c_pm = c.get("payment_month", "毎月")
-            cs_ym_str = c.get("start_month", "")
-            ce_ym_str = c.get("completion_month", "")
-            
-            cs_y, cs_m = _get_year_month(cs_ym_str) if is_finite else (0, 0)
-            ce_y, ce_m = _get_year_month(ce_ym_str) if is_finite else (9999, 12)
-            
-            try: base_amt = int(c.get("amount", 0))
-            except: base_amt = 0
-            
-            try: final_amt = int(c.get("final_amount", 0))
-            except: final_amt = 0
-            
-            for tm in target_months:
-                tm_y, tm_m = _get_year_month(tm)
-                amount_this_month = 0
-                
-                # Check duration
-                is_active = True
-                if is_finite:
-                    if (tm_y < cs_y) or (tm_y == cs_y and tm_m < cs_m):
-                        is_active = False
-                    if (tm_y > ce_y) or (tm_y == ce_y and tm_m > ce_m):
-                        is_active = False
-                        
-                if is_active:
-                    # Check payment month
-                    if c_pm == "毎月" or c_pm == f"{tm_m}月":
-                        # Check if finite and is the very last month
-                        if is_finite and tm_y == ce_y and tm_m == ce_m:
-                            amount_this_month = final_amt
-                        else:
-                            amount_this_month = base_amt
-                            
-                row[tm] = amount_this_month
-            data.append(row)
-            
-        import pandas as pd
-        raw_df = pd.DataFrame(data)
-        
-        # Sort by 固定支払１
-        raw_df = raw_df.sort_values(by="固定支払１")
-        
-        final_rows = []
-        grand_totals = {tm: 0 for tm in target_months}
-        
-        for p1, group in raw_df.groupby("固定支払１", sort=False):
-            # Append each row in the group
-            for _, row_s in group.iterrows():
-                final_rows.append(row_s.to_dict())
-            
-            # Subtotal row for this group
-            subtotal_row = {
-                "固定支払１": f"【{p1} 小計】",
-                "固定支払２": "",
-                "科目": "",
-                "有限/無限": ""
-            }
-            for tm in target_months:
-                val_sum = int(group[tm].sum())
-                subtotal_row[tm] = val_sum
-                grand_totals[tm] += val_sum
-                
-            final_rows.append(subtotal_row)
-            
-        # Grand total row
-        grand_total_row = {
-            "固定支払１": "【総合計】",
-            "固定支払２": "",
-            "科目": "",
-            "有限/無限": ""
-        }
-        for tm in target_months:
-            grand_total_row[tm] = grand_totals[tm]
-            
-        final_rows.append(grand_total_row)
-        
-        df = pd.DataFrame(final_rows)
-        
-        st.dataframe(_style_simulation_df(df), use_container_width=True)
-        
-        col_dl, col_save = st.columns(2)
-        with col_dl:
-            csv = df.to_csv(index=False).encode('utf-8_sig')
-            st.download_button(
-                label="📥 CSVをダウンロード",
-                data=csv,
-                file_name=f"固定費シミュレーション_{p_start_str}_{p_end_str}.csv",
-                mime="text/csv",
-                use_container_width=True
-            )
-        with col_save:
-            if st.button("💾 この表をGoogle Sheetsに保存", use_container_width=True):
-                with st.spinner("スプレッドシートへ保存・書式設定中..."):
-                    try:
-                        sheet_name = f"FC_Sim_{username}"
-                        sheet = get_sheet(sheet_name, create_if_not_found=True)
-                        safe_gspread_call(sheet.clear)
-                        
-                        # Use raw numbers instead of strings for numeric columns so sheets recognizes them as numbers!
-                        df_for_sheet = df.copy()
-                        for c in df_for_sheet.columns:
-                            if "年" in c and "月" in c:
-                                df_for_sheet[c] = pd.to_numeric(df_for_sheet[c], errors="coerce")
-                        
-                        # Replace NaNs with empty strings
-                        df_list = [df_for_sheet.columns.values.tolist()] + df_for_sheet.fillna("").values.tolist()
-                        safe_gspread_call(sheet.update, "A1", df_list)
-                        
-                        # --- Apply Formatting using gspread batch_update ---
-                        requests = []
-                        sheet_id = sheet.id
-                        num_rows = len(df_list)
-                        num_cols = len(df_list[0])
-                        
-                        # 1. Number format (comma) and align right for target_months
-                        requests.append({
-                            "repeatCell": {
-                                "range": {
-                                    "sheetId": sheet_id,
-                                    "startRowIndex": 1,
-                                    "endRowIndex": num_rows,
-                                    "startColumnIndex": 4, # '固定支払１', '固定支払２', '科目', '有限/無限' = 4 cols
-                                    "endColumnIndex": num_cols
-                                },
-                                "cell": {
-                                    "userEnteredFormat": {
-                                        "numberFormat": {
-                                            "type": "NUMBER",
-                                            "pattern": "#,##0"
-                                        },
-                                        "horizontalAlignment": "RIGHT"
-                                    }
-                                },
-                                "fields": "userEnteredFormat.numberFormat,userEnteredFormat.horizontalAlignment"
-                            }
-                        })
-                        
-                        # 2. Add row coloring for subtotals and grand totals
-                        for i in range(len(df_for_sheet)):
-                            val = str(df_for_sheet.iloc[i].get("固定支払１", ""))
-                            bg_color = None
-                            if "小計】" in val:
-                                bg_color = {"red": 0.85, "green": 0.92, "blue": 1.0} # Light Blue
-                            elif "【総合計】" in val:
-                                bg_color = {"red": 1.0, "green": 0.85, "blue": 0.88} # Light Red/Pink
-                                
-                            if bg_color:
-                                requests.append({
-                                    "repeatCell": {
-                                        "range": {
-                                            "sheetId": sheet_id,
-                                            "startRowIndex": i + 1, # +1 for header
-                                            "endRowIndex": i + 2,
-                                            "startColumnIndex": 0,
-                                            "endColumnIndex": num_cols
-                                        },
-                                        "cell": {
-                                            "userEnteredFormat": {
-                                                "backgroundColor": bg_color
-                                            }
-                                        },
-                                        "fields": "userEnteredFormat.backgroundColor"
-                                    }
-                                })
-                        
-                        # Execute formatting
-                        if requests:
-                            safe_gspread_call(sheet.spreadsheet.batch_update, {"requests": requests})
-                            
-                        st.success("スプレッドシートへの保存・書式反映が完了しました！")
-                        url = sheet.url
-                        st.markdown(f"**[🔗 自動で色付けされたスプレッドシートをブラウザで開く]({url})**")
-                    except Exception as e:
-                        st.error(f"保存・書式エラー: {e}")
-
 def main():
     # --- 初期化 ---
     if 'logged_in' not in st.session_state:
@@ -3770,12 +3445,13 @@ def main():
             group1_opts = ["ダッシュボード（月次集計）", "ダッシュボード（年次集計）", "カレンダー", "クレジットカード"]
             group2_opts = ["レシート取込", "レシート手入力", "レシート修正"]
             group3_opts = ["マニュアル", "ヘルプ", "AI相談"]
-            group4_opts = ["支払方法マスター", "銀行マスター", "プロフィール設定", "固定費管理"]
+            group4_opts = ["支払方法マスター", "銀行マスター", "プロフィール設定"]
             if st.session_state.get('username', '').lower() == 'tkouho':
                 group4_opts.append("カテゴリマスター")
                 
-            # 固定費管理用のプレースホルダ
-            group5_opts = ["固定費ダッシュボード（シミュレーション）", "固定費設定マスター"]
+            group5_opts = ["管理シート新規作成", "固定費マスター設定", "固定費データ展開"]
+            group6_opts = ["管理シートを開く"]
+
             
             current_sel = st.session_state['menu_selection']
             
@@ -3785,6 +3461,7 @@ def main():
             st.session_state["menu_g3"] = current_sel if current_sel in group3_opts else None
             st.session_state["menu_g4"] = current_sel if current_sel in group4_opts else None
             st.session_state["menu_g5"] = current_sel if current_sel in group5_opts else None
+            st.session_state["menu_g6"] = current_sel if current_sel in group6_opts else None
             
             # ＝＝＝ 変動費管理セクション ＝＝＝
             st.markdown("<div style='padding-bottom: 30px;'><h3 style='color: #007bff; border-bottom: 2px solid #007bff; padding-bottom: 5px; margin: 0;'>🔵 変動費管理</h3></div>", unsafe_allow_html=True)
@@ -3808,9 +3485,13 @@ def main():
             # ＝＝＝ 固定費管理セクション ＝＝＝
             st.markdown("<div style='padding-top: 10px; padding-bottom: 30px;'><h3 style='color: #ff6b6b; border-bottom: 2px solid #ff6b6b; padding-bottom: 5px; margin: 0;'>🔴 固定費管理</h3></div>", unsafe_allow_html=True)
             
-            st.markdown("【固定費・分析設定】")
+            st.markdown("【固定費管理シート作成】")
             st.radio("g5", group5_opts, key="menu_g5", 
                      on_change=on_menu_change, args=("menu_g5",), label_visibility="collapsed")
+            
+            st.markdown("【固定費管理シート参照】")
+            st.radio("g6", group6_opts, key="menu_g6", 
+                     on_change=on_menu_change, args=("menu_g6",), label_visibility="collapsed")
 
                         
             menu_selection = st.session_state['menu_selection']
@@ -5451,17 +5132,20 @@ MBTI: {mbti}
                 st.markdown(text_cc)
                 render_speech_synthesis_button(text_cc.replace("**", "").replace("-", ""), "sp_cc")
 
-            with st.expander("📝 固定費管理"):
+            st.markdown("<h4 style='color: navy; margin-top: 30px;'>【固定費管理】</h4>", unsafe_allow_html=True)
+            st.caption("毎月の固定費のシミュレーションと支払い情報を管理するためのメニューです。")
+            with st.expander("📝 固定費管理の基本操作"):
                 text_fixed = """
-                **概要**: 毎月の固定費と年間の特別出費を入力し、月ごとの支払いシミュレーションを行います。
-                **操作手順**:
-                1. サイドバーから「固定費管理」を選択します。
-                2. 固定費や変動費の項目・金額・支払い方法等を入力して表を完成させます。
-                3. 表の下部には、支払い方法別の小計と総合計が自動計算され表示されます。
-                4. 「シートを作成」ボタンを押すと、GAS連携により専用の支払いスプレッドシートが自動作成されます。
+                **【固定費管理シート作成】**
+                ・**管理シート新規作成**: 初回のみ実行します。ご自身のGoogleドライブ上に専用のスプレッドシート（支払管理・固定費マスター）を自動生成します。
+                ・**固定費マスター設定**: 毎月発生する固定費や変動費の基本ルールを、「固定費マスター」シートへ登録・編集します。
+                ・**固定費データ展開**: マスターの設定内容をもとに、2036年までのタイムラインへ月ごとの支払額を自動計算して展開します。（罫線や背景色の自動フォーマット付き）
+
+                **【固定費管理シート参照】**
+                ・**管理シートを開く**: 直接シミュレーション用のスプレッドシートを開いたり、不要になったシートを削除してリセットすることができます。
                 """
                 st.markdown(text_fixed)
-                render_speech_synthesis_button(text_fixed.replace("**", "").replace("-", ""), "sp_fixed")
+                render_speech_synthesis_button(text_fixed.replace("**", "").replace("・", ""), "sp_fixed")
 
             st.markdown("<h4 style='color: navy; margin-top: 30px;'>【レシート管理】</h4>", unsafe_allow_html=True)
             st.caption("日々の買い物や支出の記録を追加・修正するためのメニューです。")
@@ -5598,19 +5282,23 @@ MBTI: {mbti}
             show_bank_master()
         elif menu_selection == "カテゴリマスター":
             show_category_master()
-        elif menu_selection == "固定費管理":
-            show_fixed_cost_management()
 
         elif menu_selection == "プロフィール設定":
             show_profile_settings()
             
-        elif menu_selection == "固定費設定マスター":
-            show_fixed_cost_settings()
+        elif menu_selection == "管理シート新規作成":
+            show_fixed_cost_management()
             
-        elif menu_selection in ["固定費ダッシュボード（シミュレーション）"]:
-            show_fixed_cost_dashboard()
-
-        st.caption("マイニー Ver 4.8.0 - ユーザー: %s" % st.session_state['username'])
+        elif menu_selection == "固定費マスター設定":
+            show_fixed_cost_master_settings()
+            
+        elif menu_selection == "固定費データ展開":
+            show_fixed_cost_data_expansion()
+            
+        elif menu_selection == "管理シートを開く":
+            show_open_management_sheet()
+            
+        st.caption("マイニー Ver 4.9.0 - ユーザー: %s" % st.session_state['username'])
             
     # 未ログインの状態 (ログイン・登録画面)
     else:
