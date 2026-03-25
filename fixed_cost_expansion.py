@@ -288,13 +288,18 @@ def execute_expansion(username, mode="NEW", start_ym=None):
                     if (my < ey) or (my == ey and mm <= em):
                         # It's active
                         
-                        # Check Frequency
+                        # Check Frequency (Ver 4.19.0: Support 偶数月/奇数月)
                         is_pay_month = False
-                        if pay_month_freq == "毎月":
+                        f_clean = _normalize(pay_month_freq)
+                        if "毎月" in f_clean:
                             is_pay_month = True
+                        elif "偶数月" in f_clean:
+                            is_pay_month = (mm % 2 == 0)
+                        elif "奇数月" in f_clean:
+                            is_pay_month = (mm % 2 != 0)
                         else:
                             # expected "9月" or similar
-                            if str(mm) in pay_month_freq:
+                            if str(mm) in f_clean:
                                 is_pay_month = True
                                 
                         if is_pay_month:
