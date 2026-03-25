@@ -18,7 +18,7 @@ import time
 import re
 import base64
 import xlsxwriter
-from fixed_cost_expansion import show_fixed_cost_data_expansion, show_open_management_sheet
+from fixed_cost_expansion import show_fixed_cost_data_expansion, show_open_management_sheet, show_variable_cost_update
 # ---------- 構成設定 ----------
 from urllib.parse import urlparse
 
@@ -123,6 +123,27 @@ def get_categories_prompt_text():
         text += f"- {major}: {', '.join(minors)}\n"
     text += "\n※ 必ず上記の大分類と小分類の組み合わせに従ってください。"
     return text
+
+def safe_money_int_cast(val):
+    """
+    金額文字列（カンマ、￥、小数点あり）を安全に整数に変換する。
+    AIの出力が "1,380" や "1380.0" などの場合に int() で落ちるのを防ぐ。
+    """
+    if val is None:
+        return 0
+    if isinstance(val, (int, float)):
+        return int(val)
+    try:
+        # 文字列クリーンアップ
+        s = str(val).replace(",", "").replace("￥", "").replace("¥", "").strip()
+        if not s:
+            return 0
+        # 小数点が含まれる場合は一旦floatにしてからintにする
+        if "." in s:
+            return int(float(s))
+        return int(s)
+    except Exception:
+        return 0
 
 # ---------- セッション状態の初期化 ----------
 if 'genai_client' not in st.session_state:
@@ -309,29 +330,60 @@ def get_sheet(worksheet_name, create_if_not_found=False):
         st.error(f"Google Sheets接続エラー: {e}")
         st.stop()
 
+def get_user_master_sheet(username, worksheet_name, create_if_not_found=False):
+    """ユーザー個別の『{username}_支払管理』スプレッドシート内のワークシートを取得する"""
+    client = get_gspread_client()
+    if client is None:
+        return None
+        
+    ss_name = f"{username}_支払管理"
+    try:
+        # スプレッドシートを開く（リトライ付き）
+        def _open_ss():
+            return client.open(ss_name)
+        ss = safe_gspread_call(_open_ss)
+        
+        # ワークシートを取得
+        try:
+            def _get_ws():
+                return ss.worksheet(worksheet_name)
+            return safe_gspread_call(_get_ws)
+        except gspread.exceptions.WorksheetNotFound:
+            if create_if_not_found:
+                def _add_ws():
+                    return ss.add_worksheet(title=worksheet_name, rows="1000", cols="20")
+                return safe_gspread_call(_add_ws)
+            else:
+                return None
+    except gspread.exceptions.SpreadsheetNotFound:
+        # シート未作成の場合は None を返す（呼び出し側で作成を促すメッセージ等を表示）
+        return None
+    except Exception as e:
+        print(f"get_user_master_sheet error: {e}")
+        return None
+
 def init_users_sheet(sheet):
     """初期セットアップ：ヘッダーがない場合に作成する"""
     try:
-        headers = sheet.row_values(1)
+        headers = safe_gspread_call(sheet.row_values, 1)
         if not headers or headers[0] != "username":
-            sheet.insert_row(["username", "password_hash"], 1)
-    except Exception:
-        # シートが空の場合に例外が発生する可能性があるため、その場合はヘッダーを追加
-        sheet.insert_row(["username", "password_hash"], 1)
+            safe_gspread_call(sheet.insert_row, ["username", "password_hash"], 1)
+    except Exception as e:
+        print(f"Init users sheet error: {e}")
 
 def init_transactions_sheet(sheet):
     """初期セットアップ：取引シートのヘッダーがない場合に作成する"""
     expected_headers = ["username", "date", "store_name", "item_name", "category", "subcategory", "amount", "update", "payment_method", "payment_type", "closing_date", "payment_month", "payment_date", "receipt_id"]
     try:
-        headers = sheet.row_values(1)
+        headers = safe_gspread_call(sheet.row_values, 1)
         if not headers or headers[0] != "username":
-            sheet.insert_row(expected_headers, 1)
+            safe_gspread_call(sheet.insert_row, expected_headers, 1)
         elif len(headers) < len(expected_headers):
             # 不足しているヘッダーを追記する
             for i in range(len(headers), len(expected_headers)):
-                sheet.update_cell(1, i + 1, expected_headers[i])
-    except Exception:
-        sheet.insert_row(expected_headers, 1)
+                safe_gspread_call(sheet.update_cell, 1, i + 1, expected_headers[i])
+    except Exception as e:
+        print(f"Init transactions sheet error: {e}")
 
 def init_user_master_sheet(sheet):
     """初期セットアップ：User_Masterシートのヘッダーがない場合に作成する"""
@@ -344,8 +396,8 @@ def init_user_master_sheet(sheet):
             # 不足しているヘッダーを追記する
             for i in range(len(headers), len(expected_headers)):
                 safe_gspread_call(sheet.update_cell, 1, i + 1, expected_headers[i])
-    except Exception:
-        safe_gspread_call(sheet.insert_row, expected_headers, 1)
+    except Exception as e:
+        print(f"Init user_master sheet error: {e}")
 
 def init_payment_master_sheet(sheet):
     """初期セットアップ：Payment_Masterシートのヘッダーがない場合に作成する"""
@@ -357,8 +409,8 @@ def init_payment_master_sheet(sheet):
         elif len(headers) < len(expected_headers):
             for i in range(len(headers), len(expected_headers)):
                 safe_gspread_call(sheet.update_cell, 1, i + 1, expected_headers[i])
-    except Exception:
-        safe_gspread_call(sheet.insert_row, expected_headers, 1)
+    except Exception as e:
+        print(f"Init payment_master sheet error: {e}")
 
 def init_fixed_cost_master_sheet(sheet):
     """初期セットアップ：Fixed_Cost_Masterシートのヘッダーがない場合に作成する"""
@@ -374,8 +426,8 @@ def init_fixed_cost_master_sheet(sheet):
         elif len(headers) < len(expected_headers):
             for i in range(len(headers), len(expected_headers)):
                 safe_gspread_call(sheet.update_cell, 1, i + 1, expected_headers[i])
-    except Exception:
-        safe_gspread_call(sheet.insert_row, expected_headers, 1)
+    except Exception as e:
+        print(f"Init fixed_cost_master sheet error: {e}")
 
 
 
@@ -388,18 +440,22 @@ def init_bank_master_sheet(sheet):
         elif len(headers) < len(expected_headers):
             for i in range(len(headers), len(expected_headers)):
                 safe_gspread_call(sheet.update_cell, 1, i + 1, expected_headers[i])
-    except Exception:
-        safe_gspread_call(sheet.insert_row, expected_headers, 1)
+    except Exception as e:
+        print(f"Init bank_master sheet error: {e}")
 
 def get_banks(username):
     try:
-        sheet = get_sheet(BANK_MASTER_WORKSHEET_NAME, create_if_not_found=True)
+        sheet = get_user_master_sheet(username, BANK_MASTER_WORKSHEET_NAME, create_if_not_found=True)
+        if not sheet:
+            return []
         init_bank_master_sheet(sheet)
         records = safe_gspread_call(sheet.get_all_records)
         banks = []
         if records:
             for row in records:
-                if str(row.get("username", "")).lower() == username.lower():
+                # ユーザー個別シートなのでフィルタリングは不要だが、
+                # 念のため既存ロジックを尊重
+                if not row.get("username") or str(row.get("username", "")).lower() == username.lower():
                     try:
                         b_val = row.get("balance", 0)
                         row["balance"] = int(float(str(b_val).replace(',', '').replace('¥', '').replace('￥', ''))) if b_val != "" else 0
@@ -414,7 +470,9 @@ def get_banks(username):
 
 def add_bank(username, bank_id, bank_name, balance=0):
     try:
-        sheet = get_sheet(BANK_MASTER_WORKSHEET_NAME, create_if_not_found=True)
+        sheet = get_user_master_sheet(username, BANK_MASTER_WORKSHEET_NAME, create_if_not_found=True)
+        if not sheet:
+            return False
         init_bank_master_sheet(sheet)
         safe_gspread_call(sheet.append_row, [username, bank_id, bank_name, balance])
         return True
@@ -425,12 +483,14 @@ def add_bank(username, bank_id, bank_name, balance=0):
 
 def delete_bank(username, bank_id):
     try:
-        sheet = get_sheet(BANK_MASTER_WORKSHEET_NAME, create_if_not_found=True)
+        sheet = get_user_master_sheet(username, BANK_MASTER_WORKSHEET_NAME, create_if_not_found=True)
+        if not sheet:
+            return False
         init_bank_master_sheet(sheet)
         records = safe_gspread_call(sheet.get_all_records)
         row_idx = -1
         for i, row in enumerate(records):
-            if str(row.get("username", "")).lower() == username.lower() and str(row.get("bank_id", "")) == str(bank_id):
+            if str(row.get("bank_id", "")) == str(bank_id):
                 row_idx = i + 2
                 break
         if row_idx > 1:
@@ -443,12 +503,14 @@ def delete_bank(username, bank_id):
         return False
 def update_bank(username, bank_id, bank_name, balance):
     try:
-        sheet = get_sheet(BANK_MASTER_WORKSHEET_NAME, create_if_not_found=True)
+        sheet = get_user_master_sheet(username, BANK_MASTER_WORKSHEET_NAME, create_if_not_found=True)
+        if not sheet:
+            return False
         init_bank_master_sheet(sheet)
         records = safe_gspread_call(sheet.get_all_records)
         row_idx = -1
         for i, row in enumerate(records):
-            if str(row.get("username", "")).lower() == username.lower() and str(row.get("bank_id", "")) == str(bank_id):
+            if str(row.get("bank_id", "")) == str(bank_id):
                 row_idx = i + 2
                 break
         
@@ -1476,19 +1538,11 @@ def verify_receipt_checksum(results):
     for item in results:
         # 合計行の抽出
         if item.get("major_category") == "合計" and item.get("minor_category") == "総合計":
-            try:
-                reported_total = int(item.get("amount", 0))
-            except ValueError:
-                reported_total = None
+            reported_total = safe_money_int_cast(item.get("amount", 0))
             continue
             
         clean_results.append(item)
-        
-        try:
-            amt = int(item.get("amount", 0))
-        except ValueError:
-            amt = 0
-            
+        amt = safe_money_int_cast(item.get("amount", 0))
         cat = item.get("major_category", "")
         # 内税は単価に含まれるため計算から除外
         if "内税" in cat or cat == "消費税（内税）":
@@ -2553,7 +2607,7 @@ def show_fixed_cost_management():
     import streamlit as st
     import gspread
     
-    st.markdown("#### 📑 固定費管理シート新規作成")
+    st.markdown("#### 📑 支払管理シート新規作成")
     st.info("ログインアカウント専用の「固定費管理シート」を作成します。")
     
     username = st.session_state.get("username", "")
@@ -2675,7 +2729,7 @@ def show_fixed_cost_master_settings():
         
     except gspread.exceptions.SpreadsheetNotFound:
         st.warning(f"現在、あなた（{username}）専用の固定費管理シートは作成されていません。")
-        st.info("先に「管理シート新規作成」メニューからシートを作成してください。")
+        st.info("先に「支払管理シート新規作成」メニューからシートを作成してください。")
     except Exception as e:
         st.error(f"Google API 通信中にエラーが発生しました: {e}")
 
@@ -3449,8 +3503,8 @@ def main():
             if st.session_state.get('username', '').lower() == 'tkouho':
                 group4_opts.append("カテゴリマスター")
                 
-            group5_opts = ["管理シート新規作成", "固定費マスター設定", "固定費データ展開"]
-            group6_opts = ["管理シートを開く"]
+            group5_opts = ["支払管理シート新規作成", "固定費マスター設定", "固定費データ展開", "変動費データ更新", "支払管理シートを開く"]
+            group6_opts = []
 
             
             current_sel = st.session_state['menu_selection']
@@ -3461,7 +3515,7 @@ def main():
             st.session_state["menu_g3"] = current_sel if current_sel in group3_opts else None
             st.session_state["menu_g4"] = current_sel if current_sel in group4_opts else None
             st.session_state["menu_g5"] = current_sel if current_sel in group5_opts else None
-            st.session_state["menu_g6"] = current_sel if current_sel in group6_opts else None
+            st.session_state["menu_g6"] = None
             
             # ＝＝＝ 変動費管理セクション ＝＝＝
             st.markdown("<div style='padding-bottom: 30px;'><h3 style='color: #007bff; border-bottom: 2px solid #007bff; padding-bottom: 5px; margin: 0;'>🔵 変動費管理</h3></div>", unsafe_allow_html=True)
@@ -3482,16 +3536,11 @@ def main():
             st.radio("g4", group4_opts, key="menu_g4", 
                      on_change=on_menu_change, args=("menu_g4",), label_visibility="collapsed")
 
-            # ＝＝＝ 固定費管理セクション ＝＝＝
-            st.markdown("<div style='padding-top: 10px; padding-bottom: 30px;'><h3 style='color: #ff6b6b; border-bottom: 2px solid #ff6b6b; padding-bottom: 5px; margin: 0;'>🔴 固定費管理</h3></div>", unsafe_allow_html=True)
+            # ＝＝＝ 支払管理セクション ＝＝＝
+            st.markdown("<div style='padding-top: 10px; padding-bottom: 30px;'><h3 style='color: #ff6b6b; border-bottom: 2px solid #ff6b6b; padding-bottom: 5px; margin: 0;'>🔴 支払管理</h3></div>", unsafe_allow_html=True)
             
-            st.markdown("【固定費管理シート作成】")
             st.radio("g5", group5_opts, key="menu_g5", 
                      on_change=on_menu_change, args=("menu_g5",), label_visibility="collapsed")
-            
-            st.markdown("【固定費管理シート参照】")
-            st.radio("g6", group6_opts, key="menu_g6", 
-                     on_change=on_menu_change, args=("menu_g6",), label_visibility="collapsed")
 
                         
             menu_selection = st.session_state['menu_selection']
@@ -3868,7 +3917,7 @@ def main():
 
                     # AIの解析結果に消費税が含まれていない場合、自動で10%の内税項目を追加する機能
                     if len(results) > 0 and not any(is_any_tax(item) for item in results):
-                        total_before_tax = sum(int(item.get("amount", 0)) for item in results)
+                        total_before_tax = sum(safe_money_int_cast(item.get("amount", 0)) for item in results)
                         tax_amount = int(total_before_tax * 0.1)
                         tax_item = {
                             "date": preview_date,
@@ -3881,7 +3930,7 @@ def main():
                         results.append(tax_item)
                         st.session_state.parsed_results = results
 
-                    total_amount = sum(int(item.get("amount", 0)) for item in results if not is_internal_tax(item))
+                    total_amount = sum(safe_money_int_cast(item.get("amount", 0)) for item in results if not is_internal_tax(item))
                     
                     # 大分類別の内訳を集計
                     category_totals = {}
@@ -3895,7 +3944,7 @@ def main():
                                 final_major = m
                                 break
                         
-                        amt = int(item.get("amount", 0))
+                        amt = safe_money_int_cast(item.get("amount", 0))
                         if final_major == "消費税（内税）":
                             # 内税は合計に加算しないが、内訳には実際の税額を表示する
                             category_totals[final_major] = category_totals.get(final_major, 0) + amt
@@ -3924,7 +3973,7 @@ def main():
                         disp_item["category"] = item.get("major_category", "その他")
                         disp_item["subcategory"] = item.get("minor_category", "その他")
                         try:
-                            disp_item["amount"] = int(disp_item.get("amount", 0))
+                            disp_item["amount"] = safe_money_int_cast(disp_item.get("amount", 0))
                         except ValueError:
                             disp_item["amount"] = 0
                         results_for_disp.append(disp_item)
@@ -3984,7 +4033,7 @@ def main():
                                     sheet = get_sheet(TRANSACTIONS_WORKSHEET_NAME)
                                     init_transactions_sheet(sheet)
                                     
-                                    written_count = 0
+                                    rows_to_append = []
                                     new_receipt_id = datetime.now().strftime("%Y%m%d%H%M%S")
                                     for item in results:
                                         # カテゴリの正規化（14カテゴリ体系に強制）
@@ -4007,6 +4056,7 @@ def main():
                                                 
                                         store_name = str(edited_store).strip()
                                         item_name = str(item.get("item_name", ""))
+                                        amt = safe_money_int_cast(item.get("amount", 0))
                                         
                                         # 日付を yyyy-mm-dd に整形
                                         formatted_date = edited_date.strftime("%Y-%m-%d") if edited_date else ""
@@ -4019,7 +4069,7 @@ def main():
                                             str(item_name),
                                             str(final_major),
                                             str(final_minor),
-                                            int(item.get("amount", 0)),
+                                            amt,
                                             datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
                                             str(selected_payment),
                                             str(p_type),
@@ -4028,8 +4078,11 @@ def main():
                                             str(p_date),
                                             new_receipt_id
                                         ]
-                                        sheet.append_row(row_data)
-                                        written_count += 1
+                                        rows_to_append.append(row_data)
+                                    
+                                    if rows_to_append:
+                                        safe_gspread_call(sheet.append_rows, rows_to_append)
+                                        written_count = len(rows_to_append)
                                     
                                     st.session_state.flash_message = f"✅ 解析が完了し、{written_count}件のデータを保存しました！"
                                     
@@ -4216,10 +4269,12 @@ def main():
                                 sheet = get_sheet(TRANSACTIONS_WORKSHEET_NAME)
                                 init_transactions_sheet(sheet)
                                 
+                                rows_to_append = []
                                 new_receipt_id = datetime.now().strftime("%Y%m%d%H%M%S")
                                 for itm, cat in zip(valid_items, categories):
                                     major = cat.get("major_category", "その他")
                                     minor = cat.get("minor_category", "📁未分類")
+                                    amt = safe_money_int_cast(itm.get("amount", 0))
                                     
                                     p_type, p_close, p_month, p_date = get_payment_details_for_transaction(st.session_state['username'], selected_payment_manual)
                                     row_data = [
@@ -4229,7 +4284,7 @@ def main():
                                         str(itm["name"]),
                                         str(major),
                                         str(minor),
-                                        int(itm["amount"]),
+                                        amt,
                                         datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
                                         str(selected_payment_manual),
                                         str(p_type),
@@ -4238,9 +4293,12 @@ def main():
                                         str(p_date),
                                         new_receipt_id
                                     ]
-                                    safe_gspread_call(sheet.append_row, row_data)
+                                    rows_to_append.append(row_data)
                                 
-                                st.success(f"✅ {len(st.session_state.manual_input_items)}件のデータを登録しました！")
+                                if rows_to_append:
+                                    safe_gspread_call(sheet.append_rows, rows_to_append)
+                                
+                                st.success(f"✅ {len(rows_to_append)}件のデータを登録しました！")
                                 # フォームIDを更新して全ウィジェットを強制リセット
                                 st.session_state.manual_input_form_id += 1
                                 st.session_state.manual_input_items = [{"id": int(time.time() * 1000), "name": "", "amount": 0}]
@@ -4378,7 +4436,7 @@ def main():
                                     payment_m = row.get("payment_method", "現金")
                                     st.session_state['edit_data'][row_index_gs] = {
                                         "name": row.get(item_col, "不明な商品") if item_col else "不明な商品",
-                                        "amount": int(row.get("amount", 0)),
+                                        "amount": safe_money_int_cast(row.get("amount", 0)),
                                         "major": major,
                                         "minor": sub,
                                         "payment_method": payment_m
@@ -5132,17 +5190,15 @@ MBTI: {mbti}
                 st.markdown(text_cc)
                 render_speech_synthesis_button(text_cc.replace("**", "").replace("-", ""), "sp_cc")
 
-            st.markdown("<h4 style='color: navy; margin-top: 30px;'>【固定費管理】</h4>", unsafe_allow_html=True)
+            st.markdown("<h4 style='color: navy; margin-top: 30px;'>【支払管理】</h4>", unsafe_allow_html=True)
             st.caption("毎月の固定費のシミュレーションと支払い情報を管理するためのメニューです。")
-            with st.expander("📝 固定費管理の基本操作"):
+            with st.expander("📝 支払管理の基本操作"):
                 text_fixed = """
-                **【固定費管理シート作成】**
-                ・**管理シート新規作成**: 初回のみ実行します。ご自身のGoogleドライブ上に専用のスプレッドシート（支払管理・固定費マスター）を自動生成します。
+                ・**支払管理シート新規作成**: 初回のみ実行します。ご自身のGoogleドライブ上に専用のスプレッドシート（支払管理・固定費マスター）を自動生成します。
                 ・**固定費マスター設定**: 毎月発生する固定費や変動費の基本ルールを、「固定費マスター」シートへ登録・編集します。
                 ・**固定費データ展開**: マスターの設定内容をもとに、2036年までのタイムラインへ月ごとの支払額を自動計算して展開します。（罫線や背景色の自動フォーマット付き）
-
-                **【固定費管理シート参照】**
-                ・**管理シートを開く**: 直接シミュレーション用のスプレッドシートを開いたり、不要になったシートを削除してリセットすることができます。
+                ・**変動費データ更新**: 変動費データを更新します。
+                ・**支払管理シートを開く**: 直接シミュレーション用のスプレッドシートを開いたり、不要になったシートを削除してリセットすることができます。
                 """
                 st.markdown(text_fixed)
                 render_speech_synthesis_button(text_fixed.replace("**", "").replace("・", ""), "sp_fixed")
@@ -5286,7 +5342,7 @@ MBTI: {mbti}
         elif menu_selection == "プロフィール設定":
             show_profile_settings()
             
-        elif menu_selection == "管理シート新規作成":
+        elif menu_selection == "支払管理シート新規作成":
             show_fixed_cost_management()
             
         elif menu_selection == "固定費マスター設定":
@@ -5295,10 +5351,13 @@ MBTI: {mbti}
         elif menu_selection == "固定費データ展開":
             show_fixed_cost_data_expansion()
             
-        elif menu_selection == "管理シートを開く":
+        elif menu_selection == "変動費データ更新":
+            show_variable_cost_update()
+            
+        elif menu_selection == "支払管理シートを開く":
             show_open_management_sheet()
             
-        st.caption("マイニー Ver 4.9.0 - ユーザー: %s" % st.session_state['username'])
+        st.caption("マイニー Ver 4.10.0 - ユーザー: %s" % st.session_state['username'])
             
     # 未ログインの状態 (ログイン・登録画面)
     else:
