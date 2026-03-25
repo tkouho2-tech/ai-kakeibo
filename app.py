@@ -3478,7 +3478,7 @@ def main():
                 .block-container h5 { font-size: calc(1.00rem + 2pt) !important; }
                 </style>
             """, unsafe_allow_html=True)
-            st.subheader("マイニー [Ver 4.10.0]")
+            st.subheader("マイニー [Ver 4.18.0]")
             st.write(f"🔑 ユーザー: **{st.session_state['username']}**")
             st.markdown("---")
             if 'menu_selection' not in st.session_state:
@@ -3503,7 +3503,7 @@ def main():
             if st.session_state.get('username', '').lower() == 'tkouho':
                 group4_opts.append("カテゴリマスター")
                 
-            group5_opts = ["支払管理シート新規作成", "固定費マスター設定", "固定費データ展開", "変動費データ更新", "支払管理シートを開く"]
+            group5_opts = ["支払管理シート新規作成", "固定費マスター設定", "固定費データ展開", "変動費データ更新", "支払管理シートを確認"]
             group6_opts = []
 
             
@@ -5198,7 +5198,7 @@ MBTI: {mbti}
                 ・**固定費マスター設定**: 毎月発生する固定費や変動費の基本ルールを、「固定費マスター」シートへ登録・編集します。
                 ・**固定費データ展開**: マスターの設定内容をもとに、2036年までのタイムラインへ月ごとの支払額を自動計算して展開します。（罫線や背景色の自動フォーマット付き）
                 ・**変動費データ更新**: 変動費データを更新します。
-                ・**支払管理シートを開く**: 直接シミュレーション用のスプレッドシートを開いたり、不要になったシートを削除してリセットすることができます。
+                ・**支払管理シートを確認**: 毎月の支払予定が一覧になったスプレッドシートを確認・編集できます。口座引落日などの条件に合わせて「完了フラグ」が自動更新されるため、支払漏れを防止し、収支見通しを立てるのに役立ちます。
                 """
                 st.markdown(text_fixed)
                 render_speech_synthesis_button(text_fixed.replace("**", "").replace("・", ""), "sp_fixed")
@@ -5354,10 +5354,10 @@ MBTI: {mbti}
         elif menu_selection == "変動費データ更新":
             show_variable_cost_update()
             
-        elif menu_selection == "支払管理シートを開く":
+        elif menu_selection == "支払管理シートを確認":
             show_open_management_sheet()
             
-        st.caption("マイニー Ver 4.10.0 - ユーザー: %s" % st.session_state['username'])
+        st.caption("マイニー Ver 4.18.0 - ユーザー: %s" % st.session_state['username'])
             
     # 未ログインの状態 (ログイン・登録画面)
     else:
