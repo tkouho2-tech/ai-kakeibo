@@ -3484,7 +3484,7 @@ def main():
                 .block-container h5 { font-size: calc(1.00rem + 2pt) !important; }
                 </style>
             """, unsafe_allow_html=True)
-            st.subheader("マイニー [Ver 4.22.0]")
+            st.subheader("マイニー [Ver 4.22.1]")
             st.write(f"🔑 ユーザー: **{st.session_state['username']}**")
             st.markdown("---")
             if 'menu_selection' not in st.session_state:
@@ -3549,7 +3549,7 @@ def main():
                      on_change=on_menu_change, args=("menu_g5",), label_visibility="collapsed")
 
             if st.session_state.get('username', '').lower() == 'tkouho' and group6_opts:
-                st.markdown("<div style='padding-top: 10px; padding-bottom: 30px;'><h3 style='color: #006400; border-bottom: 2px solid #006400; padding-bottom: 5px; margin: 0;'>● ツール</h3></div>", unsafe_allow_html=True)
+                st.markdown("<div style='padding-top: 10px; padding-bottom: 30px;'><h3 style='color: #006400; border-bottom: 2px solid #006400; padding-bottom: 5px; margin: 0;'><span style='font-size: 1.1em;'>●</span> ツール</h3></div>", unsafe_allow_html=True)
                 st.radio("g6", group6_opts, key="menu_g6", 
                          on_change=on_menu_change, args=("menu_g6",), label_visibility="collapsed")
 
@@ -5389,7 +5389,7 @@ MBTI: {mbti}
         elif menu_selection == "支払管理シートを確認":
             show_open_management_sheet()
             
-        st.caption("マイニー Ver 4.22.0 - ユーザー: %s" % st.session_state['username'])
+        st.caption("マイニー Ver 4.22.1 - ユーザー: %s" % st.session_state['username'])
             
     # 未ログインの状態 (ログイン・登録画面)
     else:
