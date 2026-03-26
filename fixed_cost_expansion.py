@@ -515,14 +515,28 @@ def execute_expansion(username, mode="NEW", start_ym=None):
             # Add 計 row
             subtotal_row = [""] * header_len
             try:
-                k1_idx = pay_headers.index("科目１")
-                subtotal_row[k1_idx] = f"【{tk} 計】"
+                k1_idx = -1
+                for i_h, h_v in enumerate(actual_h_ids):
+                    if h_v == "科目1" or h_v == "科目１" or h_v == "固定支払1" or h_v == "固定支払１":
+                        k1_idx = i_h
+                        break
+                if k1_idx != -1:
+                    subtotal_row[k1_idx] = f"【{tk} 計】"
             except: pass
             
             # Add formulas for months
             for mc in month_cols:
                 try:
-                    c_idx = pay_headers.index(mc)
+                    # actual_h_ids からインデックスを特定
+                    m_norm = _normalize(mc)
+                    c_idx = -1
+                    for i_h, h_v in enumerate(actual_h_ids):
+                        if h_v == m_norm or h_v.replace("月","") == m_norm.replace("月",""):
+                            c_idx = i_h
+                            break
+                    
+                    if c_idx == -1: continue
+                    
                     f_idx = c_idx + 1 # 完了F
                     col_letter = chr(ord('A') + c_idx) if c_idx < 26 else chr(ord('A') + c_idx//26 - 1) + chr(ord('A') + c_idx%26)
                     flag_letter = chr(ord('A') + f_idx) if f_idx < 26 else chr(ord('A') + f_idx//26 - 1) + chr(ord('A') + f_idx%26)
@@ -606,7 +620,16 @@ def execute_expansion(username, mode="NEW", start_ym=None):
         
         for mc in month_cols:
             try:
-                c_idx = pay_headers.index(mc)
+                # actual_h_ids からインデックスを特定
+                m_norm = _normalize(mc)
+                c_idx = -1
+                for i_h, h_v in enumerate(actual_h_ids):
+                    if h_v == m_norm or h_v.replace("月","") == m_norm.replace("月",""):
+                        c_idx = i_h
+                        break
+                
+                if c_idx == -1: continue
+                
                 f_idx = c_idx + 1
                 col_letter = chr(ord('A') + c_idx) if c_idx < 26 else chr(ord('A') + c_idx//26 - 1) + chr(ord('A') + c_idx%26)
                 flag_letter = chr(ord('A') + f_idx) if f_idx < 26 else chr(ord('A') + f_idx//26 - 1) + chr(ord('A') + f_idx%26)
