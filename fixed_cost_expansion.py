@@ -84,6 +84,7 @@ def execute_expansion(username, mode="NEW", start_ym=None):
     """
     mode: "NEW", "RE_EXECUTE", "NEXT_MONTH"
     """
+    bk_ws = None
         
     from app import get_gspread_client, safe_gspread_call
     client = get_gspread_client()
@@ -252,7 +253,7 @@ def execute_expansion(username, mode="NEW", start_ym=None):
     try:
         ts = datetime.now().strftime("%Y%m%d_%H%M%S")
         bk_name = f"支払管理_bk_{ts}"
-        safe_gspread_call(ss.duplicate_sheet, ws_pay.id, new_sheet_name=bk_name)
+        bk_ws = safe_gspread_call(ss.duplicate_sheet, ws_pay.id, new_sheet_name=bk_name)
     except Exception as e:
         print(f"Backup error: {e}")
 
@@ -861,6 +862,14 @@ def execute_expansion(username, mode="NEW", start_ym=None):
         safe_gspread_call(ws_pay.update, "A8", final_sheet_array, value_input_option='USER_ENTERED')
         # 書式を一括適用
         safe_gspread_call(ss.batch_update, {"requests": format_requests})
+
+        # --- 成功時：バックアップの削除 (Ver 4.23.2 追加仕様) ---
+        if bk_ws:
+            try:
+                safe_gspread_call(ss.del_worksheet, bk_ws)
+                bk_ws = None
+            except Exception as e:
+                print(f"Backup cleanup error: {e}")
 
         # --- 自動で変動費データ更新を実施 (Ver 4.17.0 追加仕様) ---
         if mode == "NEXT_MONTH":
