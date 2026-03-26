@@ -2600,6 +2600,14 @@ def show_category_master():
         else:
             st.info("大分類が登録されていません。左側から大分類を追加してください。")
 
+def show_data_check():
+    """データチェック機能（現在はプレースホルダー）"""
+    st.markdown("#### ✅ データチェック")
+    st.info("データチェック機能は現在準備中です。データの整合性や異常値の自動検知機能を将来的に追加する予定です。")
+    if st.button("戻る", use_container_width=True):
+        st.session_state.menu_selection = "ダッシュボード（月次集計）"
+        st.rerun()
+
 def show_fixed_cost_management():
     """固定費管理（支払管理）シートの作成とリンク表示"""
     import streamlit as st
@@ -3476,7 +3484,7 @@ def main():
                 .block-container h5 { font-size: calc(1.00rem + 2pt) !important; }
                 </style>
             """, unsafe_allow_html=True)
-            st.subheader("マイニー [Ver 4.21.2]")
+            st.subheader("マイニー [Ver 4.22.0]")
             st.write(f"🔑 ユーザー: **{st.session_state['username']}**")
             st.markdown("---")
             if 'menu_selection' not in st.session_state:
@@ -3498,11 +3506,11 @@ def main():
             group2_opts = ["レシート取込", "レシート手入力", "レシート修正"]
             group3_opts = ["マニュアル", "ヘルプ", "AI相談"]
             group4_opts = ["支払方法マスター", "銀行マスター", "プロフィール設定"]
-            if st.session_state.get('username', '').lower() == 'tkouho':
-                group4_opts.append("カテゴリマスター")
-                
             group5_opts = ["支払管理シート新規作成", "固定費マスター設定", "固定費データ展開", "変動費データ更新", "支払管理シートを確認"]
             group6_opts = []
+
+            if st.session_state.get('username', '').lower() == 'tkouho':
+                group6_opts = ["カテゴリマスター", "データチェック"]
 
             
             current_sel = st.session_state['menu_selection']
@@ -3513,7 +3521,7 @@ def main():
             st.session_state["menu_g3"] = current_sel if current_sel in group3_opts else None
             st.session_state["menu_g4"] = current_sel if current_sel in group4_opts else None
             st.session_state["menu_g5"] = current_sel if current_sel in group5_opts else None
-            st.session_state["menu_g6"] = None
+            st.session_state["menu_g6"] = current_sel if current_sel in group6_opts else None
             
             # ＝＝＝ 変動費管理セクション ＝＝＝
             st.markdown("<div style='padding-bottom: 30px;'><h3 style='color: #007bff; border-bottom: 2px solid #007bff; padding-bottom: 5px; margin: 0;'>🔵 変動費管理</h3></div>", unsafe_allow_html=True)
@@ -3539,6 +3547,11 @@ def main():
             
             st.radio("g5", group5_opts, key="menu_g5", 
                      on_change=on_menu_change, args=("menu_g5",), label_visibility="collapsed")
+
+            if st.session_state.get('username', '').lower() == 'tkouho' and group6_opts:
+                st.markdown("<div style='padding-top: 10px; padding-bottom: 30px;'><h3 style='color: #006400; border-bottom: 2px solid #006400; padding-bottom: 5px; margin: 0;'>● ツール</h3></div>", unsafe_allow_html=True)
+                st.radio("g6", group6_opts, key="menu_g6", 
+                         on_change=on_menu_change, args=("menu_g6",), label_visibility="collapsed")
 
                         
             menu_selection = st.session_state['menu_selection']
@@ -3619,6 +3632,8 @@ def main():
         # メインコンテンツの切り替え
         if menu_selection == "ダッシュボード（月次集計）":
             show_dashboard()
+        elif menu_selection == "データチェック":
+            show_data_check()
         elif menu_selection == "ダッシュボード（年次集計）":
             show_yearly_dashboard()
         elif menu_selection == "カレンダー":
@@ -5374,7 +5389,7 @@ MBTI: {mbti}
         elif menu_selection == "支払管理シートを確認":
             show_open_management_sheet()
             
-        st.caption("マイニー Ver 4.21.2 - ユーザー: %s" % st.session_state['username'])
+        st.caption("マイニー Ver 4.22.0 - ユーザー: %s" % st.session_state['username'])
             
     # 未ログインの状態 (ログイン・登録画面)
     else:
