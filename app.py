@@ -3476,7 +3476,7 @@ def main():
                 .block-container h5 { font-size: calc(1.00rem + 2pt) !important; }
                 </style>
             """, unsafe_allow_html=True)
-            st.subheader("マイニー [Ver 4.21.1]")
+            st.subheader("マイニー [Ver 4.21.2]")
             st.write(f"🔑 ユーザー: **{st.session_state['username']}**")
             st.markdown("---")
             if 'menu_selection' not in st.session_state:
@@ -4308,7 +4308,7 @@ def main():
                                         str(p_month),
                                         str(p_date),
                                         new_receipt_id,
-                                        "" # memo column: Empty for manual input
+                                        str(target_username) # memo column: Set account for manual input
                                     ]
                                     rows_to_append.append(row_data)
                                 
@@ -4690,7 +4690,7 @@ def main():
                                                         p_type, p_close, p_month, p_date = get_payment_details_for_transaction(user_name, target_payment)
                                                         if str(current_editing_id).startswith("new_"):
                                                             # 新規追加
-                                                            new_row = [user_name, target_date_str, target_store, edit_name, edit_major, edit_minor, edit_amount, datetime.now().strftime("%Y-%m-%d %H:%M:%S"), target_payment, str(p_type), str(p_close), str(p_month), str(p_date), st.session_state['edit_header'].get('receipt_id', ''), ""]
+                                                            new_row = [user_name, target_date_str, target_store, edit_name, edit_major, edit_minor, edit_amount, datetime.now().strftime("%Y-%m-%d %H:%M:%S"), target_payment, str(p_type), str(p_close), str(p_month), str(p_date), st.session_state['edit_header'].get('receipt_id', ''), str(user_name)]
                                                             sheet.append_row(new_row)
                                                         else:
                                                             # 既存更新: 安全装置（行データの検証）
@@ -5374,7 +5374,7 @@ MBTI: {mbti}
         elif menu_selection == "支払管理シートを確認":
             show_open_management_sheet()
             
-        st.caption("マイニー Ver 4.21.1 - ユーザー: %s" % st.session_state['username'])
+        st.caption("マイニー Ver 4.21.2 - ユーザー: %s" % st.session_state['username'])
             
     # 未ログインの状態 (ログイン・登録画面)
     else:
