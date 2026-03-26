@@ -179,11 +179,9 @@ if '_init_done' not in st.session_state:
         except:
             pass
             
-    if "user" in params and not st.session_state.get('logged_in'):
-        u_val = params["user"]
-        if isinstance(u_val, list): u_val = u_val[0]
-        st.session_state['username'] = u_val
-        st.session_state['logged_in'] = True
+    # --- URLパラメータによる自動ログイン機能を削除 (セキュリティ向上のため) ---
+    # 以前は ?user=... で自動ログイン可能だったが、これを廃止し必ずログインフォームを通すようにする。
+    # --------------------------------------------------------------------------
         need_rerun = True
         
     if "menu" in params:
@@ -3478,7 +3476,7 @@ def main():
                 .block-container h5 { font-size: calc(1.00rem + 2pt) !important; }
                 </style>
             """, unsafe_allow_html=True)
-            st.subheader("マイニー [Ver 4.19.0]")
+            st.subheader("マイニー [Ver 4.20.0]")
             st.write(f"🔑 ユーザー: **{st.session_state['username']}**")
             st.markdown("---")
             if 'menu_selection' not in st.session_state:
@@ -4035,7 +4033,17 @@ def main():
                                     
                                     rows_to_append = []
                                     new_receipt_id = datetime.now().strftime("%Y%m%d%H%M%S")
+                                    current_user = st.session_state.get('username')
+                                    
+                                    if not current_user:
+                                        st.error("🚨 ログインセッションが切れました。再度ログインしてください。")
+                                        st.stop()
+                                        
                                     for item in results:
+                                        # -----------------------------------------------------------
+                                        # セッション整合性チェック (ユーザー名の漏洩防止)
+                                        target_username = str(current_user).lower().strip()
+                                        # -----------------------------------------------------------
                                         # カテゴリの正規化（14カテゴリ体系に強制）
                                         majors = list(get_categories().keys())
                                         major = str(item.get("major_category", "その他"))
@@ -4061,9 +4069,9 @@ def main():
                                         # 日付を yyyy-mm-dd に整形
                                         formatted_date = edited_date.strftime("%Y-%m-%d") if edited_date else ""
     
-                                        p_type, p_close, p_month, p_date = get_payment_details_for_transaction(st.session_state['username'], selected_payment)
+                                        p_type, p_close, p_month, p_date = get_payment_details_for_transaction(target_username, selected_payment)
                                         row_data = [
-                                            str(st.session_state['username']),
+                                            target_username,
                                             formatted_date,
                                             str(store_name),
                                             str(item_name),
@@ -4271,14 +4279,21 @@ def main():
                                 
                                 rows_to_append = []
                                 new_receipt_id = datetime.now().strftime("%Y%m%d%H%M%S")
+                                current_user = st.session_state.get('username')
+                                if not current_user:
+                                    st.error("🚨 ログインセッションが切れました。再度ログインしてください。")
+                                    st.stop()
+                                
+                                target_username = str(current_user).lower().strip()
+                                
                                 for itm, cat in zip(valid_items, categories):
                                     major = cat.get("major_category", "その他")
                                     minor = cat.get("minor_category", "📁未分類")
                                     amt = safe_money_int_cast(itm.get("amount", 0))
                                     
-                                    p_type, p_close, p_month, p_date = get_payment_details_for_transaction(st.session_state['username'], selected_payment_manual)
+                                    p_type, p_close, p_month, p_date = get_payment_details_for_transaction(target_username, selected_payment_manual)
                                     row_data = [
-                                        str(st.session_state['username']),
+                                        target_username,
                                         str(input_date.strftime('%Y-%m-%d')),
                                         str(input_store),
                                         str(itm["name"]),
@@ -5357,7 +5372,7 @@ MBTI: {mbti}
         elif menu_selection == "支払管理シートを確認":
             show_open_management_sheet()
             
-        st.caption("マイニー Ver 4.19.0 - ユーザー: %s" % st.session_state['username'])
+        st.caption("マイニー Ver 4.20.0 - ユーザー: %s" % st.session_state['username'])
             
     # 未ログインの状態 (ログイン・登録画面)
     else:

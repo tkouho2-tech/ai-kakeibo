@@ -46,6 +46,30 @@ def _generate_target_months():
             months.append(f"{y}.{m}月")
     return months
 
+# 文字列が数式形式 (="値") の場合に中身を取り出す補助関数
+def _clean_val(v):
+    s = str(v).strip()
+    if s.startswith("="):
+        s = s[1:].strip()
+        if s.startswith('"') and s.endswith('"'):
+            s = s[1:-1].strip()
+    return s
+
+# 強力な正規化（数値の整数化、全角半角の統一、空白除去）
+def _normalize(s):
+    if s is None: return ""
+    s = str(s).strip()
+    # 数値形式の正規化 (1.0 -> 1)
+    try:
+        f_val = float(s)
+        if f_val == int(f_val):
+            s = str(int(f_val))
+    except:
+        pass
+    import unicodedata
+    s_norm = unicodedata.normalize('NFKC', s)
+    return "".join(s_norm.split())
+
 def _find_val(d, keywords, exclude=[]):
     for k, v in d.items():
         clean_k = str(k).replace("\n", "").replace(" ", "").replace("　", "").strip()
@@ -60,29 +84,6 @@ def execute_expansion(username, mode="NEW", start_ym=None):
     """
     mode: "NEW", "RE_EXECUTE", "NEXT_MONTH"
     """
-    # 数式形式のヘッダーを考慮
-    def _clean_v(v):
-        s = str(v).strip()
-        if s.startswith("="):
-            s = s[1:].strip()
-            if s.startswith('"') and s.endswith('"'):
-                s = s[1:-1].strip()
-        return s
-        
-    # 強力な正規化（数値の整数化、全角半角の統一、空白除去）
-    def _normalize(s):
-        if s is None: return ""
-        s = str(s).strip()
-        # 数値形式の正規化 (1.0 -> 1)
-        try:
-            f_val = float(s)
-            if f_val == int(f_val):
-                s = str(int(f_val))
-        except:
-            pass
-        import unicodedata
-        s_norm = unicodedata.normalize('NFKC', s)
-        return "".join(s_norm.split())
         
     from app import get_gspread_client, safe_gspread_call
     client = get_gspread_client()
@@ -127,9 +128,10 @@ def execute_expansion(username, mode="NEW", start_ym=None):
         return False, "「支払管理」のフォーマットが正しくありません（7行目にヘッダーが必要です）。"
         
     pay_headers = pay_raw[6]
+    # FORMULAモードだとヘッダーが "=H4&..." 等の文字列になり、月名判定に失敗するため、別途表示値を取得する
+    actual_headers = safe_gspread_call(ws_pay.row_values, 7)
+    actual_h_ids = [_normalize(_clean_val(x)) for x in actual_headers]
     month_cols = _generate_target_months()
-    
-    protected_range_id = None
     
     # Base columns before months
     base_cols = ["大分類", "変動or固定", "有限or無限", "科目１", "科目２", "Sno", "科目詳細"]
@@ -148,30 +150,35 @@ def execute_expansion(username, mode="NEW", start_ym=None):
             current_month_idx = 0
             
         # Determine the physical column index for the start month in the existing sheet
-        clean_h_ids = [_normalize(_clean_v(x)) for x in pay_headers]
+        # actual_headers を使って判定を行う
         split_col_idx = 0
         try:
-            split_col_idx = clean_h_ids.index(current_ym_norm)
+            split_col_idx = actual_h_ids.index(current_ym_norm)
         except:
-            # Fallback to base logic if not found in headers
-            split_col_idx = 7 # Just a guess based on base_cols length
+            # Fallback
+            try:
+                # '月'の有無を許容して再試行
+                alt_ym = current_ym_norm.replace("月", "")
+                split_col_idx = next(i for i, h in enumerate(actual_h_ids) if h.replace("月", "") == alt_ym)
+            except:
+                split_col_idx = 7 
             
         # Read old rows and store protectable prefix (all cells to the left of target month)
         for row in pay_raw[7:]:
-            k1_idx = next((i for i, h in enumerate(clean_h_ids) if "科目1" in h or "科目１" in h or "固定支払1" in h or "固定支払１" in h), 3)
+            k1_idx = next((i for i, h in enumerate(actual_h_ids) if "科目1" in h or "科目１" in h or "固定支払1" in h or "固定支払１" in h), 3)
             if len(row) <= k1_idx or not _normalize(row[k1_idx]) or "計" in _normalize(row[k1_idx]):
                 continue
                 
-            k2_idx = next((i for i, h in enumerate(clean_h_ids) if "科目2" in h or "科目２" in h or "固定支払2" in h or "固定支払２" in h), 4)
-            sno_idx = next((i for i, h in enumerate(clean_h_ids) if "Sno" in h or "seq" in h.lower()), 5)
-            det_idx = next((i for i, h in enumerate(clean_h_ids) if "詳細" in h or "明細" in h), 6)
-            fixed_idx = next((i for i, h in enumerate(clean_h_ids) if "変動" in h or ("固定" in h and "支払" not in h)), 1)
-            finite_idx = next((i for i, h in enumerate(clean_h_ids) if "有限" in h or "無限" in h), 2)
+            k2_idx = next((i for i, h in enumerate(actual_h_ids) if "科目2" in h or "科目２" in h or "固定支払2" in h or "固定支払２" in h), 4)
+            sno_idx = next((i for i, h in enumerate(actual_h_ids) if "Sno" in h or "seq" in h.lower()), 5)
+            det_idx = next((i for i, h in enumerate(actual_h_ids) if "詳細" in h or "明細" in h), 6)
+            fixed_idx = next((i for i, h in enumerate(actual_h_ids) if "変動" in h or ("固定" in h and "支払" not in h)), 1)
+            finite_idx = next((i for i, h in enumerate(actual_h_ids) if "有限" in h or "無限" in h), 2)
             
             # Extract values for matching
-            k1 = _normalize(_clean_v(row[k1_idx]))
-            k2 = _normalize(_clean_v(row[k2_idx])) if k2_idx < len(row) else ""
-            det = _normalize(_clean_v(row[det_idx])) if det_idx < len(row) else ""
+            k1 = _normalize(_clean_val(row[k1_idx]))
+            k2 = _normalize(_clean_val(row[k2_idx])) if k2_idx < len(row) else ""
+            det = _normalize(_clean_val(row[det_idx])) if det_idx < len(row) else ""
             
             # Simplified 3-point identification key (Category1, Category2, Detail)
             # This is more robust against sno or finite/infinite changes.
@@ -183,30 +190,79 @@ def execute_expansion(username, mode="NEW", start_ym=None):
             prefix_data = row[:split_col_idx] if split_col_idx < len(row) else row
             old_data_map[key].append(prefix_data)
 
-    # --- Start Physical Lock (ProtectedRange) ---
-    sheet_id = ws_pay.id
-    if mode == "NEXT_MONTH" and 'split_col_idx' in locals() and split_col_idx > 0:
-        try:
-            lock_req = {
-                "addProtectedRange": {
-                    "protectedRange": {
-                        "range": {
-                            "sheetId": sheet_id,
-                            "startRowIndex": 7,  # Row 8 onwards
-                            "endRowIndex": ws_pay.row_count,
-                            "startColumnIndex": 0,
-                            "endColumnIndex": split_col_idx
-                        },
-                        "description": f"Temporary Lock for Data Expansion ({start_ym} onwards)",
-                        "warningOnly": False
-                    }
-                }
-            }
-            lock_res = safe_gspread_call(ss.batch_update, {"requests": [lock_req]})
-            if lock_res and 'replies' in lock_res:
-                protected_range_id = lock_res['replies'][0]['addProtectedRange']['protectedRange']['protectedRangeId']
-        except Exception:
-            pass
+    def _dict_to_row(d, prefix=None):
+        r = []
+        for i, h in enumerate(pay_headers):
+            # Physical protection: If this index is before the split point, use the raw prefix data
+            if prefix and i < len(prefix):
+                r.append(prefix[i])
+                continue
+                
+            # Otherwise, use normal logic (for columns from start_ym onwards)
+            ach = actual_h_ids[i]
+            if "科目1" in ach or "科目１" in ach or "固定支払1" in ach or "固定支払１" in ach: val = d.get("科目１", "")
+            elif "科目2" in ach or "科目２" in ach or "固定支払2" in ach or "固定支払２" in ach: val = d.get("科目２", "")
+            elif "変動" in ach or ("固定" in ach and "支払" not in ach): val = d.get("変動or固定", "")
+            elif "有限" in ach or "無限" in ach: val = d.get("有限or無限", "")
+            elif "Sno" in ach or "seq" in ach.lower(): val = d.get("Sno", "")
+            elif "詳細" in ach or "明細" in ach: val = d.get("科目詳細", "")
+            elif "大分類" in ach: val = d.get("大分類", "")
+            elif ach in month_cols:
+                val = d.get(ach, "")
+            elif (ach + "月") in month_cols:
+                val = d.get(ach + "月", "")
+            elif ach.replace("月", "") in [m.replace("月", "") for m in month_cols]:
+                # Find matched month item
+                match_m = next((m for m in month_cols if m.replace("月", "") == ach.replace("月", "")), None)
+                val = d.get(match_m, "")
+            else:
+                # 完了フラグ列の特定: 「月名の右隣の列」を最優先条件とする（位置ベース）
+                is_flag_col = False
+                prev_target_m = None
+                if i > 0:
+                    potential_prev_m = actual_h_ids[i-1]
+                    if potential_prev_m in month_cols or (potential_prev_m + "月") in month_cols:
+                        is_flag_col = True
+                        prev_target_m = potential_prev_m if potential_prev_m in month_cols else (potential_prev_m + "月")
+                
+                if is_flag_col:
+                    val = d.get(f"{prev_target_m}_flag", "")
+                else:
+                    # それ以外はフォールバック（大分類名等）
+                    val = d.get(ach, d.get(h, ""))
+            r.append(val)
+        return r
+
+    # --- 1. User_Masterから生年月日の取得とE2セル設定 ---
+    try:
+        k_ss = client.open("Kakeibo_Data")
+        u_ws = k_ss.worksheet("User_Master")
+        u_data = safe_gspread_call(u_ws.get_all_records)
+        u_rec = next((u for u in u_data if u.get("username") == username), None)
+        if u_rec:
+            # yyyy-mm-dd or yyyy/mm/dd -> yyyymmdd
+            b_str = str(u_rec.get("birthdate", "")).replace("-", "").replace("/", "").strip()
+            if len(b_str) >= 8:
+                b_val = b_str[:8]
+                safe_gspread_call(ws_pay.update_acell, 'E2', b_val)
+    except Exception as e:
+        print(f"Birthdate update error: {e}")
+
+    # --- 2. 支払管理シートのバックアップ ---
+    try:
+        ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+        bk_name = f"支払管理_bk_{ts}"
+        safe_gspread_call(ss.duplicate_sheet, ws_pay.id, new_sheet_name=bk_name)
+    except Exception as e:
+        print(f"Backup error: {e}")
+
+    # --- 3. 9行目以降の削除 ---
+    try:
+        total_rows = ws_pay.row_count
+        if total_rows >= 9:
+            safe_gspread_call(ws_pay.delete_rows, 9, total_rows)
+    except Exception as e:
+        print(f"Delete rows error: {e}")
 
     try:
         new_rows_data = []
@@ -218,20 +274,21 @@ def execute_expansion(username, mode="NEW", start_ym=None):
         sno = 1
         for m_rec in master_data:
             # Robust key matching
-            k1 = _normalize(_clean_v(_find_val(m_rec, ["科目1", "科目１", "固定支払1", "固定支払１"])))
+            k1 = _normalize(_clean_val(_find_val(m_rec, ["科目1", "科目１", "固定支払1", "固定支払１"])))
             if not k1:
-                k1 = _normalize(_clean_v(m_rec.get("科目１", m_rec.get("固定支払１", ""))))
+                k1 = _normalize(_clean_val(m_rec.get("科目１", m_rec.get("固定支払１", ""))))
                 
-            k2 = _normalize(_clean_v(_find_val(m_rec, ["科目2", "科目２", "固定支払2", "固定支払２"])))
-            is_finite_str = _normalize(_clean_v(_find_val(m_rec, ["有限", "無限"])))
-            detail = _normalize(_clean_v(_find_val(m_rec, ["詳細", "明細"])))
-            sno_val = _normalize(_clean_v(_find_val(m_rec, ["Sno", "seq"])))
-            fixed_var = _normalize(_clean_v(_find_val(m_rec, ["変動", "固定"], exclude=["支払"])))
+            k2 = _normalize(_clean_val(_find_val(m_rec, ["科目2", "科目２", "固定支払2", "固定支払２"])))
+            is_finite_str = _normalize(_clean_val(_find_val(m_rec, ["有限", "無限"])))
+            detail = _normalize(_clean_val(_find_val(m_rec, ["詳細", "明細"])))
+            sno_val = _normalize(_clean_val(_find_val(m_rec, ["Sno", "seq"])))
+            fixed_var = _normalize(_clean_val(_find_val(m_rec, ["変動", "固定"], exclude=["支払"])))
             
             amt_str = str(_find_val(m_rec, ["支払額", "金額"], exclude=["最終月額", "最終"])).replace(",", "").replace("¥", "").replace("￥", "")
             amt = safe_money_int_cast(amt_str)
             
             pay_month_freq = str(_find_val(m_rec, ["支払月", "頻度"])).strip()
+            pay_year_freq = str(_find_val(m_rec, ["支払年", "年"], exclude=["月", "開始", "完済", "終了", "完了"])).strip()
             
             final_amt_str = str(_find_val(m_rec, ["最終月額"])).replace(",", "").replace("¥", "").replace("￥", "").strip()
             final_amt = safe_money_int_cast(final_amt_str) if final_amt_str else amt
@@ -288,7 +345,7 @@ def execute_expansion(username, mode="NEW", start_ym=None):
                     if (my < ey) or (my == ey and mm <= em):
                         # It's active
                         
-                        # Check Frequency (Ver 4.19.0: Support 偶数月/奇数月)
+                        # Check Frequency (Ver 4.20.0: Support 偶数月/奇数月)
                         is_pay_month = False
                         f_clean = _normalize(pay_month_freq)
                         if "毎月" in f_clean:
@@ -301,6 +358,15 @@ def execute_expansion(username, mode="NEW", start_ym=None):
                             # expected "9月" or similar
                             if str(mm) in f_clean:
                                 is_pay_month = True
+                                
+                        # --- 支払年の判定を追加 (Ver 4.20.0) ---
+                        if is_pay_month and pay_year_freq:
+                            y_clean = _normalize(pay_year_freq)
+                            if "偶数年" in y_clean:
+                                if my % 2 != 0: is_pay_month = False
+                            elif "奇数年" in y_clean:
+                                if my % 2 == 0: is_pay_month = False
+                        # --------------------------------------
                                 
                         if is_pay_month:
                             # Is it the very last month?
@@ -325,20 +391,12 @@ def execute_expansion(username, mode="NEW", start_ym=None):
         # Ensure standard order: クレジットカード -> 口座引落 -> 銀行振込
         target_k1_order = ["クレジットカード", "口座引落", "銀行振込"]
         
-        # Build array for batch update
+        # Build array for batch update (Row 8 onwards)
         final_sheet_array = []
-        
-        # Retain the first 7 rows (headers, titles etc) from original sheet
-        for i in range(7):
-            if i < len(pay_raw):
-                final_sheet_array.append(pay_raw[i])
-            else:
-                final_sheet_array.append([""] * len(pay_headers))
-                
         header_len = len(pay_headers)
         
         # Pre-calculate clean header IDs for position-based detection
-        clean_h_ids = [_normalize(_clean_v(x)) for x in pay_headers]
+        actual_h_ids = [_normalize(_clean_val(x)) for x in actual_headers]
     
         def dict_to_row(d):
             r = []
@@ -351,31 +409,37 @@ def execute_expansion(username, mode="NEW", start_ym=None):
                     continue
                     
                 # Otherwise, use normal logic (for columns from start_ym onwards)
-                ch = clean_h_ids[i]
-                if "科目1" in ch or "科目１" in ch or "固定支払1" in ch or "固定支払１" in ch: val = d.get("科目１", "")
-                elif "科目2" in ch or "科目２" in ch or "固定支払2" in ch or "固定支払２" in ch: val = d.get("科目２", "")
-                elif "変動" in ch or ("固定" in ch and "支払" not in ch): val = d.get("変動or固定", "")
-                elif "有限" in ch or "無限" in ch: val = d.get("有限or無限", "")
-                elif "Sno" in ch or "seq" in ch.lower(): val = d.get("Sno", "")
-                elif "詳細" in ch or "明細" in ch: val = d.get("科目詳細", "")
-                elif "大分類" in ch: val = d.get("大分類", "")
-                elif ch in month_cols:
-                    val = d.get(ch, "")
+                ach = actual_h_ids[i]
+                if "科目1" in ach or "科目１" in ach or "固定支払1" in ach or "固定支払１" in ach: val = d.get("科目１", "")
+                elif "科目2" in ach or "科目２" in ach or "固定支払2" in ach or "固定支払２" in ach: val = d.get("科目２", "")
+                elif "変動" in ach or ("固定" in ach and "支払" not in ach): val = d.get("変動or固定", "")
+                elif "有限" in ach or "無限" in ach: val = d.get("有限or無限", "")
+                elif "Sno" in ach or "seq" in ach.lower(): val = d.get("Sno", "")
+                elif "詳細" in ach or "明細" in ach: val = d.get("科目詳細", "")
+                elif "大分類" in ach: val = d.get("大分類", "")
+                elif ach in month_cols:
+                    val = d.get(ach, "")
+                elif (ach + "月") in month_cols:
+                    val = d.get(ach + "月", "")
+                elif ach.replace("月", "") in [m.replace("月", "") for m in month_cols]:
+                    # Find matched month item
+                    match_m = next((m for m in month_cols if m.replace("月", "") == ach.replace("月", "")), None)
+                    val = d.get(match_m, "")
                 else:
                     # 完了フラグ列の特定: 「月名の右隣の列」を最優先条件とする（位置ベース）
                     is_flag_col = False
                     prev_target_m = None
                     if i > 0:
-                        potential_prev_m = clean_h_ids[i-1]
-                        if potential_prev_m in month_cols:
+                        potential_prev_m = actual_h_ids[i-1]
+                        if potential_prev_m in month_cols or (potential_prev_m + "月") in month_cols:
                             is_flag_col = True
-                            prev_target_m = potential_prev_m
+                            prev_target_m = potential_prev_m if potential_prev_m in month_cols else (potential_prev_m + "月")
                     
                     if is_flag_col:
                         val = d.get(f"{prev_target_m}_flag", "")
                     else:
                         # それ以外はフォールバック（大分類名等）
-                        val = d.get(ch, d.get(h, ""))
+                        val = d.get(ach, d.get(h, ""))
                 r.append(val)
             return r
             
@@ -520,14 +584,7 @@ def execute_expansion(username, mode="NEW", start_ym=None):
         grand_total_row = [""] * header_len
         try:
             # ヘッダー項目をクリーンアップして検索 (="科目１" 等の数式対応)
-            def _clean_v(v):
-                s = str(v).strip()
-                if s.startswith("="):
-                    s = s[1:].strip()
-                    if s.startswith('"') and s.endswith('"'):
-                        s = s[1:-1].strip()
-                return s
-            clean_pay_headers = [_clean_v(h) for h in pay_headers]
+            clean_pay_headers = [_clean_val(h) for h in pay_headers]
             k1_idx = clean_pay_headers.index("科目１")
             
             # A列(インデックス0) と 科目1列 の両方に文言を入れる（セル結合されるため）
@@ -747,18 +804,17 @@ def execute_expansion(username, mode="NEW", start_ym=None):
             # 「変動or固定」列のインデックスを特定
             v_idx = -1
             for i, h in enumerate(pay_headers):
-                ch = _normalize(_clean_v(h))
+                ch = _normalize(_clean_val(h))
                 if "変動" in ch or ("固定" in ch and "支払" not in ch):
                     v_idx = i
                     break
             
             if v_idx != -1:
                 for r_idx, row in enumerate(final_sheet_array):
-                    if r_idx < 7: continue # ヘッダーより下のみ
                     if v_idx < len(row):
                         # 正規化して「変動」と完全一致、または「変動」が含まれるか判定
                         # ユーザーの「変動の行のみ」という要望を尊重（"変動費"なども考慮して in を使用）
-                        row_val = _normalize(_clean_v(row[v_idx]))
+                        row_val = _normalize(_clean_val(row[v_idx]))
                         if "変動" in row_val:
                             variable_rows.append(r_idx)
         except Exception as e:
@@ -770,8 +826,8 @@ def execute_expansion(username, mode="NEW", start_ym=None):
                 "repeatCell": {
                     "range": {
                         "sheetId": sheet_id,
-                        "startRowIndex": r_idx,
-                        "endRowIndex": r_idx + 1,
+                        "startRowIndex": r_idx + 7, # 0-indexed row number (Row 8 is index 7)
+                        "endRowIndex": r_idx + 8,
                         "startColumnIndex": 1,
                         "endColumnIndex": 7
                     },
@@ -797,18 +853,18 @@ def execute_expansion(username, mode="NEW", start_ym=None):
             safe_gspread_call(ws_pay.batch_clear, [f"A8:ZZ{clear_end_row}"])
         
         # 書き込みに必要な行数が足りない場合は追加
-        needed_rows = len(final_sheet_array)
-        if needed_rows > current_rows:
-            safe_gspread_call(ws_pay.add_rows, needed_rows - current_rows)
+        needed_total_rows = 7 + len(final_sheet_array)
+        if needed_total_rows > current_rows:
+            safe_gspread_call(ws_pay.add_rows, needed_total_rows - current_rows)
+            current_rows = needed_total_rows
             
-        safe_gspread_call(ws_pay.update, "A1", final_sheet_array, value_input_option='USER_ENTERED')
+        safe_gspread_call(ws_pay.update, "A8", final_sheet_array, value_input_option='USER_ENTERED')
         # 書式を一括適用
         safe_gspread_call(ss.batch_update, {"requests": format_requests})
 
         # --- 自動で変動費データ更新を実施 (Ver 4.17.0 追加仕様) ---
         if mode == "NEXT_MONTH":
             # 内部で execute_variable_cost_update を呼び出す
-            # finally 節でロック解除が保証されているため、後続の関数も正常にシートを操作可能。
             v_success, v_msg = execute_variable_cost_update(username, start_ym)
             if not v_success:
                 return True, f"固定費展開は成功しましたが、変動費更新でエラーが発生しました: {v_msg}"
@@ -818,18 +874,6 @@ def execute_expansion(username, mode="NEW", start_ym=None):
     except Exception as e:
         return False, f"書き込みエラー: {e}"
     finally:
-        # --- Release Physical Lock ---
-        if protected_range_id:
-            try:
-                unlock_req = {
-                    "deleteProtectedRange": {
-                        "protectedRangeId": protected_range_id
-                    }
-                }
-                safe_gspread_call(ss.batch_update, {"requests": [unlock_req]})
-            except:
-                pass
-                
         # バックアップデータの明示的な破棄 (Ver 4.17.0 追加仕様)
         try:
             if 'pay_raw' in locals(): del pay_raw
@@ -1031,21 +1075,13 @@ def execute_variable_cost_update(username, start_ym=None):
         return False, "「支払管理」のフォーマットが正しくありません。"
         
     pay_headers = pay_raw[6]
+    actual_headers = safe_gspread_call(ws_pay.row_values, 7)
+    actual_h_ids = [_normalize(_clean_val(x)) for x in actual_headers]
     
-    # 文字列が数式形式 (="値") の場合に中身を取り出す補助関数
-    def _clean_val(v):
-        s = str(v).strip()
-        if s.startswith("="):
-            s = s[1:].strip()
-            if s.startswith('"') and s.endswith('"'):
-                s = s[1:-1].strip()
-        return s
-
     # 科目１列のインデックスを探す
     k1_idx = -1
-    for i, h in enumerate(pay_headers):
-        clean_h = _clean_val(h).replace("\n", "").replace(" ", "").strip()
-        if "科目1" in clean_h or "科目１" in clean_h or "固定支払1" in clean_h or "固定支払１" in clean_h:
+    for i, h in enumerate(actual_h_ids):
+        if "科目1" in h or "科目１" in h or "固定支払1" in h or "固定支払１" in h:
             k1_idx = i
             break
             
@@ -1112,18 +1148,25 @@ def execute_variable_cost_update(username, start_ym=None):
         
     def _dict_to_row(d):
         r = []
-        for h in pay_headers:
-            clean_h = _clean_val(h).replace("\n", "").replace(" ", "").strip()
-            if "科目1" in clean_h or "科目１" in clean_h or "固定支払1" in clean_h or "固定支払１" in clean_h: val = d.get("科目１", "")
-            elif "科目2" in clean_h or "科目２" in clean_h or "固定支払2" in clean_h or "固定支払２" in clean_h: val = d.get("科目２", "")
-            elif "変動" in clean_h or ("固定" in clean_h and "支払" not in clean_h): val = d.get("変動or固定", "")
-            elif "有限" in clean_h or "無限" in clean_h: val = d.get("有限or無限", "")
-            elif "Sno" in clean_h or "seq" in clean_h.lower(): val = d.get("Sno", "")
-            elif "詳細" in clean_h or "明細" in clean_h: val = d.get("科目詳細", "")
-            elif "大分類" in clean_h: val = d.get("大分類", "")
+        for i, h in enumerate(pay_headers):
+            ach = actual_h_ids[i]
+            if "科目1" in ach or "科目１" in ach or "固定支払1" in ach or "固定支払１" in ach: val = d.get("科目１", "")
+            elif "科目2" in ach or "科目２" in ach or "固定支払2" in ach or "固定支払２" in ach: val = d.get("科目２", "")
+            elif "変動" in ach or ("固定" in ach and "支払" not in ach): val = d.get("変動or固定", "")
+            elif "有限" in ach or "無限" in ach: val = d.get("有限or無限", "")
+            elif "Sno" in ach or "seq" in ach.lower(): val = d.get("Sno", "")
+            elif "詳細" in ach or "明細" in ach: val = d.get("科目詳細", "")
+            elif "大分類" in ach: val = d.get("大分類", "")
+            elif ach in month_cols:
+                val = d.get(ach, "")
+            elif (ach + "月") in month_cols:
+                val = d.get(ach + "月", "")
+            elif ach.replace("月", "") in [m.replace("月", "") for m in month_cols]:
+                match_m = next((m for m in month_cols if m.replace("月", "") == ach.replace("月", "")), None)
+                val = d.get(match_m, "")
             else:
-                # 月カラムのデータ取得 (キーはクリーンアップされたヘッダー名)
-                val = d.get(_clean_val(h).strip(), "")
+                # 完了フラグ等のフォールバック
+                val = d.get(ach, d.get(_clean_val(h).strip(), ""))
             r.append(val)
         return r
 
@@ -1141,10 +1184,10 @@ def execute_variable_cost_update(username, start_ym=None):
     for i, row in enumerate(pay_raw[:total_row_idx]):
         if i < 7: continue
         try:
-            # ヘッダー検索もクリーンアップされたインデックスを使用
+            # ヘッダー検索も表示値ベースのインデックスを使用
             k1_h_idx = -1
             k2_h_idx = -1
-            for h_i, h_val in enumerate(pay_headers):
+            for h_i, h_val in enumerate(actual_headers):
                 h_clean = _clean_val(h_val).strip()
                 if h_clean == "科目１": k1_h_idx = h_i
                 if h_clean == "科目２": k2_h_idx = h_i
@@ -1242,7 +1285,21 @@ def execute_variable_cost_update(username, start_ym=None):
         # 月次データとフラグの転記
         for mc in month_cols:
             try:
-                c_idx = pay_headers.index(mc)
+                # actual_headers を使ってインデックスを取得
+                c_idx = -1
+                for i_h, h_v in enumerate(actual_headers):
+                    if _normalize(_clean_val(h_v)) == mc:
+                        c_idx = i_h
+                        break
+                if c_idx == -1:
+                    # '月'なしでも試行
+                    alt_m = mc.replace("月", "")
+                    for i_h, h_v in enumerate(actual_headers):
+                        if _normalize(_clean_val(h_v)).replace("月", "") == alt_m:
+                            c_idx = i_h
+                            break
+                
+                if c_idx == -1: continue # 見つからない場合はスキップ
                 f_idx = c_idx + 1
                 
                 # 金額設定
@@ -1286,7 +1343,20 @@ def execute_variable_cost_update(username, start_ym=None):
     
     for mc in month_cols:
         try:
-            c_idx = pay_headers.index(mc)
+            # actual_headers を使ってインデックスを取得
+            c_idx = -1
+            for i_h, h_v in enumerate(actual_headers):
+                if _normalize(_clean_val(h_v)) == mc:
+                    c_idx = i_h
+                    break
+            if c_idx == -1:
+                alt_m = mc.replace("月", "")
+                for i_h, h_v in enumerate(actual_headers):
+                    if _normalize(_clean_val(h_v)).replace("月", "") == alt_m:
+                        c_idx = i_h
+                        break
+            if c_idx == -1: continue
+            
             f_idx = c_idx + 1
             col_letter = chr(ord('A') + c_idx) if c_idx < 26 else chr(ord('A') + c_idx//26 - 1) + chr(ord('A') + c_idx%26)
             flag_letter = chr(ord('A') + f_idx) if f_idx < 26 else chr(ord('A') + f_idx//26 - 1) + chr(ord('A') + f_idx%26)
@@ -1324,7 +1394,20 @@ def execute_variable_cost_update(username, start_ym=None):
         r_fc = _dict_to_row(fc_dict)
         for mc in month_cols:
             try:
-                c_idx = pay_headers.index(mc)
+                # actual_headers を使ってインデックスを取得
+                c_idx = -1
+                for i_h, h_v in enumerate(actual_headers):
+                    if _normalize(_clean_val(h_v)) == mc:
+                        c_idx = i_h
+                        break
+                if c_idx == -1:
+                    alt_m = mc.replace("月", "")
+                    for i_h, h_v in enumerate(actual_headers):
+                        if _normalize(_clean_val(h_v)).replace("月", "") == alt_m:
+                            c_idx = i_h
+                            break
+                if c_idx == -1: continue
+                
                 f_idx = c_idx + 1
                 col_letter = chr(ord('A') + c_idx) if c_idx < 26 else chr(ord('A') + c_idx//26 - 1) + chr(ord('A') + c_idx%26)
                 flag_letter = chr(ord('A') + f_idx) if f_idx < 26 else chr(ord('A') + f_idx//26 - 1) + chr(ord('A') + f_idx%26)
@@ -1359,7 +1442,20 @@ def execute_variable_cost_update(username, start_ym=None):
         r_vc = _dict_to_row(vc_dict)
         for mc in month_cols:
             try:
-                c_idx = pay_headers.index(mc)
+                # actual_headers を使ってインデックスを取得
+                c_idx = -1
+                for i_h, h_v in enumerate(actual_headers):
+                    if _normalize(_clean_val(h_v)) == mc:
+                        c_idx = i_h
+                        break
+                if c_idx == -1:
+                    alt_m = mc.replace("月", "")
+                    for i_h, h_v in enumerate(actual_headers):
+                        if _normalize(_clean_val(h_v)).replace("月", "") == alt_m:
+                            c_idx = i_h
+                            break
+                if c_idx == -1: continue
+                
                 f_idx = c_idx + 1
                 col_letter = chr(ord('A') + c_idx) if c_idx < 26 else chr(ord('A') + c_idx//26 - 1) + chr(ord('A') + c_idx%26)
                 flag_letter = chr(ord('A') + f_idx) if f_idx < 26 else chr(ord('A') + f_idx//26 - 1) + chr(ord('A') + f_idx%26)
@@ -1401,7 +1497,20 @@ def execute_variable_cost_update(username, start_ym=None):
         r_sum = _dict_to_row(sum_dict)
         for mc in month_cols:
             try:
-                c_idx = pay_headers.index(mc)
+                # actual_headers を使ってインデックスを取得
+                c_idx = -1
+                for i_h, h_v in enumerate(actual_headers):
+                    if _normalize(_clean_val(h_v)) == mc:
+                        c_idx = i_h
+                        break
+                if c_idx == -1:
+                    alt_m = mc.replace("月", "")
+                    for i_h, h_v in enumerate(actual_headers):
+                        if _normalize(_clean_val(h_v)).replace("月", "") == alt_m:
+                            c_idx = i_h
+                            break
+                if c_idx == -1: continue
+                
                 f_idx = c_idx + 1
                 col_letter = chr(ord('A') + c_idx) if c_idx < 26 else chr(ord('A') + c_idx//26 - 1) + chr(ord('A') + c_idx%26)
                 flag_letter = chr(ord('A') + f_idx) if f_idx < 26 else chr(ord('A') + f_idx//26 - 1) + chr(ord('A') + f_idx%26)
@@ -1423,7 +1532,20 @@ def execute_variable_cost_update(username, start_ym=None):
     r_grand[0] = "クレジットカード合計"
     for mc in month_cols:
         try:
-            c_idx = pay_headers.index(mc)
+            # actual_headers を使ってインデックスを取得
+            c_idx = -1
+            for i_h, h_v in enumerate(actual_headers):
+                if _normalize(_clean_val(h_v)) == mc:
+                    c_idx = i_h
+                    break
+            if c_idx == -1:
+                alt_m = mc.replace("月", "")
+                for i_h, h_v in enumerate(actual_headers):
+                    if _normalize(_clean_val(h_v)).replace("月", "") == alt_m:
+                        c_idx = i_h
+                        break
+            if c_idx == -1: continue
+            
             f_idx = c_idx + 1
             col_letter = chr(ord('A') + c_idx) if c_idx < 26 else chr(ord('A') + c_idx//26 - 1) + chr(ord('A') + c_idx%26)
             flag_letter = chr(ord('A') + f_idx) if f_idx < 26 else chr(ord('A') + f_idx//26 - 1) + chr(ord('A') + f_idx%26)
@@ -1444,7 +1566,20 @@ def execute_variable_cost_update(username, start_ym=None):
     
     for mc in month_cols:
         try:
-            c_idx = pay_headers.index(mc)
+            # actual_headers を使ってインデックスを取得
+            c_idx = -1
+            for i_h, h_v in enumerate(actual_headers):
+                if _normalize(_clean_val(h_v)) == mc:
+                    c_idx = i_h
+                    break
+            if c_idx == -1:
+                alt_m = mc.replace("月", "")
+                for i_h, h_v in enumerate(actual_headers):
+                    if _normalize(_clean_val(h_v)).replace("月", "") == alt_m:
+                        c_idx = i_h
+                        break
+            if c_idx == -1: continue
+
             f_idx = c_idx + 1 # 完了Fのインデックス (通常は月の右隣)
             col_letter = chr(ord('A') + c_idx) if c_idx < 26 else chr(ord('A') + c_idx//26 - 1) + chr(ord('A') + c_idx%26)
             flag_letter = chr(ord('A') + f_idx) if f_idx < 26 else chr(ord('A') + f_idx//26 - 1) + chr(ord('A') + f_idx%26)
@@ -1495,8 +1630,20 @@ def execute_variable_cost_update(username, start_ym=None):
             for row_num, s_row, e_row in fixed_subtotals:
                 row_vals = [""] * len(pay_headers)
                 for mc in month_cols:
-                    if mc in pay_headers:
-                        c_idx = pay_headers.index(mc)
+                    # actual_headers を使ってインデックスを取得
+                    c_idx = -1
+                    for i_h, h_v in enumerate(actual_headers):
+                        if _normalize(_clean_val(h_v)) == mc:
+                            c_idx = i_h
+                            break
+                    if c_idx == -1:
+                        alt_m = mc.replace("月", "")
+                        for i_h, h_v in enumerate(actual_headers):
+                            if _normalize(_clean_val(h_v)).replace("月", "") == alt_m:
+                                c_idx = i_h
+                                break
+                    
+                    if c_idx != -1:
                         f_idx = c_idx + 1 # 完了Fのインデックス (通常は月の右隣)
                         col_letter = chr(ord('A') + c_idx) if c_idx < 26 else chr(ord('A') + c_idx//26 - 1) + chr(ord('A') + c_idx%26)
                         flag_letter = chr(ord('A') + f_idx) if f_idx < 26 else chr(ord('A') + f_idx//26 - 1) + chr(ord('A') + f_idx%26)
@@ -1600,7 +1747,20 @@ def execute_variable_cost_update(username, start_ym=None):
                         
                         for mc in month_cols:
                             try:
-                                c_idx = pay_headers.index(mc)
+                                # actual_headers を使ってインデックスを取得
+                                c_idx = -1
+                                for i_h, h_v in enumerate(actual_headers):
+                                    if _normalize(_clean_val(h_v)) == mc:
+                                        c_idx = i_h
+                                        break
+                                if c_idx == -1:
+                                    alt_m = mc.replace("月", "")
+                                    for i_h, h_v in enumerate(actual_headers):
+                                        if _normalize(_clean_val(h_v)).replace("月", "") == alt_m:
+                                            c_idx = i_h
+                                            break
+                                if c_idx == -1: continue
+                                
                                 f_idx = c_idx + 1
                                 if f_idx >= len(row_to_update): continue
                                 
