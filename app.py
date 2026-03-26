@@ -2623,6 +2623,9 @@ def show_data_check():
                 return
 
             mismatch_count = 0
+            checked_count = 0
+            total_count = len(values[1:])
+            
             # 2行目（データ開始行）から末尾までループ
             for row in values[1:]:
                 # カラム数が足りない行はスキップ
@@ -2634,8 +2637,12 @@ def show_data_check():
                 
                 # memoが空でないデータのみをチェック対象とする（レシートデータ等）
                 if memo_val:
+                    checked_count += 1
                     if user_val != memo_val:
                         mismatch_count += 1
+            
+            # カウント情報の表示
+            st.markdown(f"**【{checked_count}／{total_count}】**")
             
             if mismatch_count == 0:
                 st.markdown("<h5 style='color: #007bff;'>レシートデータは問題ありません。</h5>", unsafe_allow_html=True)
@@ -3525,7 +3532,7 @@ def main():
                 .block-container h5 { font-size: calc(1.00rem + 2pt) !important; }
                 </style>
             """, unsafe_allow_html=True)
-            st.subheader("マイニー [Ver 4.23.0]")
+            st.subheader("マイニー [Ver 4.23.1]")
             st.write(f"🔑 ユーザー: **{st.session_state['username']}**")
             st.markdown("---")
             if 'menu_selection' not in st.session_state:
@@ -5430,7 +5437,7 @@ MBTI: {mbti}
         elif menu_selection == "支払管理シートを確認":
             show_open_management_sheet()
             
-        st.caption("マイニー Ver 4.23.0 - ユーザー: %s" % st.session_state['username'])
+        st.caption("マイニー Ver 4.23.1 - ユーザー: %s" % st.session_state['username'])
             
     # 未ログインの状態 (ログイン・登録画面)
     else:
