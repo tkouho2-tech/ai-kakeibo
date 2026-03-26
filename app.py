@@ -2601,9 +2601,50 @@ def show_category_master():
             st.info("大分類が登録されていません。左側から大分類を追加してください。")
 
 def show_data_check():
-    """データチェック機能（現在はプレースホルダー）"""
+    """データチェック機能：usernameとmemoの不整合をチェックする"""
     st.markdown("#### ✅ データチェック")
-    st.info("データチェック機能は現在準備中です。データの整合性や異常値の自動検知機能を将来的に追加する予定です。")
+    
+    with st.spinner("スプレッドシートをスキャン中..."):
+        try:
+            sheet = get_sheet(TRANSACTIONS_WORKSHEET_NAME)
+            # 全データを取得（オーナーツールなので全ユーザー分を対象とする）
+            values = safe_gspread_call(sheet.get_all_values)
+            if not values or len(values) < 2:
+                st.info("データがありません。")
+                return
+
+            headers = [h.strip() for h in values[0]]
+            # カラム位置を特定
+            try:
+                user_idx = headers.index("username")
+                memo_idx = headers.index("memo")
+            except ValueError:
+                st.error("必要なカラム（username または memo）が見つかりません。")
+                return
+
+            mismatch_count = 0
+            # 2行目（データ開始行）から末尾までループ
+            for row in values[1:]:
+                # カラム数が足りない行はスキップ
+                if len(row) <= max(user_idx, memo_idx):
+                    continue
+                
+                user_val = str(row[user_idx]).strip().lower()
+                memo_val = str(row[memo_idx]).strip().lower()
+                
+                # memoが空でないデータのみをチェック対象とする（レシートデータ等）
+                if memo_val:
+                    if user_val != memo_val:
+                        mismatch_count += 1
+            
+            if mismatch_count == 0:
+                st.markdown("<h5 style='color: #007bff;'>レシートデータは問題ありません。</h5>", unsafe_allow_html=True)
+            else:
+                st.markdown(f"<h5 style='color: #dc3545;'>レシートデータに異なるアカウントが{mismatch_count}件発生しています。</h5>", unsafe_allow_html=True)
+                
+        except Exception as e:
+            st.error(f"チェック実行中にエラーが発生しました: {e}")
+
     if st.button("戻る", use_container_width=True):
         st.session_state.menu_selection = "ダッシュボード（月次集計）"
         st.rerun()
@@ -3484,7 +3525,7 @@ def main():
                 .block-container h5 { font-size: calc(1.00rem + 2pt) !important; }
                 </style>
             """, unsafe_allow_html=True)
-            st.subheader("マイニー [Ver 4.22.2]")
+            st.subheader("マイニー [Ver 4.23.0]")
             st.write(f"🔑 ユーザー: **{st.session_state['username']}**")
             st.markdown("---")
             if 'menu_selection' not in st.session_state:
@@ -5389,7 +5430,7 @@ MBTI: {mbti}
         elif menu_selection == "支払管理シートを確認":
             show_open_management_sheet()
             
-        st.caption("マイニー Ver 4.22.2 - ユーザー: %s" % st.session_state['username'])
+        st.caption("マイニー Ver 4.23.0 - ユーザー: %s" % st.session_state['username'])
             
     # 未ログインの状態 (ログイン・登録画面)
     else:
