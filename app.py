@@ -371,7 +371,7 @@ def init_users_sheet(sheet):
 
 def init_transactions_sheet(sheet):
     """初期セットアップ：取引シートのヘッダーがない場合に作成する"""
-    expected_headers = ["username", "date", "store_name", "item_name", "category", "subcategory", "amount", "update", "payment_method", "payment_type", "closing_date", "payment_month", "payment_date", "receipt_id"]
+    expected_headers = ["username", "date", "store_name", "item_name", "category", "subcategory", "amount", "update", "payment_method", "payment_type", "closing_date", "payment_month", "payment_date", "receipt_id", "memo"]
     try:
         headers = safe_gspread_call(sheet.row_values, 1)
         if not headers or headers[0] != "username":
@@ -3476,7 +3476,7 @@ def main():
                 .block-container h5 { font-size: calc(1.00rem + 2pt) !important; }
                 </style>
             """, unsafe_allow_html=True)
-            st.subheader("マイニー [Ver 4.20.0]")
+            st.subheader("マイニー [Ver 4.21.1]")
             st.write(f"🔑 ユーザー: **{st.session_state['username']}**")
             st.markdown("---")
             if 'menu_selection' not in st.session_state:
@@ -4084,7 +4084,8 @@ def main():
                                             str(p_close),
                                             str(p_month),
                                             str(p_date),
-                                            new_receipt_id
+                                            new_receipt_id,
+                                            str(target_username) # memo column: Set account only for receipt OCR
                                         ]
                                         rows_to_append.append(row_data)
                                     
@@ -4306,7 +4307,8 @@ def main():
                                         str(p_close),
                                         str(p_month),
                                         str(p_date),
-                                        new_receipt_id
+                                        new_receipt_id,
+                                        "" # memo column: Empty for manual input
                                     ]
                                     rows_to_append.append(row_data)
                                 
@@ -4688,7 +4690,7 @@ def main():
                                                         p_type, p_close, p_month, p_date = get_payment_details_for_transaction(user_name, target_payment)
                                                         if str(current_editing_id).startswith("new_"):
                                                             # 新規追加
-                                                            new_row = [user_name, target_date_str, target_store, edit_name, edit_major, edit_minor, edit_amount, datetime.now().strftime("%Y-%m-%d %H:%M:%S"), target_payment, str(p_type), str(p_close), str(p_month), str(p_date), st.session_state['edit_header'].get('receipt_id', '')]
+                                                            new_row = [user_name, target_date_str, target_store, edit_name, edit_major, edit_minor, edit_amount, datetime.now().strftime("%Y-%m-%d %H:%M:%S"), target_payment, str(p_type), str(p_close), str(p_month), str(p_date), st.session_state['edit_header'].get('receipt_id', ''), ""]
                                                             sheet.append_row(new_row)
                                                         else:
                                                             # 既存更新: 安全装置（行データの検証）
@@ -5372,7 +5374,7 @@ MBTI: {mbti}
         elif menu_selection == "支払管理シートを確認":
             show_open_management_sheet()
             
-        st.caption("マイニー Ver 4.20.0 - ユーザー: %s" % st.session_state['username'])
+        st.caption("マイニー Ver 4.21.1 - ユーザー: %s" % st.session_state['username'])
             
     # 未ログインの状態 (ログイン・登録画面)
     else:
