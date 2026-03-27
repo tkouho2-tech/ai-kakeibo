@@ -179,10 +179,15 @@ if '_init_done' not in st.session_state:
         except:
             pass
             
-    # --- URLパラメータによる自動ログイン機能を削除 (セキュリティ向上のため) ---
-    # 以前は ?user=... で自動ログイン可能だったが、これを廃止し必ずログインフォームを通すようにする。
-    # --------------------------------------------------------------------------
+    # --- URLパラメータによる自動ログイン機能の復元 (開発者の意向によりリスクを承知で復元) ---
+    if "user" in params:
+        u_val = params["user"]
+        if isinstance(u_val, list): u_val = u_val[0]
+        # セッション状態にユーザー名をセットし、ログイン済みとする
+        st.session_state['username'] = u_val.strip().lower()
+        st.session_state['logged_in'] = True
         need_rerun = True
+    # --------------------------------------------------------------------------
         
     if "menu" in params:
         m_val = params["menu"]
@@ -371,7 +376,7 @@ def init_users_sheet(sheet):
 
 def init_transactions_sheet(sheet):
     """初期セットアップ：取引シートのヘッダーがない場合に作成する"""
-    expected_headers = ["username", "date", "store_name", "item_name", "category", "subcategory", "amount", "update", "payment_method", "payment_type", "closing_date", "payment_month", "payment_date", "receipt_id", "memo"]
+    expected_headers = ["username", "date", "store_name", "item_name", "category", "subcategory", "amount", "update", "update2", "payment_method", "payment_type", "closing_date", "payment_month", "payment_date", "receipt_id", "memo"]
     try:
         headers = safe_gspread_call(sheet.row_values, 1)
         if not headers or headers[0] != "username":
@@ -3532,7 +3537,7 @@ def main():
                 .block-container h5 { font-size: calc(1.00rem + 2pt) !important; }
                 </style>
             """, unsafe_allow_html=True)
-            st.subheader("マイニー [Ver 4.23.3]")
+            st.subheader("マイニー [Ver 4.25.1]")
             st.write(f"🔑 ユーザー: **{st.session_state['username']}**")
             st.markdown("---")
             if 'menu_selection' not in st.session_state:
@@ -4142,13 +4147,14 @@ def main():
                                             str(final_minor),
                                             amt,
                                             datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                                            "", # update2 Column: Let it empty for new entries
                                             str(selected_payment),
                                             str(p_type),
                                             str(p_close),
                                             str(p_month),
                                             str(p_date),
                                             new_receipt_id,
-                                            str(target_username) # memo column: Set account only for receipt OCR
+                                            str(target_username) # memo column
                                         ]
                                         rows_to_append.append(row_data)
                                     
@@ -4365,13 +4371,14 @@ def main():
                                         str(minor),
                                         amt,
                                         datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                                        "", # update2 Column: Let it empty for new entries
                                         str(selected_payment_manual),
                                         str(p_type),
                                         str(p_close),
                                         str(p_month),
                                         str(p_date),
                                         new_receipt_id,
-                                        str(target_username) # memo column: Set account for manual input
+                                        str(target_username) # memo column
                                     ]
                                     rows_to_append.append(row_data)
                                 
@@ -4665,7 +4672,8 @@ def main():
                                                 batch_updates = []
                                                 for r_idx in existing_indices:
                                                     batch_updates.append({"range": f"B{r_idx}:C{r_idx}", "values": [[target_date_str, target_store]]})
-                                                    batch_updates.append({"range": f"H{r_idx}:M{r_idx}", "values": [[current_time, target_payment, str(p_type), str(p_close), str(p_month), str(p_date)]]})
+                                                    # H (update) は変更せず、I (update2) から N (payment_date) までを更新
+                                                    batch_updates.append({"range": f"I{r_idx}:N{r_idx}", "values": [[current_time, target_payment, str(p_type), str(p_close), str(p_month), str(p_date)]]})
                                                     
                                                 if batch_updates:
                                                     safe_gspread_call(sheet.batch_update, batch_updates)
@@ -4753,7 +4761,7 @@ def main():
                                                         p_type, p_close, p_month, p_date = get_payment_details_for_transaction(user_name, target_payment)
                                                         if str(current_editing_id).startswith("new_"):
                                                             # 新規追加
-                                                            new_row = [user_name, target_date_str, target_store, edit_name, edit_major, edit_minor, edit_amount, datetime.now().strftime("%Y-%m-%d %H:%M:%S"), target_payment, str(p_type), str(p_close), str(p_month), str(p_date), st.session_state['edit_header'].get('receipt_id', ''), str(user_name)]
+                                                            new_row = [user_name, target_date_str, target_store, edit_name, edit_major, edit_minor, edit_amount, datetime.now().strftime("%Y-%m-%d %H:%M:%S"), "", target_payment, str(p_type), str(p_close), str(p_month), str(p_date), st.session_state['edit_header'].get('receipt_id', ''), str(user_name)]
                                                             sheet.append_row(new_row)
                                                         else:
                                                             # 既存更新: 安全装置（行データの検証）
@@ -4768,10 +4776,12 @@ def main():
                                                                 st.stop()
                                                             
                                                             # バッチ更新（1回のAPI呼び出しで範囲を更新）
-                                                            # A:username, B:date, C:store, D:item, E:major, F:minor, G:amount, H:update, I:payment_method, J:type, K:close_date, L:pay_month, M:pay_date, N:receipt_id
-                                                            # 更新範囲: B (Col 2) から N (Col 14)
-                                                            update_range = f"B{r_idx}:N{r_idx}"
-                                                            update_values = [[target_date_str, target_store, edit_name, edit_major, edit_minor, edit_amount, datetime.now().strftime("%Y-%m-%d %H:%M:%S"), target_payment, str(p_type), str(p_close), str(p_month), str(p_date), st.session_state['edit_header'].get('receipt_id', '')]]
+                                                            # A:username, B:date, C:store, D:item, E:major, F:minor, G:amount, H:update, I:update2, J:payment_method, K:type, L:close_date, M:pay_month, N:pay_date, O:receipt_id
+                                                            # H列 (update) には既存の値をそのまま使い、I列 (update2) に現在時刻を設定する
+                                                            update_range = f"B{r_idx}:O{r_idx}"
+                                                            current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                                                            orig_update_val = current_row_values[7] if len(current_row_values) > 7 else ""
+                                                            update_values = [[target_date_str, target_store, edit_name, edit_major, edit_minor, edit_amount, orig_update_val, current_time, target_payment, str(p_type), str(p_close), str(p_month), str(p_date), st.session_state['edit_header'].get('receipt_id', '')]]
                                                             sheet.update(range_name=update_range, values=update_values)
                                                         
                                                         st.success("✅ 修正を登録しました")
@@ -5437,7 +5447,7 @@ MBTI: {mbti}
         elif menu_selection == "支払管理シートを確認":
             show_open_management_sheet()
             
-        st.caption("マイニー Ver 4.23.3 - ユーザー: %s" % st.session_state['username'])
+        st.caption("マイニー Ver 4.25.1 - ユーザー: %s" % st.session_state['username'])
             
     # 未ログインの状態 (ログイン・登録画面)
     else:

@@ -38,6 +38,62 @@ def _get_year_month(ym_str):
         return (2000 + int(m2.group(1)), int(m2.group(2)))
     return (9999, 12)
 
+def ensure_id_column_and_formula(ws_pay):
+    """
+    支払管理シートのA列に『ID』列を追加し、固定費・変動費の各行に
+    =B列&E列&F列&H列 (大分類&科目1&科目2&科目詳細) の一意識別キーをセットする。
+    """
+    from app import safe_gspread_call
+    try:
+        # 1. 7行目（ヘッダー）を確認してID列がない場合は挿入
+        actual_headers = safe_gspread_call(ws_pay.row_values, 7)
+        if not actual_headers: return
+        
+        is_already_id = False
+        if len(actual_headers) > 0:
+            h0 = str(actual_headers[0]).strip().lower()
+            if h0 == "id" or h0 == "key":
+                is_already_id = True
+        
+        if not is_already_id:
+            # 1列目にヘッダー「ID」付きで列を挿入
+            safe_gspread_call(ws_pay.insert_cols, [["ID"]], 1)
+        
+        # 2. A8から最終行までスキャンして「大分類」(B列)が固定費/変動費なら数式をセット
+        cells = safe_gspread_call(ws_pay.get_all_values)
+        if len(cells) < 8: return
+        
+        formulas = []
+        for i in range(7, len(cells)):
+            row = cells[i]
+            r_idx = i + 1
+            # B列(index 1)が大分類、E列(index 4)が科目1、F列(index 5)が科目2、H列(index 7)が科目詳細
+            dai = str(row[1]).strip() if len(row) > 1 else ""
+            k1 = str(row[4]).strip() if len(row) > 4 else ""
+            
+            if "固定費" in dai:
+                if "クレジットカード" in k1:
+                    # 固定費かつカード: 大分類(B)&科目2(F)
+                    formula = f"=B{r_idx}&F{r_idx}"
+                else:
+                    # 固定費(その他): 大分類(B)&科目1(E)
+                    formula = f"=B{r_idx}&E{r_idx}"
+                formulas.append([formula])
+            elif "変動費" in dai:
+                # 変動費: 科目2(F)
+                formula = f"=F{r_idx}"
+                formulas.append([formula])
+            else:
+                formulas.append([""])
+        
+        if formulas:
+            # A8から一括更新
+            end_row = 7 + len(formulas)
+            safe_gspread_call(ws_pay.update, f"A8:A{end_row}", formulas, value_input_option='USER_ENTERED')
+            
+    except Exception as e:
+        print(f"Error in ensure_id_column_and_formula: {e}")
+
 def _generate_target_months():
     # 2026.1月 to 2036.12月
     months = []
@@ -245,7 +301,8 @@ def execute_expansion(username, mode="NEW", start_ym=None):
             b_str = str(u_rec.get("birthdate", "")).replace("-", "").replace("/", "").strip()
             if len(b_str) >= 8:
                 b_val = b_str[:8]
-                safe_gspread_call(ws_pay.update_acell, 'E2', b_val)
+                # ユーザーの要望により E2 から F2 に変更
+                safe_gspread_call(ws_pay.update_acell, 'F2', b_val)
     except Exception as e:
         print(f"Birthdate update error: {e}")
 
@@ -394,7 +451,8 @@ def execute_expansion(username, mode="NEW", start_ym=None):
         
         # Build array for batch update (Row 8 onwards)
         final_sheet_array = []
-        header_len = len(pay_headers)
+        # ヘッダー長は表示上の全列数を基準にする
+        header_len = len(actual_headers)
         
         # Pre-calculate clean header IDs for position-based detection
         actual_h_ids = [_normalize(_clean_val(x)) for x in actual_headers]
@@ -403,7 +461,11 @@ def execute_expansion(username, mode="NEW", start_ym=None):
             r = []
             prefix = d.get("protected_prefix") # List of original cells if in NEXT_MONTH protection
             
-            for i, h in enumerate(pay_headers):
+            for i in range(header_len):
+                if i == 0: continue # Skip Column A (ID column)
+                
+                h = pay_headers[i] if i < len(pay_headers) else ""
+                
                 # Physical protection: If this index is before the split point, use the raw prefix data
                 if prefix and i < len(prefix):
                     r.append(prefix[i])
@@ -476,8 +538,14 @@ def execute_expansion(username, mode="NEW", start_ym=None):
             }
         })
         
-        for tk in target_k1_order:
+        # 標準の順序（カード、引落、振込）を優先し、それ以外の新規カテゴリもすべて含める
+        all_categories = target_k1_order + [k for k in category_groups.keys() if k not in target_k1_order]
+        
+        for tk in all_categories:
             group_rows = category_groups.get(tk, [])
+            if not group_rows and tk not in target_k1_order:
+                # 標準カテゴリ以外が空の場合はスキップ
+                continue
             g_start = current_row_num
             sno = 1
             
@@ -513,7 +581,8 @@ def execute_expansion(username, mode="NEW", start_ym=None):
             g_end = current_row_num - 1
             
             # Add 計 row
-            subtotal_row = [""] * header_len
+            # B列から開始するため header_len - 1
+            subtotal_row = [""] * (header_len - 1)
             try:
                 k1_idx = -1
                 for i_h, h_v in enumerate(actual_h_ids):
@@ -521,7 +590,9 @@ def execute_expansion(username, mode="NEW", start_ym=None):
                         k1_idx = i_h
                         break
                 if k1_idx != -1:
-                    subtotal_row[k1_idx] = f"【{tk} 計】"
+                    # B列開始なのでインデックスを調整 (-1) し、境界チェックを追加
+                    if 0 <= k1_idx - 1 < len(subtotal_row):
+                        subtotal_row[k1_idx - 1] = f"【{tk} 計】"
             except: pass
             
             # Add formulas for months
@@ -543,7 +614,9 @@ def execute_expansion(username, mode="NEW", start_ym=None):
                     if g_start <= g_end:
                         # 完了Fが空の行のみを合計
                         formula = f"=SUMIFS({col_letter}{g_start}:{col_letter}{g_end}, {flag_letter}{g_start}:{flag_letter}{g_end}, \"\")"
-                        subtotal_row[c_idx] = formula
+                        # B列開始なのでインデックスを調整 (-1) し、境界チェックを追加
+                        if 0 <= c_idx - 1 < len(subtotal_row):
+                            subtotal_row[c_idx - 1] = formula
                 except: pass
                 
             final_sheet_array.append(subtotal_row)
@@ -596,15 +669,17 @@ def execute_expansion(username, mode="NEW", start_ym=None):
             current_row_num += 1
             
         # Add Grand Total Row
-        grand_total_row = [""] * header_len
+        # B列から開始するため header_len - 1
+        grand_total_row = [""] * (header_len - 1)
         try:
             # ヘッダー項目をクリーンアップして検索 (="科目１" 等の数式対応)
             clean_pay_headers = [_clean_val(h) for h in pay_headers]
             k1_idx = clean_pay_headers.index("科目１")
             
-            # A列(インデックス0) と 科目1列 の両方に文言を入れる（セル結合されるため）
-            grand_total_row[0] = "固定費合計"
-            grand_total_row[k1_idx] = "固定費合計"
+            # B列開始なのでインデックスを調整 (-1) し、境界チェックを追加
+            if 0 < len(grand_total_row): grand_total_row[0] = "固定費合計"
+            if 0 <= k1_idx - 1 < len(grand_total_row):
+                grand_total_row[k1_idx - 1] = "固定費合計"
             
             # 科目明細列（G列付近）にも念のため文言を入れる
             k_detail_idx = -1
@@ -614,7 +689,8 @@ def execute_expansion(username, mode="NEW", start_ym=None):
                     k_detail_idx = h_i
                     break
             if k_detail_idx != -1:
-                grand_total_row[k_detail_idx] = "固定費合計"
+                if 0 <= k_detail_idx - 1 < len(grand_total_row):
+                    grand_total_row[k_detail_idx - 1] = "固定費合計"
                 
         except: pass
         
@@ -636,10 +712,12 @@ def execute_expansion(username, mode="NEW", start_ym=None):
                 if group_ranges:
                     # 各サブグループの「計」行そのものがすでにSUMIFSになっているので、
                     # グランドトータルは単純にそれ。を合計しても良いが、完了Fが1の「計」行はないはず。
-                    # ユーザーの意図を汲み取り、ここもSUMIFS(計の行, その右, "")にする。
-                    cells = [f"IF({flag_letter}{r}=\"\", {col_letter}{r}, 0)" for r in group_ranges]
-                    formula = f"=SUM({','.join(cells)})"
-                    grand_total_row[c_idx] = formula
+                    # B列開始なのでインデックスを調整 (-1) し、境界チェックを追加
+                    if group_ranges:
+                        cells = [f"IF({flag_letter}{r}=\"\", {col_letter}{r}, 0)" for r in group_ranges]
+                        formula = f"=SUM({','.join(cells)})"
+                        if 0 <= c_idx - 1 < len(grand_total_row):
+                            grand_total_row[c_idx - 1] = formula
             except: pass
             
         # 合計行のA〜G列（またはheader_len）を結合して中央揃え
@@ -882,7 +960,8 @@ def execute_expansion(username, mode="NEW", start_ym=None):
             safe_gspread_call(ws_pay.add_rows, needed_total_rows - current_rows)
             current_rows = needed_total_rows
             
-        safe_gspread_call(ws_pay.update, "A8", final_sheet_array, value_input_option='USER_ENTERED')
+        # データ書き込み開始位置を B8 (作成開始位置) に変更
+        safe_gspread_call(ws_pay.update, "B8", final_sheet_array, value_input_option='USER_ENTERED')
         # 書式を一括適用
         safe_gspread_call(ss.batch_update, {"requests": format_requests})
 
@@ -893,6 +972,17 @@ def execute_expansion(username, mode="NEW", start_ym=None):
                 bk_ws = None
             except Exception as e:
                 print(f"Backup cleanup error: {e}")
+
+        # --- 正常終了時の更新日時記録 (F4: 固定費データ展開) ---
+        try:
+            current_now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            # E4 から F4 への変更に伴う対応
+            safe_gspread_call(ws_pay.update, "F4", [[current_now]], value_input_option='USER_ENTERED')
+        except Exception as e:
+            print(f"Timestamp(F4) update error: {e}")
+
+        # --- A列(ID列)の保守と数式設定 ---
+        ensure_id_column_and_formula(ws_pay)
 
         # --- 自動で変動費データ更新を実施 (Ver 4.17.0 追加仕様) ---
         if mode == "NEXT_MONTH":
@@ -1108,6 +1198,8 @@ def execute_variable_cost_update(username, start_ym=None):
         
     pay_headers = pay_raw[6]
     actual_headers = safe_gspread_call(ws_pay.row_values, 7)
+    # ヘッダー長は表示上の全列数を基準にする
+    header_len = len(actual_headers)
     actual_h_ids = [_normalize(_clean_val(x)) for x in actual_headers]
     
     # 科目１列のインデックスを探す
@@ -1180,7 +1272,10 @@ def execute_variable_cost_update(username, start_ym=None):
         
     def _dict_to_row(d):
         r = []
-        for i, h in enumerate(pay_headers):
+        for i in range(header_len):
+            if i == 0: continue # Skip Column A (ID column)
+            h = pay_headers[i] if i < len(pay_headers) else ""
+            
             ach = actual_h_ids[i]
             if "科目1" in ach or "科目１" in ach or "固定支払1" in ach or "固定支払１" in ach: val = d.get("科目１", "")
             elif "科目2" in ach or "科目２" in ach or "固定支払2" in ach or "固定支払２" in ach: val = d.get("科目２", "")
@@ -1334,22 +1429,33 @@ def execute_variable_cost_update(username, start_ym=None):
                 if c_idx == -1: continue # 見つからない場合はスキップ
                 f_idx = c_idx + 1
                 
-                # 金額設定
+                # 金額設定 - B列開始なのでインデックスを調整 (-1) し、境界チェックを追加
                 amt = cc_row_dict.get(mc, "")
-                row_arr[c_idx] = amt
+                if 0 <= c_idx - 1 < len(row_arr):
+                    row_arr[c_idx - 1] = amt
                 
                 # 支払日の判定と自動フラグ設定 (変動費・カード個別行)
                 try:
-                    my, mm = [int(x.replace("月","").replace("月","")) for x in mc.split(".")]
-                    off = 1
-                    if "当月" in str(pay_month_str): off = 0
-                    elif "翌々月" in str(pay_month_str): off = 2
-                    base_dt = datetime(my, mm, 1) + relativedelta(months=off)
-                    d_m = re.search(r"\d+", str(pay_date_str))
-                    if d_m:
-                        actual_due_date = base_dt + relativedelta(day=int(d_m.group()))
-                        if datetime.now().date() >= actual_due_date.date():
-                            row_arr[f_idx] = "1"
+                    p_day_m = re.search(r"\d+", str(pay_date_str))
+                    p_day = int(p_day_m.group()) if p_day_m else 27
+                    
+                    # 20日基準の表示年月シフトルールに従って支払日を特定
+                    y, m = _get_year_month(mc)
+                    if y != 9999:
+                        base_date_dt = datetime(y, m, 1)
+                        if p_day <= 20:
+                            target_pay_dt = base_date_dt + relativedelta(months=1)
+                        else:
+                            target_pay_dt = base_date_dt
+                        
+                        from app import calculate_credit_card_periods
+                        t_periods = calculate_credit_card_periods(target_pay_dt, closing_str, pay_month_str, pay_date_str)
+                        if t_periods:
+                            actual_due_date = t_periods[0]["pay_date"]
+                            if datetime.now().date() >= actual_due_date:
+                                # B列開始なのでインデックスを調整 (-1) し、境界チェックを追加
+                                if 0 <= f_idx - 1 < len(row_arr):
+                                    row_arr[f_idx - 1] = "1"
                 except: pass
             except: pass
             
@@ -1357,12 +1463,14 @@ def execute_variable_cost_update(username, start_ym=None):
         current_row_num += 1
         
     # 変動費合計行を追加 (ピンク)
-    var_total_row = [""] * len(pay_headers)
+    # B列から開始するため header_len - 1
+    var_total_row = [""] * (header_len - 1)
     try:
         k1_idx = pay_headers.index("科目１")
         # 画像に基づき「変動費合計」に変更
-        var_total_row[0] = "変動費合計"
-        var_total_row[k1_idx] = "変動費合計"
+        if 0 < len(var_total_row): var_total_row[0] = "変動費合計"
+        if 0 <= k1_idx - 1 < len(var_total_row):
+            var_total_row[k1_idx - 1] = "変動費合計"
         
         # 明細列にも入れる
         k_detail_idx = -1
@@ -1370,7 +1478,8 @@ def execute_variable_cost_update(username, start_ym=None):
             h_clean = _clean_val(h_val).strip()
             if "詳細" in h_clean or "明細" in h_clean: k_detail_idx = h_i
         if k_detail_idx != -1:
-            var_total_row[k_detail_idx] = "変動費合計"
+            if 0 <= k_detail_idx - 1 < len(var_total_row):
+                var_total_row[k_detail_idx - 1] = "変動費合計"
     except: pass
     
     for mc in month_cols:
@@ -1395,7 +1504,9 @@ def execute_variable_cost_update(username, start_ym=None):
             if var_start <= current_row_num - 1:
                 # 完了Fが空の行のみを合計
                 formula = f"=SUMIFS({col_letter}{var_start}:{col_letter}{current_row_num - 1}, {flag_letter}{var_start}:{flag_letter}{current_row_num - 1}, \"\")"
-                var_total_row[c_idx] = formula
+                # B列開始なのでインデックスを調整 (-1) し、境界チェックを追加
+                if 0 <= c_idx - 1 < len(var_total_row):
+                    var_total_row[c_idx - 1] = formula
         except: pass
         
     cc_rows_array.append(var_total_row)
@@ -1445,24 +1556,34 @@ def execute_variable_cost_update(username, start_ym=None):
                 flag_letter = chr(ord('A') + f_idx) if f_idx < 26 else chr(ord('A') + f_idx//26 - 1) + chr(ord('A') + f_idx%26)
                 if fc_payment_rows.get(cc_name):
                     cells = [f"IF({flag_letter}{r}=\"\", {col_letter}{r}, 0)" for r in fc_payment_rows[cc_name]]
-                    r_fc[c_idx] = f"=SUM({','.join(cells)})"
+                    # B列開始なのでインデックスを調整 (-1) し、境界チェックを追加
+                    if 0 <= c_idx - 1 < len(r_fc):
+                        r_fc[c_idx - 1] = f"=SUM({','.join(cells)})"
                 else:
-                    r_fc[c_idx] = 0
+                    if 0 <= c_idx - 1 < len(r_fc):
+                        r_fc[c_idx - 1] = 0
                 
                 # 支払日の判定と自動フラグ設定 (固定費分)
                 try:
                     y, m = _get_year_month(mc)
                     if y != 9999:
-                        month_offset = 1 
-                        if "当月" in str(pay_month_str): month_offset = 0
-                        elif "翌々月" in str(pay_month_str): month_offset = 2
-                        target_base_date = datetime(y, m, 1) + relativedelta(months=month_offset)
-                        day_match = re.search(r"\d+", str(pay_date_str))
-                        if day_match:
-                            day_val = int(day_match.group())
-                            actual_due_date = target_base_date + relativedelta(day=day_val)
-                            if datetime.now().date() >= actual_due_date.date():
-                                r_fc[f_idx] = 1
+                        p_day_m = re.search(r"\d+", str(pay_date_str))
+                        p_day = int(p_day_m.group()) if p_day_m else 27
+                        
+                        base_date_dt = datetime(y, m, 1)
+                        if p_day <= 20:
+                            target_pay_dt = base_date_dt + relativedelta(months=1)
+                        else:
+                            target_pay_dt = base_date_dt
+                            
+                        from app import calculate_credit_card_periods
+                        t_periods = calculate_credit_card_periods(target_pay_dt, closing_str, pay_month_str, pay_date_str)
+                        if t_periods:
+                            actual_due_date = t_periods[0]["pay_date"]
+                            if datetime.now().date() >= actual_due_date:
+                                # B列開始なのでインデックスを調整 (-1) し、境界チェックを追加
+                                if 0 <= f_idx - 1 < len(r_fc):
+                                    r_fc[f_idx - 1] = 1
                 except: pass
             except: pass
         cc_rows_array.append(r_fc)
@@ -1493,9 +1614,12 @@ def execute_variable_cost_update(username, start_ym=None):
                 flag_letter = chr(ord('A') + f_idx) if f_idx < 26 else chr(ord('A') + f_idx//26 - 1) + chr(ord('A') + f_idx%26)
                 if vc_row_idx:
                     # 詳細行の完了Fが空の場合のみ表示
-                    r_vc[c_idx] = f"=IF({flag_letter}{vc_row_idx}=\"\", {col_letter}{vc_row_idx}, 0)"
+                    # B列開始なのでインデックスを調整 (-1) し、境界チェックを追加
+                    if 0 <= c_idx - 1 < len(r_vc):
+                        r_vc[c_idx - 1] = f"=IF({flag_letter}{vc_row_idx}=\"\", {col_letter}{vc_row_idx}, 0)"
                 else:
-                    r_vc[c_idx] = 0
+                    if 0 <= c_idx - 1 < len(r_vc):
+                        r_vc[c_idx - 1] = 0
 
                 # 支払日の判定と自動フラグ設定 (変動費分)
                 try:
@@ -1510,7 +1634,9 @@ def execute_variable_cost_update(username, start_ym=None):
                             day_val = int(day_match.group())
                             actual_due_date = target_base_date + relativedelta(day=day_val)
                             if datetime.now().date() >= actual_due_date.date():
-                                r_vc[f_idx] = 1
+                                # B列開始なのでインデックスを調整 (-1) し、境界チェックを追加
+                                if 0 <= f_idx - 1 < len(r_vc):
+                                    r_vc[f_idx - 1] = 1
                 except: pass
             except: pass
         cc_rows_array.append(r_vc)
@@ -1551,7 +1677,9 @@ def execute_variable_cost_update(username, start_ym=None):
                 vc_row = current_row_num - 1
                 # 各内訳行（固定費分、変動費分）の完了Fをチェックして合計する形式
                 formula = f"SUMIFS({col_letter}{fc_row}:{col_letter}{vc_row}, {flag_letter}{fc_row}:{flag_letter}{vc_row}, \"\")"
-                r_sum[c_idx] = "=" + formula
+                # B列開始なのでインデックスを調整 (-1) し、境界チェックを追加
+                if 0 <= c_idx - 1 < len(r_sum):
+                    r_sum[c_idx - 1] = "=" + formula
             except: pass
         cc_rows_array.append(r_sum)
         card_total_rows.append(current_row_num)
@@ -1583,9 +1711,12 @@ def execute_variable_cost_update(username, start_ym=None):
             flag_letter = chr(ord('A') + f_idx) if f_idx < 26 else chr(ord('A') + f_idx//26 - 1) + chr(ord('A') + f_idx%26)
             if card_total_rows:
                 cells = [f"IF({flag_letter}{r}=\"\", {col_letter}{r}, 0)" for r in card_total_rows]
-                r_grand[c_idx] = f"=SUM({','.join(cells)})"
+                # B列開始なのでインデックスを調整 (-1) し、境界チェックを追加
+                if 0 <= c_idx - 1 < len(r_grand):
+                    r_grand[c_idx - 1] = f"=SUM({','.join(cells)})"
             else:
-                r_grand[c_idx] = 0
+                if 0 <= c_idx - 1 < len(r_grand):
+                    r_grand[c_idx - 1] = 0
         except: pass
     cc_rows_array.append(r_grand)
     current_row_num += 1
@@ -1629,9 +1760,12 @@ def execute_variable_cost_update(username, start_ym=None):
                 formula_parts.append(f"SUM({','.join(cells)})")
             
             if formula_parts:
-                r_pay_total[c_idx] = "=" + "+".join(formula_parts)
+                # B列開始なのでインデックスを調整 (-1) し、境界チェックを追加
+                if 0 <= c_idx - 1 < len(r_pay_total):
+                    r_pay_total[c_idx - 1] = "=" + "+".join(formula_parts)
             else:
-                r_pay_total[c_idx] = 0
+                if 0 <= c_idx - 1 < len(r_pay_total):
+                    r_pay_total[c_idx - 1] = 0
         except: pass
     cc_rows_array.append(r_pay_total)
     current_row_num += 1
@@ -1646,7 +1780,7 @@ def execute_variable_cost_update(username, start_ym=None):
         current_rows = ws_pay.row_count
         if start_row_num <= current_rows:
             clear_end_row = min(1000, current_rows)
-            safe_gspread_call(ws_pay.batch_clear, [f"A{start_row_num}:ZZ{clear_end_row}"])
+            safe_gspread_call(ws_pay.batch_clear, [f"B{start_row_num}:ZZ{clear_end_row}"])
 
         # 書き込みに必要な行数が足りない場合は追加
         needed_rows = start_row_num + len(cc_rows_array) - 1
@@ -1654,13 +1788,15 @@ def execute_variable_cost_update(username, start_ym=None):
             safe_gspread_call(ws_pay.add_rows, needed_rows - current_rows)
             
         # 新しい変動費データを書き込み
-        safe_gspread_call(ws_pay.update, f"A{start_row_num}", cc_rows_array, value_input_option='USER_ENTERED')
+        # A列をスキップしてB列から書き込み
+        safe_gspread_call(ws_pay.update, f"B{start_row_num}", cc_rows_array, value_input_option='USER_ENTERED')
         
         # 既存の固定費サブ合計行も新方式の数式（完了F対応）に更新する
         if fixed_subtotals:
             update_data = [] # List of {'range': ..., 'values': [[...]]}
             for row_num, s_row, e_row in fixed_subtotals:
-                row_vals = [""] * len(pay_headers)
+                # B列開始のため header_len - 1
+                row_vals = [""] * (header_len - 1)
                 for mc in month_cols:
                     # actual_headers を使ってインデックスを取得
                     c_idx = -1
@@ -1681,14 +1817,19 @@ def execute_variable_cost_update(username, start_ym=None):
                         flag_letter = chr(ord('A') + f_idx) if f_idx < 26 else chr(ord('A') + f_idx//26 - 1) + chr(ord('A') + f_idx%26)
                         # SUMIFS(金額範囲, 完了F範囲, "")
                         formula = f"=SUMIFS({col_letter}{s_row}:{col_letter}{e_row}, {flag_letter}{s_row}:{flag_letter}{e_row}, \"\")"
-                        row_vals[c_idx] = formula
+                        # B列開始なのでインデックスを調整 (-1) し、境界チェックを追加
+                        if 0 <= c_idx - 1 < len(row_vals):
+                            row_vals[c_idx - 1] = formula
                 
                 # 月カラム以外のデータは既存のものを維持
                 original_row = pay_raw[row_num - 1]
                 for i in range(len(pay_headers)):
+                    if i == 0: continue # A列は書き込まないためスキップ
                     h_clean = _clean_val(pay_headers[i]).strip()
                     if h_clean not in month_cols:
-                        row_vals[i] = original_row[i]
+                        # B列開始なのでインデックスを調整 (-1)
+                        if i - 1 < len(row_vals) and i < len(original_row):
+                            row_vals[i - 1] = original_row[i]
                 
                 # 【合計】を固定費合計に書き換え (どの列にあっても対応)
                 for j in range(7):
@@ -1697,7 +1838,7 @@ def execute_variable_cost_update(username, start_ym=None):
                         break
 
                 update_data.append({
-                    'range': f"A{row_num}",
+                    'range': f"B{row_num}",
                     'values': [row_vals]
                 })
 
@@ -1827,8 +1968,8 @@ def execute_variable_cost_update(username, start_ym=None):
                         
                         if row_changed:
                             scan_update_data.append({
-                                'range': f"A{r_idx + 1}",
-                                'values': [row_to_update]
+                                'range': f"B{r_idx + 1}",
+                                'values': [row_to_update[1:]] # A列以外を書き込む
                             })
             except Exception as e:
                 print(f"Error in full sheet scan: {e}")
@@ -2251,7 +2392,18 @@ def execute_variable_cost_update(username, start_ym=None):
         
         if format_requests:
             safe_gspread_call(ss.batch_update, {"requests": format_requests})
-            
+
+        # --- 正常終了時の更新日時記録 (F5: 変動費データ更新) ---
+        try:
+            current_now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            # E5 から F5 への変更
+            safe_gspread_call(ws_pay.update, "F5", [[current_now]], value_input_option='USER_ENTERED')
+        except Exception as e:
+            print(f"Timestamp(F5) update error: {e}")
+
+        # --- A列(ID列)の保守と数式設定 ---
+        ensure_id_column_and_formula(ws_pay)
+
         return True, "変動費データの更新が完了しました！"
     except Exception as e:
         return False, f"書き込みエラー: {e}"
