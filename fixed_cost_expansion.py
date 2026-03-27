@@ -41,14 +41,22 @@ def _get_year_month(ym_str):
 def ensure_id_column_and_formula(ws_pay):
     """
     支払管理シートのA列に『ID』列を追加し、固定費・変動費の各行に
-    =B列&E列&F列&H列 (大分類&科目1&科目2&科目詳細) の一意識別キーをセットする。
+    一意識別キーの数式をセットする。
     """
     from app import safe_gspread_call
     try:
-        # 1. 7行目（ヘッダー）を確認してID列がない場合は挿入
-    actual_headers = safe_gspread_call(ws_pay.row_values, h_row_idx + 1)
-        if not actual_headers: return
-        
+        # シート全データを取得してヘッダー行を特定 (Ver 4.26.3)
+        cells = safe_gspread_call(ws_pay.get_all_values)
+        if not cells: return
+
+        h_row_idx = -1
+        for i_r, r_v in enumerate(cells):
+            if r_v and str(r_v[0]).strip().lower() in ["id", "key"]:
+                h_row_idx = i_r
+                break
+        if h_row_idx == -1: h_row_idx = 6 # フォールバック
+
+        actual_headers = cells[h_row_idx]
         is_already_id = False
         if len(actual_headers) > 0:
             h0 = str(actual_headers[0]).strip().lower()
@@ -56,40 +64,34 @@ def ensure_id_column_and_formula(ws_pay):
                 is_already_id = True
         
         if not is_already_id:
-            # 1列目にヘッダー「ID」付きで列を挿入
             safe_gspread_call(ws_pay.insert_cols, [["ID"]], 1)
-        
-        # 2. A8から最終行までスキャンして「大分類」(B列)が固定費/変動費なら数式をセット
-        cells = safe_gspread_call(ws_pay.get_all_values)
-        if len(cells) < 8: return
+            # 挿入後は cells をリロードした方が安全だが、ここでは簡易的に続行
+            cells = safe_gspread_call(ws_pay.get_all_values)
         
         formulas = []
-        for i in range(7, len(cells)):
+        # ヘッダーの次行から開始
+        for i in range(h_row_idx + 1, len(cells)):
             row = cells[i]
             r_idx = i + 1
-            # B列(index 1)が大分類、E列(index 4)が科目1、F列(index 5)が科目2、H列(index 7)が科目詳細
             dai = str(row[1]).strip() if len(row) > 1 else ""
             k1 = str(row[4]).strip() if len(row) > 4 else ""
             
             if "固定費" in dai:
                 if "クレジットカード" in k1:
-                    # 固定費かつカード: 大分類(B)&科目2(F)
                     formula = f"=B{r_idx}&F{r_idx}"
                 else:
-                    # 固定費(その他): 大分類(B)&科目1(E)
                     formula = f"=B{r_idx}&E{r_idx}"
                 formulas.append([formula])
             elif "変動費" in dai:
-                # 変動費: 科目2(F)
                 formula = f"=F{r_idx}"
                 formulas.append([formula])
             else:
                 formulas.append([""])
         
         if formulas:
-            # A8から一括更新
-            end_row = 7 + len(formulas)
-            safe_gspread_call(ws_pay.update, f"A8:A{end_row}", formulas, value_input_option='USER_ENTERED')
+            start_row = h_row_idx + 2
+            end_row = h_row_idx + 1 + len(formulas)
+            safe_gspread_call(ws_pay.update, f"A{start_row}:A{end_row}", formulas, value_input_option='USER_ENTERED')
             
     except Exception as e:
         print(f"Error in ensure_id_column_and_formula: {e}")
@@ -228,7 +230,7 @@ def execute_expansion(username, mode="NEW", start_ym=None):
                 split_col_idx = 7 
             
         # Read old rows and store protectable prefix (all cells to the left of target month)
-        for row in pay_raw[7:]:
+        for row in pay_raw[h_row_idx + 1:]:
             k1_idx = next((i for i, h in enumerate(actual_h_ids) if "科目1" in h or "科目１" in h or "固定支払1" in h or "固定支払１" in h), 3)
             if len(row) <= k1_idx or not _normalize(row[k1_idx]) or "計" in _normalize(row[k1_idx]):
                 continue
@@ -1068,7 +1070,7 @@ def show_fixed_cost_data_expansion():
     is_expanded = False
     if len(pay_raw) > 7:
         # Check if rows 8+ have actual data
-        for row in pay_raw[7:]:
+        for row in pay_raw[h_row_idx + 1:]:
             # check any cell has value
             if any(cell.strip() for cell in row):
                 is_expanded = True
