@@ -46,7 +46,7 @@ def ensure_id_column_and_formula(ws_pay):
     from app import safe_gspread_call
     try:
         # 1. 7行目（ヘッダー）を確認してID列がない場合は挿入
-        actual_headers = safe_gspread_call(ws_pay.row_values, 7)
+    actual_headers = safe_gspread_call(ws_pay.row_values, h_row_idx + 1)
         if not actual_headers: return
         
         is_already_id = False
@@ -184,9 +184,16 @@ def execute_expansion(username, mode="NEW", start_ym=None):
     if len(pay_raw) < 7:
         return False, "「支払管理」のフォーマットが正しくありません（7行目にヘッダーが必要です）。"
         
-    pay_headers = pay_raw[6]
+    # ヘッダー行を「ID」が含まれる行として動的に特定 (Ver 4.26.2)
+    h_row_idx = -1
+    for i_r, r_v in enumerate(pay_raw):
+        if r_v and str(r_v[0]).strip().lower() in ["id", "key"]:
+            h_row_idx = i_r
+            break
+    if h_row_idx == -1: h_row_idx = 6 # フォールバック
+    pay_headers = pay_raw[h_row_idx]
     # FORMULAモードだとヘッダーが "=H4&..." 等の文字列になり、月名判定に失敗するため、別途表示値を取得する
-    actual_headers = safe_gspread_call(ws_pay.row_values, 7)
+    actual_headers = safe_gspread_call(ws_pay.row_values, h_row_idx + 1)
     actual_h_ids = [_normalize(_clean_val(x)) for x in actual_headers]
     month_cols = _generate_target_months()
     
@@ -1196,8 +1203,15 @@ def execute_variable_cost_update(username, start_ym=None):
     if len(pay_raw) < 7:
         return False, "「支払管理」のフォーマットが正しくありません。"
         
-    pay_headers = pay_raw[6]
-    actual_headers = safe_gspread_call(ws_pay.row_values, 7)
+    # ヘッダー行を「ID」が含まれる行として動的に特定 (Ver 4.26.2)
+    h_row_idx = -1
+    for i_r, r_v in enumerate(pay_raw):
+        if r_v and str(r_v[0]).strip().lower() in ["id", "key"]:
+            h_row_idx = i_r
+            break
+    if h_row_idx == -1: h_row_idx = 6 # フォールバック
+    pay_headers = pay_raw[h_row_idx]
+    actual_headers = safe_gspread_call(ws_pay.row_values, h_row_idx + 1)
     # ヘッダー長は表示上の全列数を基準にする
     header_len = len(actual_headers)
     actual_h_ids = [_normalize(_clean_val(x)) for x in actual_headers]
@@ -1215,7 +1229,7 @@ def execute_variable_cost_update(username, start_ym=None):
     # 行をスキャンして「固定費合計」または「【合計】」を探す (大分類～科目詳細のどこにあっても見つける)
     total_row_idx = -1
     for i, row in enumerate(pay_raw):
-        if i < 7: continue
+        if i <= h_row_idx: continue
         row_str = "".join([str(c) for c in row[:7]]) # 最初の数列を結合して検索
         if "固定費合計" in row_str or "【合計】" in row_str:
             total_row_idx = i
@@ -1223,7 +1237,7 @@ def execute_variable_cost_update(username, start_ym=None):
             
     # 見つからない場合のフォールバック：上から順に SUM(IF... 数式がある最初の行を探す (ラベルが消えている場合への対策)
     if total_row_idx == -1:
-        for i in range(7, len(pay_raw)):
+        for i in range(h_row_idx + 1, len(pay_raw)):
             row = pay_raw[i]
             # 月カラム（通常はインデックス 7 以降）のどこかにグランド合計用の数式が入っているかチェック
             row_content = "".join([str(c) for c in row])
@@ -1239,9 +1253,9 @@ def execute_variable_cost_update(username, start_ym=None):
     # 既存の固定費エリアのサブ合計行を収集
     # (row_num, group_start_row, group_end_row)
     fixed_subtotals = []
-    group_start = 8
+    group_start = h_row_idx + 2
     for i, row in enumerate(pay_raw[:total_row_idx + 1]):
-        if i < 7: continue
+        if i <= h_row_idx: continue
         r_k1 = str(row[k1_idx]).strip() if k1_idx < len(row) else ""
         if ("【" in r_k1 and "計】" in r_k1) or "【合計】" in r_k1 or "固定費合計" in r_k1:
             fixed_subtotals.append((i + 1, group_start, i))
@@ -1309,7 +1323,7 @@ def execute_variable_cost_update(username, start_ym=None):
     other_pay_rows = []
     
     for i, row in enumerate(pay_raw[:total_row_idx]):
-        if i < 7: continue
+        if i <= h_row_idx: continue
         try:
             # ヘッダー検索も表示値ベースのインデックスを使用
             k1_h_idx = -1
@@ -1879,7 +1893,7 @@ def execute_variable_cost_update(username, start_ym=None):
                     if "詳細" in h_c or "明細" in h_c: idx_det = i
 
                 # 8行目から、変動費エリアの手前までを走査
-                for r_idx in range(7, start_row_num - 1):
+                for r_idx in range(h_row_idx + 1, start_row_num - 1):
                     if r_idx >= len(pay_raw): break
                     row = pay_raw[r_idx]
                     
@@ -2404,61 +2418,74 @@ def execute_variable_cost_update(username, start_ym=None):
         # --- A列(ID列)の保守と数式設定 ---
         ensure_id_column_and_formula(ws_pay)
 
-        # --- 支払管理２ へのサマリ同期処理を追加 (Ver 4.26.0) ---
+
+        # --- 支払管理２ へのサマリ同期処理を追加 (Ver 4.26.1) ---
         try:
             ws_pay2 = ss.worksheet("支払管理２")
             # 支払管理２の全データを取得 (数式維持のため FORMULA)
             pay2_raw = safe_gspread_call(ws_pay2.get_all_values, value_render_option='FORMULA')
-            if len(pay2_raw) >= 7:
-                # 支払管理２の表示ヘッダーを取得
-                actual_h2 = safe_gspread_call(ws_pay2.row_values, 7)
+            
+            # 支払管理２のヘッダー行を「ID」を探して特定する
+            h2_row_idx = -1
+            for i_r, r_v in enumerate(pay2_raw):
+                if r_v and str(r_v[0]).strip().lower() in ["id", "key"]:
+                    h2_row_idx = i_r
+                    break
+            
+            if h2_row_idx != -1:
+                # 支払管理２の表示ヘッダー（年月などの表示名）を取得
+                actual_h2 = safe_gspread_call(ws_pay2.row_values, h2_row_idx + 1)
                 actual_h2_ids = [_normalize(_clean_val(x)) for x in actual_h2]
                 
-                # 支払管理（元シート）の最新データを「値」として取得
+                # 支払管理（元シート）のヘッダー行も特定
                 pay1_vals = safe_gspread_call(ws_pay.get_all_values, value_render_option='UNFORMATTED_VALUE')
+                h1_row_idx = -1
+                for i_r, r_v in enumerate(pay1_vals):
+                    if r_v and str(r_v[0]).strip().lower() in ["id", "key"]:
+                        h1_row_idx = i_r
+                        break
                 
-                # IDをキーにした月次データのマップを作成
-                # source_map[id][month_name] = value
-                source_map = {}
-                for row1 in pay1_vals[7:]:
-                    if not row1: continue
-                    pid = str(row1[0]).strip()
-                    if not pid: continue
-                    source_map[pid] = {}
-                    for col_i, h_val in enumerate(actual_headers):
-                        h_norm = _normalize(_clean_val(h_val))
-                        if col_i < len(row1) and (h_norm in month_cols or h_norm.replace("月","") in [m.replace("月","") for m in month_cols]):
-                            # 同一名称の年月としてソースマップに格納
-                            source_map[pid][h_norm] = row1[col_i]
-                
-                # 支払管理２のデータを更新
-                update_needed = False
-                for i_r2 in range(7, len(pay2_raw)):
-                    row2 = pay2_raw[i_r2]
-                    pid2 = str(row2[0]).strip() if len(row2) > 0 else ""
-                    if pid2 in source_map:
-                        for i_c2, h_norm2 in enumerate(actual_h2_ids):
-                            # 同一名称または「月」なし一致の年月を対象とする
-                            src_val = None
-                            if h_norm2 in source_map[pid2]:
-                                src_val = source_map[pid2][h_norm2]
-                            else:
-                                alt_m2 = h_norm2.replace("月","")
-                                for m_src in source_map[pid2]:
-                                    if m_src.replace("月","") == alt_m2:
-                                        src_val = source_map[pid2][m_src]
-                                        break
-                            
-                            if src_val is not None:
-                                # 配列を拡張して値をセット
-                                while len(row2) <= i_c2: row2.append("")
-                                if str(row2[i_c2]) != str(src_val):
-                                    row2[i_c2] = src_val
-                                    update_needed = True
-                        pay2_raw[i_r2] = row2
-                
-                if update_needed:
-                    safe_gspread_call(ws_pay2.update, "A1", pay2_raw, value_input_option='USER_ENTERED')
+                if h1_row_idx != -1:
+                    pay1_headers_actual = [_normalize(_clean_val(x)) for x in pay1_vals[h1_row_idx]]
+                    
+                    # IDをキーにした月次データのマップを作成
+                    source_map = {}
+                    for row1 in pay1_vals[h1_row_idx + 1:]:
+                        if not row1: continue
+                        pid = str(row1[0]).strip()
+                        if not pid: continue
+                        source_map[pid] = {}
+                        for col_i, h_norm in enumerate(pay1_headers_actual):
+                            if col_i < len(row1) and (h_norm in month_cols or h_norm.replace("月","") in [m.replace("月","") for m in month_cols]):
+                                source_map[pid][h_norm] = row1[col_i]
+                    
+                    # 支払管理２のデータを更新
+                    update_needed = False
+                    for i_r2 in range(h2_row_idx + 1, len(pay2_raw)):
+                        row2 = pay2_raw[i_r2]
+                        if not row2: continue
+                        pid2 = str(row2[0]).strip()
+                        if pid2 in source_map:
+                            for i_c2, h_norm2 in enumerate(actual_h2_ids):
+                                src_val = None
+                                if h_norm2 in source_map[pid2]:
+                                    src_val = source_map[pid2][h_norm2]
+                                else:
+                                    alt_m2 = h_norm2.replace("月","")
+                                    for m_src in source_map[pid2]:
+                                        if m_src.replace("月","") == alt_m2:
+                                            src_val = source_map[pid2][m_src]
+                                            break
+                                
+                                if src_val is not None:
+                                    while len(row2) <= i_c2: row2.append("")
+                                    if str(row2[i_c2]) != str(src_val):
+                                        row2[i_c2] = src_val
+                                        update_needed = True
+                            pay2_raw[i_r2] = row2
+                    
+                    if update_needed:
+                        safe_gspread_call(ws_pay2.update, "A1", pay2_raw, value_input_option='USER_ENTERED')
         except Exception as e2:
             print(f"Sync to pay2 error: {e2}")
 
