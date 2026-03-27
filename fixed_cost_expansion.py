@@ -91,7 +91,7 @@ def ensure_id_column_and_formula(ws_pay):
         if formulas:
             start_row = h_row_idx + 2
             end_row = h_row_idx + 1 + len(formulas)
-            safe_gspread_call(ws_pay.update, f"A{start_row}:A{end_row}", formulas, value_input_option='USER_ENTERED')
+            safe_gspread_call(ws_pay.update, values=formulas, range_name=f"A{start_row}:A{end_row}", value_input_option='USER_ENTERED')
             
     except Exception as e:
         print(f"Error in ensure_id_column_and_formula: {e}")
@@ -970,7 +970,7 @@ def execute_expansion(username, mode="NEW", start_ym=None):
             current_rows = needed_total_rows
             
         # データ書き込み開始位置を B8 (作成開始位置) に変更
-        safe_gspread_call(ws_pay.update, "B8", final_sheet_array, value_input_option='USER_ENTERED')
+        safe_gspread_call(ws_pay.update, values=final_sheet_array, range_name="B8", value_input_option='USER_ENTERED')
         # 書式を一括適用
         safe_gspread_call(ss.batch_update, {"requests": format_requests})
 
@@ -986,7 +986,7 @@ def execute_expansion(username, mode="NEW", start_ym=None):
         try:
             current_now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             # E4 から F4 への変更に伴う対応
-            safe_gspread_call(ws_pay.update, "F4", [[current_now]], value_input_option='USER_ENTERED')
+            safe_gspread_call(ws_pay.update, values=[[current_now]], range_name="F4", value_input_option='USER_ENTERED')
         except Exception as e:
             print(f"Timestamp(F4) update error: {e}")
 
@@ -1805,7 +1805,7 @@ def execute_variable_cost_update(username, start_ym=None):
             
         # 新しい変動費データを書き込み
         # A列をスキップしてB列から書き込み
-        safe_gspread_call(ws_pay.update, f"B{start_row_num}", cc_rows_array, value_input_option='USER_ENTERED')
+        safe_gspread_call(ws_pay.update, values=cc_rows_array, range_name=f"B{start_row_num}", value_input_option='USER_ENTERED')
         
         # 既存の固定費サブ合計行も新方式の数式（完了F対応）に更新する
         if fixed_subtotals:
@@ -2413,7 +2413,7 @@ def execute_variable_cost_update(username, start_ym=None):
         try:
             current_now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             # E5 から F5 への変更
-            safe_gspread_call(ws_pay.update, "F5", [[current_now]], value_input_option='USER_ENTERED')
+            safe_gspread_call(ws_pay.update, values=[[current_now]], range_name="F5", value_input_option='USER_ENTERED')
         except Exception as e:
             print(f"Timestamp(F5) update error: {e}")
 
@@ -2509,7 +2509,7 @@ def execute_variable_cost_update(username, start_ym=None):
                             pay2_raw_formula[i_r2] = row2_f
                     
                     if update_needed:
-                        safe_gspread_call(ws_pay2.update, "A1", pay2_raw_formula, value_input_option='USER_ENTERED')
+                        safe_gspread_call(ws_pay2.update, values=pay2_raw_formula, range_name="A1", value_input_option='USER_ENTERED')
         except Exception as e2:
             print(f"Sync to pay2 error: {e2}")
 
