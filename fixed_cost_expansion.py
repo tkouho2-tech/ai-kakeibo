@@ -2422,15 +2422,13 @@ def execute_variable_cost_update(username, start_ym=None):
 
 
 
-        # --- 支払管理２ へのサマリ同期処理を追加 (Ver 4.26.2) ---
+
+        # --- 支払管理２ へのサマリ同期処理を追加 (Ver 4.26.4) ---
         try:
             ws_pay2 = ss.worksheet("支払管理２")
-            # 支払管理２の全データを取得 (数式維持のため FORMULA)
             pay2_raw_formula = safe_gspread_call(ws_pay2.get_all_values, value_render_option='FORMULA')
-            # 表示値ベースの全データ (ヘッダー特定・マッチング用)
             pay2_raw_formatted = safe_gspread_call(ws_pay2.get_all_values, value_render_option='FORMATTED_VALUE')
             
-            # 支払管理２のヘッダー行を「ID」を基準に動的に特定する
             h2_row_idx = -1
             for i_r, r_v in enumerate(pay2_raw_formatted):
                 if r_v and str(r_v[0]).strip().lower() in ["id", "key"]:
@@ -2438,10 +2436,7 @@ def execute_variable_cost_update(username, start_ym=None):
                     break
             
             if h2_row_idx != -1:
-                # 支払管理２の表示ヘッダー（正規化済み）
                 actual_h2_ids = [_normalize(_clean_val(x)) for x in pay2_raw_formatted[h2_row_idx]]
-                
-                # 支払管理（元シート）の情報を取得
                 pay1_vals_formatted = safe_gspread_call(ws_pay.get_all_values, value_render_option='FORMATTED_VALUE')
                 pay1_vals_unformatted = safe_gspread_call(ws_pay.get_all_values, value_render_option='UNFORMATTED_VALUE')
                 
@@ -2452,47 +2447,62 @@ def execute_variable_cost_update(username, start_ym=None):
                         break
                 
                 if h1_row_idx != -1:
-                    # 元シートの表示ヘッダー（正規化済み）
                     pay1_headers_norm = [_normalize(_clean_val(x)) for x in pay1_vals_formatted[h1_row_idx]]
                     
-                    # IDをキーにした月次データマップを作成 (データは unformatted の最新値)
+                    # IDおよび (C列+E列) をキーにしたマップを作成 (データは unformatted)
                     source_map = {}
+                    alt_source_map = {} # Key: f"{C}{E}"
                     for i_r1 in range(h1_row_idx + 1, len(pay1_vals_unformatted)):
                         row1_u = pay1_vals_unformatted[i_r1]
                         row1_f = pay1_vals_formatted[i_r1]
                         if not row1_u: continue
-                        # ID(A列)は表示値で取得
                         pid = str(row1_f[0]).strip()
-                        if not pid: continue
+                        cat_c = str(row1_f[2]).strip() if len(row1_f) > 2 else ""
+                        det_e = str(row1_f[4]).strip() if len(row1_f) > 4 else ""
+                        alt_k = f"{cat_c}{det_e}".strip()
                         
-                        source_map[pid] = {}
+                        data_row = {}
+                        found_month = False
                         for col_i, h_norm in enumerate(pay1_headers_norm):
                             if col_i < len(row1_u) and (h_norm in month_cols or h_norm.replace("月","") in [m.replace("月","") for m in month_cols]):
-                                source_map[pid][h_norm] = row1_u[col_i]
+                                data_row[h_norm] = row1_u[col_i]
+                                found_month = True
+                        
+                        if found_month:
+                            if pid: source_map[pid] = data_row
+                            if alt_k: alt_source_map[alt_k] = data_row
                     
-                    # 支払管理２のデータを更新 (formulaベースの配列を書き換える)
                     update_needed = False
                     for i_r2 in range(h2_row_idx + 1, len(pay2_raw_formula)):
-                        row2_f = pay2_raw_formula[i_r2] # 書き換え用 (数式保持)
-                        row2_display = pay2_raw_formatted[i_r2] # ID取得用
+                        row2_f = pay2_raw_formula[i_r2]
+                        row2_display = pay2_raw_formatted[i_r2]
                         if not row2_display: continue
                         pid2 = str(row2_display[0]).strip()
+                        cat_c2 = str(row2_display[2]).strip() if len(row2_display) > 2 else ""
+                        det_e2 = str(row2_display[4]).strip() if len(row2_display) > 4 else ""
+                        alt_k2 = f"{cat_c2}{det_e2}".strip()
                         
+                        # 1. IDでマッチ、2. なければ (C+E) でマッチ
+                        target_data = None
                         if pid2 in source_map:
+                            target_data = source_map[pid2]
+                        elif alt_k2 in alt_source_map:
+                            target_data = alt_source_map[alt_k2]
+                        
+                        if target_data:
                             for i_c2, h_norm2 in enumerate(actual_h2_ids):
                                 src_val = None
-                                if h_norm2 in source_map[pid2]:
-                                    src_val = source_map[pid2][h_norm2]
+                                if h_norm2 in target_data:
+                                    src_val = target_data[h_norm2]
                                 else:
                                     alt_m2 = h_norm2.replace("月","")
-                                    for m_src in source_map[pid2]:
+                                    for m_src in target_data:
                                         if m_src.replace("月","") == alt_m2:
-                                            src_val = source_map[pid2][m_src]
+                                            src_val = target_data[m_src]
                                             break
                                 
                                 if src_val is not None:
                                     while len(row2_f) <= i_c2: row2_f.append("")
-                                    # 数値不一致の場合のみ更新
                                     if str(row2_f[i_c2]) != str(src_val):
                                         row2_f[i_c2] = src_val
                                         update_needed = True
