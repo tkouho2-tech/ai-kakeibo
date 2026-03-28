@@ -9,7 +9,8 @@ import os
 import json
 import io
 import calendar
-from datetime import datetime, date, timedelta
+from datetime import datetime, timezone, timedelta
+JST = timezone(timedelta(hours=+9), 'JST'), date, timedelta
 from dateutil.relativedelta import relativedelta
 from PIL import Image, ImageOps
 from google import genai
@@ -1707,17 +1708,42 @@ def render_transaction_breakdown(df, key_prefix):
     if view_pattern == "店舗別":
         store_col = "store_name" if "store_name" in df.columns else "store" if "store" in df.columns else None
         if store_col:
-            store_grouped = df_agg.groupby(store_col, as_index=False)["amount"].sum()
-            store_grouped = store_grouped.sort_values(by="amount", ascending=False)
+            # 日付カラムがある場合は日付＋店舗名でグループ化する (クレジットカード明細と同じ形式)
+            has_date = "date" in df.columns
+            if has_date:
+                try:
+                    df_agg["date_disp"] = pd.to_datetime(df_agg["date"], errors='coerce').dt.strftime('%m/%d')
+                    df["date_disp"] = pd.to_datetime(df["date"], errors='coerce').dt.strftime('%m/%d')
+                    df_agg["date_disp"] = df_agg["date_disp"].fillna("")
+                    df["date_disp"] = df["date_disp"].fillna("")
+                except:
+                    df_agg["date_disp"] = ""
+                    df["date_disp"] = ""
+                    
+                store_grouped = df_agg.groupby(["date_disp", store_col], as_index=False)["amount"].sum()
+                # 日付の降順、金額の降順でソート
+                store_grouped = store_grouped.sort_values(by=["date_disp", "amount"], ascending=[False, False])
+            else:
+                store_grouped = df_agg.groupby(store_col, as_index=False)["amount"].sum()
+                store_grouped = store_grouped.sort_values(by="amount", ascending=False)
             
             for _, row in store_grouped.iterrows():
                 store = row[store_col]
-                total_amt_str = f"￥{int(row['amount']):,}"
+                store_disp = store if store else "不明な店舗"
+                total_amt_str = f"¥{int(row['amount']):,}"
                 
-                with st.expander(f"{store}：{total_amt_str}"):
+                if has_date and row.get("date_disp"):
+                    date_disp = row["date_disp"]
+                    disp_label = f"**{date_disp} 🏪 {store_disp}** （{total_amt_str}）"
+                    # フィルタも日付と店舗の両方でかける
+                    store_df_agg = df_agg[(df_agg[store_col] == store) & (df_agg["date_disp"] == date_disp)].copy()
+                    store_df_disp = df[(df[store_col] == store) & (df["date_disp"] == date_disp)].copy()
+                else:
+                    disp_label = f"**🏪 {store_disp}** （{total_amt_str}）"
                     store_df_agg = df_agg[df_agg[store_col] == store].copy()
                     store_df_disp = df[df[store_col] == store].copy()
-                    
+                
+                with st.expander(disp_label):
                     if key_prefix == "calendar":
                         # 2段階目：支払い方法アコーディオン
                         if "payment_method" not in store_df_agg.columns:
@@ -1729,7 +1755,7 @@ def render_transaction_breakdown(df, key_prefix):
                         
                         for _, pay_row in pay_grouped.iterrows():
                             payment = pay_row["payment_method"]
-                            pay_amt_str = f"￥{int(pay_row['amount']):,}"
+                            pay_amt_str = f"¥{int(pay_row['amount']):,}"
                             
                             with st.expander(f"  └ 💳 {payment}：{pay_amt_str}"):
                                 pay_df = store_df_disp[store_df_disp["payment_method"] == payment].copy()
@@ -3408,7 +3434,7 @@ def _render_fixed_cost_form(action_type, username, target_data=None):
     if is_finite == "有限" or payment_1 == "銀行振込":
         if is_finite == "有限":
             import datetime
-            now = datetime.datetime.now()
+            now = datetime.datetime.now(JST)
             start_month_opts = []
             prev_m = now.month - 1
             prev_y = now.year
@@ -3537,7 +3563,7 @@ def main():
                 .block-container h5 { font-size: calc(1.00rem + 2pt) !important; }
                 </style>
             """, unsafe_allow_html=True)
-            st.subheader("マイニー [Ver 5.4.6]")
+            st.subheader("マイニー [Ver 5.4.7]")
             st.write(f"🔑 ユーザー: **{st.session_state['username']}**")
             st.markdown("---")
             if 'menu_selection' not in st.session_state:
@@ -3656,7 +3682,7 @@ def main():
                             ext = "csv"
                             mime = "text/csv"
                         
-                        filename = f"kakeibo_{st.session_state['username']}_{datetime.now().strftime('%Y%m%d')}.{ext}"
+                        filename = f"kakeibo_{st.session_state['username']}_{datetime.now(JST).strftime('%Y%m%d')}.{ext}"
 
                     st.warning(f"**{st.session_state.dl_format}形式**で出力します。")
                     st.write("📂 ブラウザの「ダウンロード」フォルダ等に保存されます。")
@@ -4100,7 +4126,7 @@ def main():
                                     init_transactions_sheet(sheet)
                                     
                                     rows_to_append = []
-                                    new_receipt_id = datetime.now().strftime("%Y%m%d%H%M%S")
+                                    new_receipt_id = datetime.now(JST).strftime("%Y%m%d%H%M%S")
                                     current_user = st.session_state.get('username')
                                     
                                     if not current_user:
@@ -4146,7 +4172,7 @@ def main():
                                             str(final_major),
                                             str(final_minor),
                                             amt,
-                                            datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                                            datetime.now(JST).strftime("%Y-%m-%d %H:%M:%S"),
                                             "", # update2 Column: Let it empty for new entries
                                             str(selected_payment),
                                             str(p_type),
@@ -4348,7 +4374,7 @@ def main():
                                 init_transactions_sheet(sheet)
                                 
                                 rows_to_append = []
-                                new_receipt_id = datetime.now().strftime("%Y%m%d%H%M%S")
+                                new_receipt_id = datetime.now(JST).strftime("%Y%m%d%H%M%S")
                                 current_user = st.session_state.get('username')
                                 if not current_user:
                                     st.error("🚨 ログインセッションが切れました。再度ログインしてください。")
@@ -4370,7 +4396,7 @@ def main():
                                         str(major),
                                         str(minor),
                                         amt,
-                                        datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                                        datetime.now(JST).strftime("%Y-%m-%d %H:%M:%S"),
                                         "", # update2 Column: Let it empty for new entries
                                         str(selected_payment_manual),
                                         str(p_type),
@@ -4666,7 +4692,7 @@ def main():
                                                 
                                                 # 既存の全明細行をループして日付と店舗を更新
                                                 existing_indices = [int(k) for k in st.session_state['edit_data'].keys() if not str(k).startswith("new_")]
-                                                current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                                                current_time = datetime.now(JST).strftime("%Y-%m-%d %H:%M:%S")
                                                 
                                                 p_type, p_close, p_month, p_date = get_payment_details_for_transaction(st.session_state['username'], target_payment)
                                                 batch_updates = []
@@ -4761,7 +4787,7 @@ def main():
                                                         p_type, p_close, p_month, p_date = get_payment_details_for_transaction(user_name, target_payment)
                                                         if str(current_editing_id).startswith("new_"):
                                                             # 新規追加
-                                                            new_row = [user_name, target_date_str, target_store, edit_name, edit_major, edit_minor, edit_amount, datetime.now().strftime("%Y-%m-%d %H:%M:%S"), "", target_payment, str(p_type), str(p_close), str(p_month), str(p_date), st.session_state['edit_header'].get('receipt_id', ''), str(user_name)]
+                                                            new_row = [user_name, target_date_str, target_store, edit_name, edit_major, edit_minor, edit_amount, datetime.now(JST).strftime("%Y-%m-%d %H:%M:%S"), "", target_payment, str(p_type), str(p_close), str(p_month), str(p_date), st.session_state['edit_header'].get('receipt_id', ''), str(user_name)]
                                                             sheet.append_row(new_row)
                                                         else:
                                                             # 既存更新: 安全装置（行データの検証）
@@ -4779,7 +4805,7 @@ def main():
                                                             # A:username, B:date, C:store, D:item, E:major, F:minor, G:amount, H:update, I:update2, J:payment_method, K:type, L:close_date, M:pay_month, N:pay_date, O:receipt_id
                                                             # H列 (update) には既存の値をそのまま使い、I列 (update2) に現在時刻を設定する
                                                             update_range = f"B{r_idx}:O{r_idx}"
-                                                            current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                                                            current_time = datetime.now(JST).strftime("%Y-%m-%d %H:%M:%S")
                                                             orig_update_val = current_row_values[7] if len(current_row_values) > 7 else ""
                                                             update_values = [[target_date_str, target_store, edit_name, edit_major, edit_minor, edit_amount, orig_update_val, current_time, target_payment, str(p_type), str(p_close), str(p_month), str(p_date), st.session_state['edit_header'].get('receipt_id', '')]]
                                                             sheet.update(range_name=update_range, values=update_values)
@@ -5447,7 +5473,7 @@ MBTI: {mbti}
         elif menu_selection == "支払管理シートを確認":
             show_open_management_sheet()
             
-        st.caption("マイニー Ver 5.4.6 - ユーザー: %s" % st.session_state['username'])
+        st.caption("マイニー Ver 5.4.7 - ユーザー: %s" % st.session_state['username'])
             
     # 未ログインの状態 (ログイン・登録画面)
     else:
