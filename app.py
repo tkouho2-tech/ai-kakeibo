@@ -3563,7 +3563,7 @@ def main():
                 .block-container h5 { font-size: calc(1.00rem + 2pt) !important; }
                 </style>
             """, unsafe_allow_html=True)
-            st.subheader("マイニー [Ver 5.4.8]")
+            st.subheader("マイニー [Ver 5.4.9]")
             st.write(f"🔑 ユーザー: **{st.session_state['username']}**")
             st.markdown("---")
             if 'menu_selection' not in st.session_state:
@@ -3735,10 +3735,36 @@ def main():
             calendar.setfirstweekday(calendar.SUNDAY)
             month_days = calendar.monthcalendar(year, month)
 
-            # セッション状態の初期化（選択日の保持）
-            if 'selected_date' not in st.session_state:
-                # 初期状態では本日の日付を選択状態にする
-                st.session_state['selected_date'] = datetime.today().strftime('%Y-%m-%d')
+            # セッション状態の初期化（選択日の保持：当月の最終記録日をデフォルトにする）
+            selected_date_str = st.session_state.get('selected_date', '')
+            needs_update = True
+            
+            # すでに選択されていて、かつ「表示中の月」と同じなら上書きしない（ユーザーの任意クリックを保持）
+            if selected_date_str:
+                try:
+                    sd = datetime.strptime(selected_date_str, '%Y-%m-%d')
+                    if sd.year == year and sd.month == month:
+                        needs_update = False
+                except:
+                    pass
+            
+            if needs_update:
+                last_date_str = ""
+                if daily_totals:
+                    # 金額が0以外（支出・収入含む）の日付を抽出し、最大のものを取得
+                    active_days = [d for d, amt in daily_totals.items() if float(amt) != 0]
+                    if active_days:
+                        max_day = max(active_days)
+                        last_date_str = f"{year:04d}-{month:02d}-{max_day:02d}"
+                
+                if not last_date_str:
+                    now = datetime.now(JST)
+                    if now.year == year and now.month == month:
+                        last_date_str = now.strftime('%Y-%m-%d')
+                    else:
+                        last_date_str = f"{year:04d}-{month:02d}-01"
+                        
+                st.session_state['selected_date'] = last_date_str
 
             # CSS定義（リンク方式でのマス目レイアウト）
             st.markdown("""
@@ -5473,7 +5499,7 @@ MBTI: {mbti}
         elif menu_selection == "支払管理シートを確認":
             show_open_management_sheet()
             
-        st.caption("マイニー Ver 5.4.8 - ユーザー: %s" % st.session_state['username'])
+        st.caption("マイニー Ver 5.4.9 - ユーザー: %s" % st.session_state['username'])
             
     # 未ログインの状態 (ログイン・登録画面)
     else:
