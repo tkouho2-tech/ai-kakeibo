@@ -173,7 +173,14 @@ if '_init_done' not in st.session_state:
             if isinstance(d_val, list): d_val = d_val[0]
             dt_obj = datetime.strptime(d_val, "%Y-%m-%d")
             st.session_state['current_month'] = dt_obj.replace(day=1)
-            st.session_state['selected_date'] = d_val
+            
+            # 月切り替えナビゲーションの場合は1日が渡されるため、カレンダーの自動フォーカスを優先する
+            if dt_obj.day != 1:
+                st.session_state['selected_date'] = d_val
+            elif 'selected_date' in st.session_state:
+                # 1日の場合（他月への遷移）は選択日をリセットして自動計算させる
+                del st.session_state['selected_date']
+                
             if 'date_range' in st.session_state:
                 del st.session_state['date_range']
             need_rerun = True
@@ -3563,7 +3570,7 @@ def main():
                 .block-container h5 { font-size: calc(1.00rem + 2pt) !important; }
                 </style>
             """, unsafe_allow_html=True)
-            st.subheader("マイニー [Ver 5.4.9]")
+            st.subheader("マイニー [Ver 5.4.10]")
             st.write(f"🔑 ユーザー: **{st.session_state['username']}**")
             st.markdown("---")
             if 'menu_selection' not in st.session_state:
@@ -3759,10 +3766,16 @@ def main():
                 
                 if not last_date_str:
                     now = datetime.now(JST)
+                    # その月の月末日を取得
+                    import calendar as py_calendar
+                    _, last_day = py_calendar.monthrange(year, month)
+                    
                     if now.year == year and now.month == month:
                         last_date_str = now.strftime('%Y-%m-%d')
                     else:
-                        last_date_str = f"{year:04d}-{month:02d}-01"
+                        # 記録が一度も無い場合は現在日に一番近い日（月末を超えない）をフォーカス
+                        target_day = min(now.day, last_day)
+                        last_date_str = f"{year:04d}-{month:02d}-{target_day:02d}"
                         
                 st.session_state['selected_date'] = last_date_str
 
@@ -5499,7 +5512,7 @@ MBTI: {mbti}
         elif menu_selection == "支払管理シートを確認":
             show_open_management_sheet()
             
-        st.caption("マイニー Ver 5.4.9 - ユーザー: %s" % st.session_state['username'])
+        st.caption("マイニー Ver 5.4.10 - ユーザー: %s" % st.session_state['username'])
             
     # 未ログインの状態 (ログイン・登録画面)
     else:
