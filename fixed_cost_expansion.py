@@ -1103,6 +1103,16 @@ def execute_expansion(username, mode="NEW", start_ym=None):
             if needed_total > current_rows:
                 safe_gspread_call(ws_pay.add_rows, needed_total - current_rows)
             
+        # --- 既存の結合情報を取得 (APIError 400 回復用) ---
+        existing_merges = []
+        try:
+            remote_meta = safe_gspread_call(ss.fetch_sheet_metadata)
+            current_sheet_info = next((s for s in remote_meta['sheets'] if s['properties']['title'].strip() == "支払管理"), None)
+            if current_sheet_info:
+                existing_merges = current_sheet_info.get('merges', [])
+        except:
+            pass
+            
         # データ書き込み開始位置を B8 (作成開始位置) に変更
         safe_gspread_call(ws_pay.update, values=final_sheet_array, range_name="B8", value_input_option='USER_ENTERED')
         
@@ -1360,7 +1370,21 @@ def execute_variable_cost_update(username, start_ym=None, skip_backup=False):
     sheet_name = f"{username}_支払管理"
     try:
         ss = client.open(sheet_name)
-        ws_pay = ss.worksheet("支払管理")
+        # Handle possible trailing or leading spaces in the tab name
+        ws_pay = next((ws for ws in ss.worksheets() if ws.title.strip() == "支払管理"), None)
+        if not ws_pay:
+            raise Exception("支払管理シートが見つかりません。")
+            
+        # --- 既存の結合情報を取得 (APIError 400 回復用) ---
+        existing_merges = []
+        try:
+            remote_meta = safe_gspread_call(ss.fetch_sheet_metadata)
+            current_sheet_info = next((s for s in remote_meta['sheets'] if s['properties']['title'].strip() == "支払管理"), None)
+            if current_sheet_info:
+                existing_merges = current_sheet_info.get('merges', [])
+        except:
+            pass
+            
     except Exception as e:
         return False, f"支払管理シート({sheet_name})が見つかりません。先に「支払管理シート新規作成」を実行してください。"
         
@@ -2282,23 +2306,27 @@ def execute_variable_cost_update(username, start_ym=None, skip_backup=False):
 
         # --- 合計行・集計行の描画 ---
         
-        # 既存の集計エリアの結合をすべて一括解除する（重複やAPIError[400]の防止）
-        # start_row_num(変動費開始)からではなく、固定費合計からsummary_end_rowまでをカバー
-        if grand_total_row_num != -1:
+        # 既存の集計エリアの結合をすべて解除する（重複やAPIError[400]の防止）
+        # Fetch metadata で取得した結合情報に基づき、対象範囲に重なるものだけを正確に解除
+        if grand_total_row_num != -1 and 'existing_merges' in locals():
             try:
-                # new_boundary_rowがない場合はフォールバック
-                # max()を使うことで、小遣い行(boundary_row)以降は絶対に解除しないように保護しつつ、
-                # 変動費とサマリー表の全範囲を解除する
-                max_unmerge_row = summary_end_row if summary_end_row > 0 else boundary_row - 1
-                format_requests.append({
-                    "unmergeCells": {
-                        "range": {
-                            "sheetId": sheet_id,
-                            "startRowIndex": grand_total_row_num - 1,
-                            "endRowIndex": max_unmerge_row
-                        }
-                    }
-                })
+                # 解除対象範囲: 固定費合計(grand_total_row_num-1) 以降、小遣い(boundary_row)の手前まで
+                unmerge_start = grand_total_row_num - 1
+                unmerge_end = summary_end_row if summary_end_row > 0 else boundary_row - 1
+                
+                # 重なっている結合を特定して個別解除リクエストを作成
+                for m_range in existing_merges:
+                    m_start = m_range.get('startRowIndex', 0)
+                    m_end = m_range.get('endRowIndex', 0)
+                    
+                    # 垂直方向（行）で交差しているか判定
+                    if not (m_end <= unmerge_start or m_start >= unmerge_end):
+                        # 交差している場合はその結合を（APIの規則通り正確な範囲で）解除
+                        format_requests.append({
+                            "unmergeCells": {
+                                "range": m_range
+                            }
+                        })
             except: pass
         # A) 固定費_支払残_合計額 (Blue) B-H合併
         if grand_total_row_num != -1:
