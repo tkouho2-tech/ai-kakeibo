@@ -1210,7 +1210,10 @@ def show_fixed_cost_data_expansion():
     sheet_name = f"{username}_支払管理"
     try:
         ss = client.open(sheet_name)
-        ws_pay = ss.worksheet("支払管理")
+        # Handle possible trailing or leading spaces in the tab name
+        ws_pay = next((ws for ws in ss.worksheets() if ws.title.strip() == "支払管理"), None)
+        if not ws_pay:
+            raise Exception("支払管理シートが見つかりません。")
         pay_raw = safe_gspread_call(ws_pay.get_all_values)
     except Exception as e:
         st.warning(f"現在、あなた（{username}）専用の支払管理シート、または必要なシートが見つかりません。")
