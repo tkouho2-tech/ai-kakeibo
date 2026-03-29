@@ -31,12 +31,18 @@ def _get_year_month(ym_str):
     s = str(ym_str).strip()
     if not s:
         return (9999, 12)
+    # YYYY/M, YYYY/MM, YYYY.M, YYYY.MM, YYYY年M月 などに対応
     m = re.search(r"(\d{4})[年/\.\-](\d{1,2})", s)
     if m:
         return (int(m.group(1)), int(m.group(2)))
+    # YY/M など 2000年代と仮定
     m2 = re.search(r"(\d{2})[年/\.\-](\d{1,2})", s)
     if m2:
-        return (2000 + int(m2.group(1)), int(m2.group(2)))
+        y_val = int(m2.group(1))
+        if y_val < 50: # 20xx
+            return (2000 + y_val, int(m2.group(2)))
+        else: # 19xx (一応)
+            return (1900 + y_val, int(m2.group(2)))
     return (9999, 12)
 
 def ensure_id_column_and_formula(ws_pay):
@@ -139,6 +145,13 @@ def _normalize(s):
             s = str(int(f_val))
     except:
         pass
+    
+    # 日付形式の揺れを吸収 (2026/03 -> 2026.3月)
+    # 日本語の「月」がついている場合は除去して判定、最後に統一形式にする
+    y_m = _get_year_month(s)
+    if y_m != (9999, 12):
+        return f"{y_m[0]}.{y_m[1]}月"
+
     import unicodedata
     s_norm = unicodedata.normalize('NFKC', s)
     return "".join(s_norm.split())
@@ -170,12 +183,14 @@ def execute_expansion(username, mode="NEW", start_ym=None):
     except Exception as e:
         return False, f"支払管理シート({sheet_name})が見つかりません。"
         
+    st.write("🔍 シート情報を取得中...")
     try:
         ws_master = ss.worksheet("固定費マスター")
         ws_pay = ss.worksheet("支払管理")
     except Exception as e:
         return False, f"「固定費マスター」または「支払管理」シートが見つかりません。"
         
+    st.write("📖 固定費マスターを読み込んでいます...")
     try:
         master_data = safe_gspread_call(ws_master.get_all_records)
     except Exception as e:
@@ -194,6 +209,7 @@ def execute_expansion(username, mode="NEW", start_ym=None):
                     row_dict[h] = ""
             master_data.append(row_dict)
 
+    st.write("📊 支払管理シートのヘッダーを解析中...")
     # 数式を維持するために FORMULA レンダリングオプションで取得
     pay_raw = safe_gspread_call(ws_pay.get_all_values, value_render_option='FORMULA')
     
@@ -201,7 +217,7 @@ def execute_expansion(username, mode="NEW", start_ym=None):
     if len(pay_raw) < 7:
         return False, "「支払管理」のフォーマットが正しくありません（7行目にヘッダーが必要です）。"
         
-    # ヘッダー行を「ID」が含まれる行として動的に特定 (Ver 4.26.2)
+    # ヘッダー行を「ID」が含まれる行として動的に特定
     h_row_idx = -1
     for i_r, r_v in enumerate(pay_raw):
         if r_v and str(r_v[0]).strip().lower() in ["id", "key"]:
@@ -209,7 +225,8 @@ def execute_expansion(username, mode="NEW", start_ym=None):
             break
     if h_row_idx == -1: h_row_idx = 6 # フォールバック
     pay_headers = pay_raw[h_row_idx]
-    # --- ヘッダー・最終月の超堅牢取得 (Ver 5.3.0) ---
+    
+    # --- ヘッダー・最終月の超堅牢取得 ---
     pay_formatted = safe_gspread_call(ws_pay.get_all_values, value_render_option='FORMATTED_VALUE')
     actual_headers = pay_formatted[h_row_idx] if len(pay_formatted) > h_row_idx else []
     
@@ -432,8 +449,11 @@ def execute_expansion(username, mode="NEW", start_ym=None):
         category_groups = {"クレジットカード": [], "口座引落": [], "銀行振込": []}
         key_usage_counters = {} # key -> count
         
+        st.write(f"🔄 固定費マスターからデータを抽出中... (全 {len(master_data)} 件)")
         sno = 1
-        for m_rec in master_data:
+        for i_m, m_rec in enumerate(master_data):
+            if i_m % 10 == 0 and i_m > 0:
+                st.write(f"  ... {i_m} 件目まで処理済み")
             # Robust key matching
             k1 = _normalize(_clean_val(_find_val(m_rec, ["科目1", "科目１", "固定支払1", "固定支払１"])))
             if not k1:
@@ -667,7 +687,9 @@ def execute_expansion(username, mode="NEW", start_ym=None):
         # 標準の順序（カード、引落、振込）を優先し、それ以外の新規カテゴリもすべて含める
         all_categories = target_k1_order + [k for k in category_groups.keys() if k not in target_k1_order]
         
+        st.write("📝 書き込み用データの組み立てを開始します...")
         for tk in all_categories:
+            st.write(f"  📂 カテゴリ: **{tk}** を処理中...")
             group_rows = category_groups.get(tk, [])
             if not group_rows and tk not in target_k1_order:
                 # 標準カテゴリ以外が空の場合はスキップ
@@ -865,6 +887,7 @@ def execute_expansion(username, mode="NEW", start_ym=None):
             except: pass
             
         # 合計行のA〜G列（またはheader_len）を結合して中央揃え
+        st.write("🎨 固定費合計行の書式設定中...")
         try:
             k_detail_idx = -1
             for h_i, h_val in enumerate(pay_headers):
@@ -874,18 +897,26 @@ def execute_expansion(username, mode="NEW", start_ym=None):
             # もし科目明細が見つからなければ、G列（インデックス6）までを対象とする
             merge_end = k_detail_idx + 1 if k_detail_idx != -1 else 7
             
-            # 既存の結合を解除（エラー防止）- データエリア全体の可能性のある範囲
-            format_requests.append({
-                "unmergeCells": {
-                    "range": {
-                        "sheetId": sheet_id,
-                        "startRowIndex": 7,  # Row 8 onwards
-                        "endRowIndex": ws_pay.row_count,
-                        "startColumnIndex": 0,
-                        "endColumnIndex": header_len
-                    }
-                }
-            })
+            # 💡 [Ver 5.5.0] APIError(400)対策：既存の結合情報をメタデータから取得
+            existing_merges = []
+            try:
+                remote_meta = safe_gspread_call(ss.fetch_sheet_metadata)
+                current_sheet_info = next((s for s in remote_meta['sheets'] if s['properties']['title'].strip() == "支払管理"), None)
+                if current_sheet_info:
+                    existing_merges = current_sheet_info.get('merges', [])
+            except: pass
+
+            # 管理対象範囲（Row 8 以降、小遣い行の手前まで）に重なる結合を正確に解除
+            # ※ unmergeCells は既存の結合範囲と「完全に一致」する範囲を指定する必要がある
+            unmerge_target_start = 7
+            unmerge_target_end = boundary_row - 1
+            
+            for m_range in existing_merges:
+                m_start = m_range.get('startRowIndex', 0)
+                m_end = m_range.get('endRowIndex', 0)
+                # 垂直方向に重なっているか判定
+                if not (m_end <= unmerge_target_start or m_start >= unmerge_target_end):
+                    format_requests.append({"unmergeCells": {"range": m_range}})
             
             format_requests.append({
                 "mergeCells": {
@@ -1103,17 +1134,8 @@ def execute_expansion(username, mode="NEW", start_ym=None):
             if needed_total > current_rows:
                 safe_gspread_call(ws_pay.add_rows, needed_total - current_rows)
             
-        # --- 既存の結合情報を取得 (APIError 400 回復用) ---
-        existing_merges = []
-        try:
-            remote_meta = safe_gspread_call(ss.fetch_sheet_metadata)
-            current_sheet_info = next((s for s in remote_meta['sheets'] if s['properties']['title'].strip() == "支払管理"), None)
-            if current_sheet_info:
-                existing_merges = current_sheet_info.get('merges', [])
-        except:
-            pass
-            
         # データ書き込み開始位置を B8 (作成開始位置) に変更
+        st.write(f"💾 スプレッドシートへ書き込み中... ({len(final_sheet_array)} 行)")
         safe_gspread_call(ws_pay.update, values=final_sheet_array, range_name="B8", value_input_option='USER_ENTERED')
         
         # --- 小遣い予算の書き込み (統合Ver 5.4.5) ---
@@ -1375,15 +1397,8 @@ def execute_variable_cost_update(username, start_ym=None, skip_backup=False):
         if not ws_pay:
             raise Exception("支払管理シートが見つかりません。")
             
-        # --- 既存の結合情報を取得 (APIError 400 回復用) ---
-        existing_merges = []
-        try:
-            remote_meta = safe_gspread_call(ss.fetch_sheet_metadata)
-            current_sheet_info = next((s for s in remote_meta['sheets'] if s['properties']['title'].strip() == "支払管理"), None)
-            if current_sheet_info:
-                existing_merges = current_sheet_info.get('merges', [])
-        except:
-            pass
+        if not ws_pay:
+            raise Exception("支払管理シートが見つかりません。")
             
     except Exception as e:
         return False, f"支払管理シート({sheet_name})が見つかりません。先に「支払管理シート新規作成」を実行してください。"
@@ -1421,7 +1436,7 @@ def execute_variable_cost_update(username, start_ym=None, skip_backup=False):
             
     if h_row_idx == -1: h_row_idx = 6 # フォールバック
     boundary_row = ozukai_row if ozukai_row != -1 else 70
-    # --- ヘッダー・最終月の超堅牢取得 (Ver 5.4.1/移植) ---
+    st.write("🔍 変動費更新のためのヘッダー解析中...")
     pay_formatted = safe_gspread_call(ws_pay.get_all_values, value_render_option='FORMATTED_VALUE')
     actual_headers = pay_formatted[h_row_idx] if len(pay_formatted) > h_row_idx else []
     pay_headers = pay_raw[h_row_idx]
@@ -1520,6 +1535,7 @@ def execute_variable_cost_update(username, start_ym=None, skip_backup=False):
     if not cc_methods:
         return False, "クレジットカードが1件も登録されていません。「支払方法マスター」を確認してください。"
         
+    st.write("📊 取引履歴を取得し、各月の支払額を集計中...")
     try:
         tx_sheet = get_sheet(TRANSACTIONS_WORKSHEET_NAME)
         all_txs = safe_gspread_call(tx_sheet.get_all_records)
@@ -1553,6 +1569,7 @@ def execute_variable_cost_update(username, start_ym=None, skip_backup=False):
             r.append(val)
         return r
 
+    st.write("📊 クレジットカード支払情報を集計中...")
     cc_rows_array = []
     current_row_num = start_row_num
     var_start = current_row_num
@@ -2052,6 +2069,7 @@ def execute_variable_cost_update(username, start_ym=None, skip_backup=False):
             safe_gspread_call(ws_pay.insert_rows, [[""] * header_len] * diff, row=boundary_row)
             
         # 新しい変動費データを書き込み
+        st.write("💾 変動費集計結果をシートに書き込み中...")
         # A列をスキップしてB列から書き込み (Ver 4.27.4: r[1:] で A列を除外)
         safe_gspread_call(ws_pay.update, values=[r[1:] for r in cc_rows_array], range_name=f"B{start_row_num}", value_input_option='USER_ENTERED')
         
@@ -2269,6 +2287,16 @@ def execute_variable_cost_update(username, start_ym=None, skip_backup=False):
         format_requests = []
         sheet_id = ws_pay.id
         
+        # --- 既存の結合情報を取得 (APIError 400 回復用) ---
+        # 構造変更後の最新情報を取得
+        existing_merges = []
+        try:
+            remote_meta = safe_gspread_call(ss.fetch_sheet_metadata)
+            current_sheet_info = next((s for s in remote_meta['sheets'] if s['properties']['title'].strip() == "支払管理"), None)
+            if current_sheet_info:
+                existing_merges = current_sheet_info.get('merges', [])
+        except: pass
+        
         # 1. Base borders for the new rows
         format_requests.append({
             "updateBorders": {
@@ -2305,28 +2333,20 @@ def execute_variable_cost_update(username, start_ym=None, skip_backup=False):
         except: pass
 
         # --- 合計行・集計行の描画 ---
+        st.write("📊 集計エリアの書式設定（セル結合など）を開始...")
         
-        # 既存の集計エリアの結合をすべて解除する（重複やAPIError[400]の防止）
-        # Fetch metadata で取得した結合情報に基づき、対象範囲に重なるものだけを正確に解除
-        if grand_total_row_num != -1 and 'existing_merges' in locals():
+        # 💡 [Ver 5.5.0] 指定範囲に重なる結合をすべて解除する（重複やAPIError[400]の正確な防止）
+        if 'existing_merges' in locals() and existing_merges:
             try:
-                # 解除対象範囲: 固定費合計(grand_total_row_num-1) 以降、小遣い(boundary_row)の手前まで
-                unmerge_start = grand_total_row_num - 1
-                unmerge_end = summary_end_row if summary_end_row > 0 else boundary_row - 1
+                # 調査・解除対象範囲: 固定費合計 row 以降、全体エリア
+                unmerge_start = min(grand_total_row_num - 1 if grand_total_row_num != -1 else 9999, summary_start_row - 1)
+                unmerge_end = boundary_row # 小遣い行まで含めて念のため広めに解除
                 
-                # 重なっている結合を特定して個別解除リクエストを作成
                 for m_range in existing_merges:
-                    m_start = m_range.get('startRowIndex', 0)
-                    m_end = m_range.get('endRowIndex', 0)
-                    
-                    # 垂直方向（行）で交差しているか判定
-                    if not (m_end <= unmerge_start or m_start >= unmerge_end):
-                        # 交差している場合はその結合を（APIの規則通り正確な範囲で）解除
-                        format_requests.append({
-                            "unmergeCells": {
-                                "range": m_range
-                            }
-                        })
+                    m_s = m_range.get('startRowIndex', 0)
+                    m_e = m_range.get('endRowIndex', 0)
+                    if not (m_e <= unmerge_start or m_s >= unmerge_end):
+                        format_requests.append({"unmergeCells": {"range": m_range}})
             except: pass
         # A) 固定費_支払残_合計額 (Blue) B-H合併
         if grand_total_row_num != -1:
@@ -2549,7 +2569,7 @@ def execute_variable_cost_update(username, start_ym=None, skip_backup=False):
                             if t_mc in month_cols:
                                 amt_val = str(tx.get("amount", "0")).replace(",", "").replace("¥", "").replace("￥", "")
                                 amt = safe_money_int_cast(amt_val)
-                                if amt > 0:
+                                if amt != 0:
                                     if t_pm not in tx_monthly_amounts: tx_monthly_amounts[t_pm] = {}
                                     tx_monthly_amounts[t_pm][t_mc] = tx_monthly_amounts[t_pm].get(t_mc, 0) + amt
                         except: pass
@@ -2583,7 +2603,7 @@ def execute_variable_cost_update(username, start_ym=None, skip_backup=False):
                                     val = cc_monthly_amounts.get(pm_name, {}).get(mc, "")
                                 else:
                                     sum_amt = tx_monthly_amounts.get(norm_pm, {}).get(mc, 0)
-                                    if sum_amt > 0: val = sum_amt
+                                    if sum_amt != 0: val = sum_amt
                                 row_data[c_idx - 7] = val
                                 
                         update_grid.append(row_data)
