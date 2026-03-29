@@ -2280,19 +2280,28 @@ def execute_variable_cost_update(username, start_ym=None, skip_backup=False):
                     })
         except: pass
 
-        # --- 合計行・集計行の描画（各行個別に解除してから結合） ---
-
+        # --- 合計行・集計行の描画 ---
+        
+        # 既存の集計エリアの結合をすべて一括解除する（重複やAPIError[400]の防止）
+        # start_row_num(変動費開始)からではなく、固定費合計からsummary_end_rowまでをカバー
+        if grand_total_row_num != -1:
+            try:
+                # new_boundary_rowがない場合はフォールバック
+                # max()を使うことで、小遣い行(boundary_row)以降は絶対に解除しないように保護しつつ、
+                # 変動費とサマリー表の全範囲を解除する
+                max_unmerge_row = summary_end_row if summary_end_row > 0 else boundary_row - 1
+                format_requests.append({
+                    "unmergeCells": {
+                        "range": {
+                            "sheetId": sheet_id,
+                            "startRowIndex": grand_total_row_num - 1,
+                            "endRowIndex": max_unmerge_row
+                        }
+                    }
+                })
+            except: pass
         # A) 固定費_支払残_合計額 (Blue) B-H合併
         if grand_total_row_num != -1:
-            format_requests.append({
-                "unmergeCells": {
-                    "range": {
-                        "sheetId": sheet_id,
-                        "startRowIndex": grand_total_row_num - 1, "endRowIndex": grand_total_row_num,
-                        "startColumnIndex": 0, "endColumnIndex": 256
-                    }
-                }
-            })
             format_requests.append({
                 "mergeCells": {
                     "mergeType": "MERGE_ALL",
@@ -2324,15 +2333,6 @@ def execute_variable_cost_update(username, start_ym=None, skip_backup=False):
         # B) 変動費_支払残_合計額 (Green) B-H合併
         var_total_phys_row = summary_start_row - 1
         format_requests.append({
-            "unmergeCells": {
-                "range": {
-                    "sheetId": sheet_id,
-                    "startRowIndex": var_total_phys_row - 1, "endRowIndex": var_total_phys_row,
-                    "startColumnIndex": 0, "endColumnIndex": 256
-                }
-            }
-        })
-        format_requests.append({
             "mergeCells": {
                 "mergeType": "MERGE_ALL",
                 "range": {
@@ -2363,15 +2363,6 @@ def execute_variable_cost_update(username, start_ym=None, skip_backup=False):
         # C) クレジットカード 支払残額 (B-E列 縦結合)
         if summary_end_row - 2 >= summary_data_start - 1:
             format_requests.append({
-                "unmergeCells": {
-                    "range": {
-                        "sheetId": sheet_id,
-                        "startRowIndex": summary_data_start - 1, "endRowIndex": summary_end_row - 2,
-                        "startColumnIndex": 0, "endColumnIndex": 256
-                    }
-                }
-            })
-            format_requests.append({
                 "mergeCells": {
                     "mergeType": "MERGE_ALL",
                     "range": {
@@ -2396,15 +2387,6 @@ def execute_variable_cost_update(username, start_ym=None, skip_backup=False):
             })
 
         # D) クレジットカード支払残_合計額 (Orange) B-H合併
-        format_requests.append({
-            "unmergeCells": {
-                "range": {
-                    "sheetId": sheet_id,
-                    "startRowIndex": summary_end_row - 2, "endRowIndex": summary_end_row - 1,
-                    "startColumnIndex": 0, "endColumnIndex": 256
-                }
-            }
-        })
         format_requests.append({
             "mergeCells": {
                 "mergeType": "MERGE_ALL",
@@ -2434,15 +2416,6 @@ def execute_variable_cost_update(username, start_ym=None, skip_backup=False):
         })
 
         # E) 固定費＆変動費_支払残_合計額 (Red) B-H合併
-        format_requests.append({
-            "unmergeCells": {
-                "range": {
-                    "sheetId": sheet_id,
-                    "startRowIndex": summary_end_row - 1, "endRowIndex": summary_end_row,
-                    "startColumnIndex": 0, "endColumnIndex": 256
-                }
-            }
-        })
         format_requests.append({
             "mergeCells": {
                 "mergeType": "MERGE_ALL",
