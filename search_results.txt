@@ -1,0 +1,71 @@
+Line 51: "割引・ポイント利用": ["共通ポイント利用", "店舗独自ポイント利用", "クーポン割引", "キャッシュバック・還元"],
+Line 972: "店舗名": "store_name",
+Line 973: "店舗": "store_name",
+Line 1443: 1. "store_name" : 店舗名（文字列、不明な場合は ""）
+Line 1486: "store_name": "店舗名",
+Line 1573: """商品名リストと店舗名から、Gemini APIを使用してカテゴリを自動判別する"""
+Line 1579: 以下の店舗で購入した商品のリストについて、それぞれの大分類と小分類を判定してJSONで返してください。
+Line 1581: 店舗名: {store_name}
+Line 1693: 大分類別、店舗別、小分類別の2段階アコーディオンを表示する共通関数
+Line 1705: view_pattern = st.radio("表示パターン", ["店舗別", "大分類別", "支払い方法別"], horizontal=True, key=f"{key_prefix}_view_pattern")
+Line 1707: if view_pattern == "店舗別":
+Line 1743: st.info("店舗情報がありません。")
+Line 1827: # 2段階目：店舗
+Line 1841: st.info("店舗情報がありません。")
+Line 2103: ["大分類別", "小分類別", "店舗別", "消費税", "支払い方法"],
+Line 2128: elif analysis_axis == "店舗別":
+Line 2129: for col in ["store_name", "store", "店舗"]:
+Line 2133: title_label = "店舗別金額シェア"
+Line 2162: # 選択された軸が店舗別なら内税を除外し、大分類・小分類なら含めて表示する（二重計上防止だが内訳は正しく出す）
+Line 2163: df_for_chart = df_agg if analysis_axis == "店舗別" else df
+Line 2196: # 指定された分析軸で日ごとのデータをグループ化 (店舗別なら内税除外、それ以外は含める)
+Line 2197: df_bar = df_agg.copy() if analysis_axis == "店舗別" else df.copy()
+Line 2260: st.markdown("##### カテゴリ別内訳 (当月)")
+Line 2375: st.markdown(f"##### {view_mode} 内訳　小計：¥{int(period_total):,}")
+Line 2378: # ④ 5階層のドリルダウン表示 (日付 > 店舗 > 大分類 > 小分類 > 商標名)
+Line 2385: "store_name": "不明な店舗",
+Line 2392: # 第1階層: 日付＋店舗名 (pandas dt.date と store_name でマルチグループ化)
+Line 2398: store_name_disp = store if store else "不明な店舗"
+Line 3027: ["大分類別", "小分類別", "店舗別", "消費税", "支払い方法"],
+Line 3051: elif analysis_axis == "店舗別":
+Line 3052: for col in ["store_name", "store", "店舗"]:
+Line 3056: title_label = "店舗別"
+Line 3092: # 当年データの月別集計 (年次グラフでは内税を含めて内訳を提示)
+Line 3093: # ※分析軸が店舗別の場合は意図により内税を除外するか検討の余地ありだが、月次は内税込みで傾向を見る
+Line 3094: df_for_yearly = df_agg if analysis_axis == "店舗別" else df
+Line 3102: df_prev_for_yearly = df_prev_agg if analysis_axis == "店舗別" else df_prev
+Line 3127: df_for_bar = df_agg.copy() if analysis_axis == "店舗別" else df.copy()
+Line 3222: st.markdown("##### カテゴリ別内訳 (年次)")
+Line 4001: # 大分類別の内訳を集計
+Line 4015: # 内税は合計に加算しないが、内訳には実際の税額を表示する
+Line 4025: edited_store = st.text_input("**店舗**", value=preview_store, key="receipt_import_store", placeholder="店舗名を入力してください")
+Line 4095: st.error("エラー: 店舗名を入力してください。")
+Line 4231: /* 日付・店舗名の段 */
+Line 4255: /* 4. ラベル（日付、店舗名など）の文字も小さく */
+Line 4272: input_store = st.text_input("店舗名", value=st.session_state.manual_input_store, key=f"mi_s_{fid}", placeholder="店舗名")
+Line 4337: st.error("店舗名を入力してください。")
+Line 4408: # 店舗名と商品名のカラムを動的に判定
+Line 4413: st.warning("スプレッドシートに店舗名（'store_name' または 'store'）の列が見つかりません。")
+Line 4441: receipts_df.columns = ["receipt_id", "日付", "店舗名", "支払い方法", "金額", "明細数"]
+Line 4442: # 店舗名が空欄の場合は「店舗不明」とする
+Line 4443: receipts_df["店舗名"] = receipts_df["店舗名"].replace("", "店舗不明")
+Line 4462: "店舗名": st.column_config.TextColumn("店舗名", width="medium"),
+Line 4475: "store": sel_rec["店舗名"]
+Line 4491: target_store = selected_receipt["店舗名"]
+Line 4533: # --- レシートヘッダー（日付・店舗名）の修正エリア用プレースホルダー ---
+Line 4620: # 2行目：店舗名
+Line 4623: st.markdown("<p style='margin-top: 8px; font-weight: bold;'>店舗名</p>", unsafe_allow_html=True)
+Line 4625: new_store = st.text_input("店舗名", value=st.session_state['edit_header']['store'], key=f"edit_header_store_{receipt_key}", label_visibility="collapsed", disabled=is_item_editing)
+Line 4659: if st.button("日付・店舗名・支払更新", use_container_width=True, type="primary", disabled=is_item_editing):
+Line 4667: # 既存の全明細行をループして日付と店舗を更新
+Line 5164: ・ダッシュボード（月次集計）：月間の総支出、予算の残り、日別の支出推移をグラフで確認できます。内訳は「店舗別」「大分類別」「支払い方法別」に切り替え可能で、最大で商品（明細）レベルまで掘り下げることができます。
+Line 5167: ・クレジットカード：登録したカードの利用状況を「当月支払」「次回支払額」「次回以降支払額」の3つの期間に分けて表示します。それぞれの期間の明細は、日付＋店舗名＞大分類＞小分類＞商品名の4階層のドリルダウンで詳細を確認できます。未払い金額に対して現在の利用率や残高も表示されます。
+Line 5173: ・レシート修正：過去データの検索・修正・削除、対象レシートの一括更新が行えます。個別の明細を修正中（選択中）のときは、誤操作を防ぐためにレシート全体の日付や店舗名などのヘッダーがロックされる仕組みがあります。
+Line 5240: 3. 画面中央のボタン群（「店舗別」「大分類別」「支払い方法別」）をクリックして分析軸を切り替えます。
+Line 5241: 4. 各項目のアコーディオン（詳細枠）をクリックすると、最大で「商品（明細）」レベルまで深い階層で内訳を追跡できます。
+Line 5254: 4. 画面下部に並ぶ各カテゴリ別内訳のアコーディオンを展開すると、年間を通した支出の詳細を追跡できます。
+Line 5266: 4. 「店舗別」「大分類別」「支払い方法別」の切り替えボタンを使い、最大5階層（店舗名 ＞ 支払い方法 ＞ 大分類 ＞ 小分類 ＞ 商品）でデータを掘り下げて確認します。
+Line 5278: 4. 表示された明細のアコーディオン（日付＋店舗名 ＞ 大分類 ＞ 小分類 ＞ 商品名）を開いて、利用内容や限度額に対する現在の利用割合（プログレスバー）を確認します。
+Line 5304: 3. AIが店舗名・商品名・金額などを自動解析します（Gift等の割引や消費税も自動処理されます）。
+Line 5316: 2. 上部の入力欄に「日付」と「店舗名」を設定します。
+Line 5330: 4. 日付、店舗名を追加・修正する場合は上部から、個別の明細を修正する場合は表から直接書き換えます。

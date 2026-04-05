@@ -341,6 +341,31 @@ def get_sheet(worksheet_name, create_if_not_found=False):
         st.error(f"Google Sheets接続エラー: {e}")
         st.stop()
 
+def clear_worksheet_filter(worksheet_name):
+    """
+    指定したワークシートの基本フィルターを解除する。
+    フィルターがかかっていない場合でも安全に実行可能。
+    """
+    try:
+        sheet = get_sheet(worksheet_name)
+        # sheet.id は worksheets のプロパティとしての ID (gid)
+        worksheet_id = sheet.id
+        
+        body = {
+            "requests": [
+                {
+                    "clearBasicFilter": {
+                        "sheetId": worksheet_id
+                    }
+                }
+            ]
+        }
+        # スプレッドシートに対して batch_update を実行
+        safe_gspread_call(sheet.spreadsheet.batch_update, body)
+    except Exception as e:
+        # フィルターが存在しない場合などにエラーとなる可能性があるが、実害はないためログに留める
+        print(f"Filter clear info: {e}")
+
 def get_user_master_sheet(username, worksheet_name, create_if_not_found=False):
     """ユーザー個別の『{username}_支払管理』スプレッドシート内のワークシートを取得する"""
     client = get_gspread_client()
@@ -1001,6 +1026,9 @@ def get_clean_df(records, username):
     if actual_rename:
         df = df.rename(columns=actual_rename)
     
+    # "_row_index" が存在する場合は保持し、型が混ざらないよう注意
+    # (pd.DataFrame(records) で元から入っている想定)
+
     # "username"でフィルタ (必須)
     if "username" in df.columns:
         # 値自体の余白も削除して比較
@@ -1046,6 +1074,10 @@ def load_transactions_data(target_date, mode="monthly"):
     if records_df.shape[1] > len(headers):
         headers += [f"extra_{i}" for i in range(len(headers), records_df.shape[1])]
     records_df.columns = headers[:records_df.shape[1]]
+    # 行インデックスの付与（recordsの順番に基づく）
+    # recordsは全ユーザー分あるが、dfはフィルタ済み。
+    # recordsにある元の行番号を保持するためにDataFrame作成時に付与しておく
+    records_df['_row_index'] = range(2, len(records_df) + 2)
     records = records_df.to_dict('records')
     
     # 共通ヘルパーでクレンジングとフィルタリング
@@ -1054,18 +1086,7 @@ def load_transactions_data(target_date, mode="monthly"):
     
     if df.empty:
          return pd.DataFrame()
-    
-    # 行インデックスの付与（recordsの順番に基づく）
-    # recordsのインデックスとdfのインデックスを合わせる必要があるため、クレンジング前のrecords長を使用
-    # recordsは全ユーザー分あるが、dfはフィルタ済み。
-    # recordsにある元の行番号を保持するためにDataFrame作成時に付与しておく
-    df_all_temp = records_df.copy()
-    df_all_temp['_row_index'] = range(2, len(records) + 2)
-    
-    # dfにrow_indexを結合
-    # pd.mergeを使うため、元のインデックスを利用
-    df = df.join(df_all_temp[['_row_index']])
-    
+
     # 期間でフィルタ
     if mode == "monthly":
         df = df[(df["date"].dt.year == target_date.year) & (df["date"].dt.month == target_date.month)]
@@ -3268,6 +3289,11 @@ def handle_menu_change():
     if target_menu in ["カレンダー", "レシート取込", "レシート修正"]:
         st.session_state["menu_selection_reset_flag"] = True
         
+    # 追加：レシート修正が選択された場合、基本フィルターを解除する
+    if target_menu == "レシート修正":
+        with st.spinner("スプレッドシートのフィルターを解除中..."):
+            clear_worksheet_filter(TRANSACTIONS_WORKSHEET_NAME)
+        
     if target_menu == "👁AI相談":
         st.session_state["refresh_ai_data_flag"] = True
     
@@ -3570,7 +3596,7 @@ def main():
                 .block-container h5 { font-size: calc(1.00rem + 2pt) !important; }
                 </style>
             """, unsafe_allow_html=True)
-            st.subheader("マイニー [Ver 5.4.15]")
+            st.subheader("マイニィ [Ver 5.6.0]")
             st.write(f"🔑 ユーザー: **{st.session_state['username']}**")
             st.markdown("---")
             if 'menu_selection' not in st.session_state:

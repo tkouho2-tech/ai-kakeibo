@@ -4,7 +4,7 @@ from datetime import datetime, timezone, timedelta
 JST = timezone(timedelta(hours=+9), 'JST')
 from dateutil.relativedelta import relativedelta
 import gspread
-
+import jpholiday
 import re
 
 def safe_money_int_cast(val):
@@ -166,1035 +166,277 @@ def _find_val(d, keywords, exclude=[]):
                 return v
     return ""
 
-def execute_expansion(username, mode="NEW", start_ym=None):
-    """
-    mode: "NEW", "RE_EXECUTE", "NEXT_MONTH"
-    """
-    bk_ws = None
-        
-    from app import get_gspread_client, safe_gspread_call
-    client = get_gspread_client()
-    if not client:
-        return False, "Google Docsへの接続に失敗しました。"
-        
-    sheet_name = f"{username}_支払管理"
-    try:
-        ss = client.open(sheet_name)
-    except Exception as e:
-        return False, f"支払管理シート({sheet_name})が見つかりません。"
-        
-    st.write("🔍 シート情報を取得中...")
-    try:
-        ws_master = ss.worksheet("固定費マスター")
-        ws_pay = ss.worksheet("支払管理")
-    except Exception as e:
-        return False, f"「固定費マスター」または「支払管理」シートが見つかりません。"
-        
-    st.write("📖 固定費マスターを読み込んでいます...")
-    try:
-        master_data = safe_gspread_call(ws_master.get_all_records)
-    except Exception as e:
-        # Fallback to get_all_values if header is weird
-        master_raw = safe_gspread_call(ws_master.get_all_values)
-        if not master_raw or len(master_raw) < 2:
-            return False, "固定費マスターにデータがありません。"
-        headers = master_raw[0]
-        master_data = []
-        for row in master_raw[1:]:
-            row_dict = {}
-            for i, h in enumerate(headers):
-                if i < len(row):
-                    row_dict[h] = row[i]
-                else:
-                    row_dict[h] = ""
-            master_data.append(row_dict)
-
-    st.write("📊 支払管理シートのヘッダーを解析中...")
-    # 数式を維持するために FORMULA レンダリングオプションで取得
-    pay_raw = safe_gspread_call(ws_pay.get_all_values, value_render_option='FORMULA')
-    
-    # Extract headers from pay sheet (row 7 -> index 6)
-    if len(pay_raw) < 7:
-        return False, "「支払管理」のフォーマットが正しくありません（7行目にヘッダーが必要です）。"
-        
-    # ヘッダー行を「ID」が含まれる行として動的に特定
-    h_row_idx = -1
-    for i_r, r_v in enumerate(pay_raw):
-        if r_v and str(r_v[0]).strip().lower() in ["id", "key"]:
-            h_row_idx = i_r
-            break
-    if h_row_idx == -1: h_row_idx = 6 # フォールバック
-    pay_headers = pay_raw[h_row_idx]
-    
-    # --- ヘッダー・最終月の超堅牢取得 ---
-    pay_formatted = safe_gspread_call(ws_pay.get_all_values, value_render_option='FORMATTED_VALUE')
-    actual_headers = pay_formatted[h_row_idx] if len(pay_formatted) > h_row_idx else []
-    
-    # 数式版と表示値版の長い方を基準にする
-    header_len = max(len(pay_headers), len(actual_headers))
-    actual_h_ids = []
-    sheet_months = []
-    
-    # --- カレンダー背景行 (Row 4, 5, 6) を取得 (Ver 5.4.0) ---
-    # index: Row 1->0, Row 5->4, Row 6->5
-    y_row = pay_formatted[4] if len(pay_formatted) > 4 else []
-    m_row = pay_formatted[5] if len(pay_formatted) > 5 else []
-    
-    for i in range(header_len):
-        h_formula = _clean_val(pay_headers[i]) if i < len(pay_headers) else ""
-        h_formatted = _clean_val(actual_headers[i]) if i < len(actual_headers) else ""
-        
-        # 年月の走査 (表示値 > 数式 > カレンダー行 の順で判定)
-        y_m = _get_year_month(h_formatted)
-        if y_m == (9999, 12):
-            y_m = _get_year_month(h_formula)
-        
-        # --- カレンダー行からのバックアップ取得 (Ver 5.4.0) ---
-        detected_ym_str = ""
-        if y_m == (9999, 12):
-            y_val = str(y_row[i]).strip() if i < len(y_row) else ""
-            m_val = str(m_row[i]).strip() if i < len(m_row) else ""
-            # 西暦4桁と月(1-12)を抽出
-            yy = re.search(r"(\d{4})", y_val)
-            mm_found = re.search(r"(\d{1,2})", m_val)
-            if yy and mm_found:
-                y_m = (int(yy.group(1)), int(mm_found.group(1)))
-                detected_ym_str = f"{y_m[0]}.{y_m[1]}月"
-        
-        # 表示値ベースの正規化 (識別ID用) (Ver 5.4.2: 重複追加を完全に排除)
-        norm_val = ""
-        if h_formatted: norm_val = _normalize(h_formatted)
-        elif h_formula: norm_val = _normalize(h_formula)
-        elif detected_ym_str: norm_val = _normalize(detected_ym_str)
-        actual_h_ids.append(norm_val)
-        
-        if y_m != (9999, 12):
-            col_letter = chr(ord('A') + i) if i < 26 else chr(ord('A') + i//26 - 1) + chr(ord('A') + i%26)
-            sheet_months.append((y_m, col_letter))
-            
-    if sheet_months:
-        last_item = max(sheet_months, key=lambda x: x[0])
-        sheet_last_ym = last_item[0]
-        detected_col = last_item[1]
-    else:
-        sheet_last_ym = (2036, 12)
-        detected_col = "末尾"
-        
-    st.toast(f"展開・最終月を検知: {sheet_last_ym[0]}.{sheet_last_ym[1]}月 ({detected_col}列)")
-    month_cols = _generate_target_months()
-
-    # --- 境界列判定（split_col_idx）の統合 (Ver 5.4.2) ---
-    split_col_idx = 8 # デフォルト I列
-    target_ym_for_split = start_ym if mode == "NEXT_MONTH" and start_ym else month_cols[0]
-    norm_target = _normalize(target_ym_for_split)
-    try:
-        split_col_idx = actual_h_ids.index(norm_target)
-    except:
-        # あいまい検索
-        for i, ach in enumerate(actual_h_ids):
-            if norm_target.replace("月","") == ach.replace("月","") and ach != "":
-                split_col_idx = i
-                break
-        
-    ozukai_row = -1
-    for i_r, r_v in enumerate(pay_raw):
-        search_str = "".join([str(c) for c in r_v[:2]]) if r_v else ""
-        if "小遣い" in search_str:
-            ozukai_row = i_r + 1
-            break
-    boundary_row = ozukai_row if ozukai_row != -1 else 70
-
-
-    # Base columns before months
-    base_cols = ["大分類", "変動or固定", "有限or無限", "科目１", "科目２", "Sno", "科目詳細"]
-    # Prepare old data if mode == NEXT_MONTH
-    old_data_map = {}
-    if mode == "NEXT_MONTH":
-        # Find index of current month in month_cols
-        current_ym_norm = _normalize(start_ym) if start_ym else ""
-        if not current_ym_norm:
-            now = datetime.now(JST)
-            current_ym_norm = f"{now.year}.{now.month}月"
-            
-        try:
-            current_month_idx = month_cols.index(current_ym_norm)
-        except:
-            current_month_idx = 0
-            
-        # Determine the physical column index for the start month in the existing sheet
-        # actual_headers を使って判定を行う
-        try:
-            split_col_idx = actual_h_ids.index(current_ym_norm)
-        except:
-            # Fallback
-            try:
-                # '月'の有無を許容して再試行
-                alt_ym = current_ym_norm.replace("月", "")
-                split_col_idx = next(i for i, h in enumerate(actual_h_ids) if h.replace("月", "") == alt_ym)
-            except:
-                split_col_idx = 7 
-            
-        # Read old rows and store protectable prefix (all cells to the left of target month)
-        for row in pay_raw[h_row_idx + 1:]:
-            k1_idx = next((i for i, h in enumerate(actual_h_ids) if "科目1" in h or "科目１" in h or "固定支払1" in h or "固定支払１" in h), 3)
-            if len(row) <= k1_idx or not _normalize(row[k1_idx]) or "計" in _normalize(row[k1_idx]):
-                continue
-                
-            k2_idx = next((i for i, h in enumerate(actual_h_ids) if "科目2" in h or "科目２" in h or "固定支払2" in h or "固定支払２" in h), 4)
-            sno_idx = next((i for i, h in enumerate(actual_h_ids) if "Sno" in h or "seq" in h.lower()), 5)
-            det_idx = next((i for i, h in enumerate(actual_h_ids) if "詳細" in h or "明細" in h), 6)
-            fixed_idx = next((i for i, h in enumerate(actual_h_ids) if "変動" in h or ("固定" in h and "支払" not in h)), 1)
-            finite_idx = next((i for i, h in enumerate(actual_h_ids) if "有限" in h or "無限" in h), 2)
-            
-            # Extract values for matching
-            k1 = _normalize(_clean_val(row[k1_idx]))
-            k2 = _normalize(_clean_val(row[k2_idx])) if k2_idx < len(row) else ""
-            det = _normalize(_clean_val(row[det_idx])) if det_idx < len(row) else ""
-            
-            # Simplified 3-point identification key (Category1, Category2, Detail)
-            # This is more robust against sno or finite/infinite changes.
-            key = f"{k1}_{k2}_{det}"
-            if key not in old_data_map:
-                old_data_map[key] = []
-            
-            # Physical prefix protection: content of ALL columns before start month
-            prefix_data = row[:split_col_idx] if split_col_idx < len(row) else row
-            old_data_map[key].append(prefix_data)
-
-    def _dict_to_row(d, prefix=None):
-        r = []
-        for i, h in enumerate(pay_headers):
-            # Physical protection: If this index is before the split point, use the raw prefix data
-            if prefix and i < len(prefix):
-                r.append(prefix[i])
-                continue
-                
-            # Otherwise, use normal logic (for columns from start_ym onwards)
-            ach = actual_h_ids[i]
-            if "科目1" in ach or "科目１" in ach or "固定支払1" in ach or "固定支払１" in ach: val = d.get("科目１", "")
-            elif "科目2" in ach or "科目２" in ach or "固定支払2" in ach or "固定支払２" in ach: val = d.get("科目２", "")
-            elif "変動" in ach or ("固定" in ach and "支払" not in ach): val = d.get("変動or固定", "")
-            elif "有限" in ach or "無限" in ach: val = d.get("有限or無限", "")
-            elif "Sno" in ach or "seq" in ach.lower(): val = d.get("Sno", "")
-            elif "詳細" in ach or "明細" in ach: val = d.get("科目詳細", "")
-            elif "大分類" in ach: val = d.get("大分類", "")
-            elif ach in month_cols:
-                val = d.get(ach, "")
-            elif (ach + "月") in month_cols:
-                val = d.get(ach + "月", "")
-            elif ach.replace("月", "") in [m.replace("月", "") for m in month_cols]:
-                # Find matched month item
-                match_m = next((m for m in month_cols if m.replace("月", "") == ach.replace("月", "")), None)
-                val = d.get(match_m, "")
-            else:
-                # 完了フラグ列の特定: 「月名の右隣の列」を最優先条件とする（位置ベース）
-                is_flag_col = False
-                prev_target_m = None
-                if i > 0:
-                    potential_prev_m = actual_h_ids[i-1]
-                    if potential_prev_m in month_cols or (potential_prev_m + "月") in month_cols:
-                        is_flag_col = True
-                        prev_target_m = potential_prev_m if potential_prev_m in month_cols else (potential_prev_m + "月")
-                
-                if is_flag_col:
-                    val = d.get(f"{prev_target_m}_flag", "")
-                else:
-                    # それ以外はフォールバック（大分類名等）
-                    val = d.get(ach, d.get(h, ""))
-            r.append(val)
-        return r
-
-    # --- 1. User_Masterから生年月日の取得とE2セル設定 ---
-    try:
-        k_ss = client.open("Kakeibo_Data")
-        u_ws = k_ss.worksheet("User_Master")
-        u_data = safe_gspread_call(u_ws.get_all_records)
-        u_rec = next((u for u in u_data if u.get("username") == username), None)
-        if u_rec:
-            # yyyy-mm-dd or yyyy/mm/dd -> yyyymmdd
-            b_str = str(u_rec.get("birthdate", "")).replace("-", "").replace("/", "").strip()
-            if len(b_str) >= 8:
-                b_val = b_str[:8]
-                # ユーザーの要望により E2 から F2 に変更
-                safe_gspread_call(ws_pay.update_acell, 'F2', b_val)
-    except Exception as e:
-        print(f"Birthdate update error: {e}")
-
-    # --- 2. 支払管理シートの恒久バックアップ (固定名) ---
+def createBackup(ss):
+    from app import safe_gspread_call
     try:
         bk_name = "支払管理BK"
         try:
             old_bk = ss.worksheet(bk_name)
             safe_gspread_call(ss.del_worksheet, old_bk)
         except Exception:
-            pass # 既存のバックアップが存在しない場合は無視
+            pass # 既存の同名バックアップが存在しない場合は無視
             
-        bk_ws = safe_gspread_call(ss.duplicate_sheet, ws_pay.id, new_sheet_name=bk_name)
+        ws_pay = next((ws for ws in ss.worksheets() if ws.title.strip() == "支払管理"), None)
+        if ws_pay:
+            safe_gspread_call(ws_pay.duplicate, new_sheet_name=bk_name)
+        return True
     except Exception as e:
-        print(f"Backup error: {e}")
+        print(f"Backup Error: {e}")
+        return False
 
-    # --- 3. 固定費エリアのクリア (小遣い行の保護) ---
+
+def execute_expansion(username, mode="NEW", start_ym=None):
+    from app import get_gspread_client, safe_gspread_call
+    from fixed_cost_expansion import _find_val, _clean_val, _normalize, _get_year_month
+    import re
+    
+    client = get_gspread_client()
+    if not client: return False, "Google Drive APIに接続できません。"
+    
     try:
-        # A8から境界の手前までを一括クリア（行削除は行わない）
-        if boundary_row > 8:
-            safe_gspread_call(ws_pay.batch_clear, [f"A8:ZZ{boundary_row - 1}"])
+        ss = client.open(f"{username}_支払管理")
+        ws_master = ss.worksheet("固定費マスター")
+        ws_pay = next((ws for ws in ss.worksheets() if ws.title.strip() == "支払管理"), None)
+        if not ws_pay: return False, "支払管理シートが見つかりません。"
+        
+        # --- A. 固定費データ展開の事前バックアップ ---
+        createBackup(ss)
+
+        # --- プロフィール連動（生年月日・現在日時）の設定 ---
+        try:
+            from app import get_sheet, USER_MASTER_WORKSHEET_NAME
+            from datetime import datetime
+            
+            # 1. 生年月日の取得 (User_Masterシートから)
+            # User_Masterは共有シート Kakeibo_Data にあるため get_sheet を使用
+            master_sheet = get_sheet(USER_MASTER_WORKSHEET_NAME)
+            user_records = safe_gspread_call(master_sheet.get_all_records)
+            user_profile = next((r for r in user_records if str(r.get("username", "")).lower() == username.lower()), None)
+            
+            if user_profile:
+                birth_raw = str(user_profile.get("birthdate", "")).strip()
+                # 数字のみを抽出して YYYYMMDD に整形 (例: 1958/12/12 -> 19581212)
+                birth_clean = "".join(filter(str.isdigit, birth_raw))
+                if len(birth_clean) >= 8:
+                    # 値のみを書き込み（書式は維持される）
+                    safe_gspread_call(ws_pay.update_acell, "F2", birth_clean[:8])
+            
+            # 2. 現在日時の設定 (yyyy-mm-dd hh:mm:ss)
+            now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            safe_gspread_call(ws_pay.update_acell, "F4", now_str)
+            
+        except Exception as profile_err:
+            # プロフィール連携の失敗はメイン処理を止めないようログ出力に留める
+            print(f"Profile Sync Error: {profile_err}")
     except Exception as e:
-        print(f"Clear fixed cost area error: {e}")
-
-    try:
-        new_rows_data = []
-        budget_map = {}
+        return False, f"シート読み込みエラー: {e}"
+        
+    master_raw = safe_gspread_call(ws_master.get_all_values)
+    if not master_raw or len(master_raw) < 2: return False, "固定費マスターにデータがありません。"
+    headers = master_raw[0]
+    master_data = [dict(zip(headers, r + [""]*(len(headers)-len(r)))) for r in master_raw[1:]]
     
-        # Process master data
-        category_groups = {"クレジットカード": [], "口座引落": [], "銀行振込": []}
-        key_usage_counters = {} # key -> count
-        
-        st.write(f"🔄 固定費マスターからデータを抽出中... (全 {len(master_data)} 件)")
-        sno = 1
-        for i_m, m_rec in enumerate(master_data):
-            if i_m % 10 == 0 and i_m > 0:
-                st.write(f"  ... {i_m} 件目まで処理済み")
-            # Robust key matching
-            k1 = _normalize(_clean_val(_find_val(m_rec, ["科目1", "科目１", "固定支払1", "固定支払１"])))
-            if not k1:
-                k1 = _normalize(_clean_val(m_rec.get("科目１", m_rec.get("固定支払１", ""))))
-                
-            k2 = _normalize(_clean_val(_find_val(m_rec, ["科目2", "科目２", "固定支払2", "固定支払２"])))
-            is_finite_str = _normalize(_clean_val(_find_val(m_rec, ["有限", "無限"])))
-            detail = _normalize(_clean_val(_find_val(m_rec, ["詳細", "明細"])))
-            sno_val = _normalize(_clean_val(_find_val(m_rec, ["Sno", "seq"])))
-            fixed_var = _normalize(_clean_val(_find_val(m_rec, ["変動", "固定"], exclude=["支払"])))
-            
-            amt_str = str(_find_val(m_rec, ["支払額", "金額"], exclude=["最終月額", "最終"])).replace(",", "").replace("¥", "").replace("￥", "")
-            amt = safe_money_int_cast(amt_str)
-            
-            pay_month_freq = str(_find_val(m_rec, ["支払月", "頻度"])).strip()
-            pay_year_freq = str(_find_val(m_rec, ["支払年", "年"], exclude=["月", "開始", "完済", "終了", "完了"])).strip()
-            
-            final_amt_str = str(_find_val(m_rec, ["最終月額"])).replace(",", "").replace("¥", "").replace("￥", "").strip()
-            final_amt = safe_money_int_cast(final_amt_str) if final_amt_str else amt
-            
-            fee_str = str(_find_val(m_rec, ["振込手数料", "手数料"])).replace(",", "").replace("¥", "").replace("￥", "")
-            fee = safe_money_int_cast(fee_str)
-            
-            start_m_str = str(_find_val(m_rec, ["開始"])).strip()
-            end_m_str = str(_find_val(m_rec, ["完済", "終了", "完了"])).strip()
-            
-            if not k1:
-                continue
-
-            # --- 小遣い判定 (Ver 5.4.5: メインループ内で集計し、通常出力行からは除外) ---
-            is_ozukai_budget = False
-            if "小遣い" in (k1 + k2 + detail):
-                is_ozukai_budget = True
-                
-            is_finite = ("有限" in is_finite_str)
-            sy, sm = _get_year_month(start_m_str) if start_m_str else (0,0)
-            ey, em = _get_year_month(end_m_str) if is_finite and end_m_str else (9999,12)
-            
-            # Simplified identifying key
-            key = f"{k1}_{k2}_{detail}"
-            
-            # 同一キーの複数行対応: 出現順に old_data_map から取得
-            key_usage_idx = key_usage_counters.get(key, 0)
-            protected_prefix_array = None
-            if mode == "NEXT_MONTH" and key in old_data_map:
-                if key_usage_idx < len(old_data_map[key]):
-                    protected_prefix_array = old_data_map[key][key_usage_idx]
-                    key_usage_counters[key] = key_usage_idx + 1
-            
-            # Build row dict
-            row_dict = {
-                "大分類": "固定費",
-                "変動or固定": fixed_var,
-                "有限or無限": is_finite_str,
-                "科目１": k1,
-                "科目２": k2,
-                "Sno": sno_val,
-                "科目詳細": detail,
-                "protected_prefix": protected_prefix_array # Physical cells to copy
-            }
-            
-            # Calculate for each month
-            # --- 実行モードに応じた開始月の決定 (Ver 5.2.0) ---
-            if mode == "NEXT_MONTH" and start_ym:
-                uy, um = _get_year_month(start_ym)
-                # マスター開始月とユーザー選択月のうち、遅い方を採用
-                if (uy > sy) or (uy == sy and um > sm):
-                    eff_sy, eff_sm = uy, um
-                else:
-                    eff_sy, eff_sm = sy, sm
-            else:
-                eff_sy, eff_sm = sy, sm
-
-            # --- 有限・無限に応じた終了月の決定 (Ver 5.2.0) ---
-            eff_ey, eff_em = (ey, em) if is_finite else sheet_last_ym
-
-            for mc in month_cols:
-                my, mm = [int(x.replace("月","")) for x in mc.split(".")]
-                
-                # Logic: If month column found in sheet headers, and its index < split_col_idx, it should be protected.
-                # But the dict_to_row function will handle mergingprotected_prefix.
-                # We only calculate for the "new" range (>= split_col_idx).
-                
-                # Basic values for dict-to-row fallback
-                    
-                val = ""
-                # Check Active duration
-                if (my > eff_sy) or (my == eff_sy and mm >= eff_sm):
-                    if (my < eff_ey) or (my == eff_ey and mm <= eff_em):
-                        # It's active
-                        
-                        # Check Frequency (Ver 4.20.0: Support 偶数月/奇数月)
-                        is_pay_month = False
-                        f_clean = _normalize(pay_month_freq)
-                        if "毎月" in f_clean:
-                            is_pay_month = True
-                        elif "偶数月" in f_clean:
-                            is_pay_month = (mm % 2 == 0)
-                        elif "奇数月" in f_clean:
-                            is_pay_month = (mm % 2 != 0)
-                        else:
-                            # expected "9月" or similar
-                            if str(mm) in f_clean:
-                                is_pay_month = True
-                                
-                        # --- 支払年の判定を追加 (Ver 4.20.0) ---
-                        if is_pay_month and pay_year_freq:
-                            y_clean = _normalize(pay_year_freq)
-                            if "偶数年" in y_clean:
-                                if my % 2 != 0: is_pay_month = False
-                            elif "奇数年" in y_clean:
-                                if my % 2 == 0: is_pay_month = False
-                        # --------------------------------------
-                                
-                        if is_pay_month:
-                            # Is it the very last month?
-                            if is_finite and my == ey and mm == em:
-                                v = final_amt
-                            else:
-                                v = amt
-                                
-                            # Add fee
-                            v += fee
-                            
-                            if is_ozukai_budget:
-                                budget_map[mc] = budget_map.get(mc, 0) + v
-                            else:
-                                row_dict[mc] = v
-                            
-                if not is_ozukai_budget and mc not in row_dict:
-                    row_dict[mc] = val
-            
-            # 小遣い予算行は row_dict としては登録しない（後で1行にまとめて更新するため）
-            if is_ozukai_budget:
-                continue
-
-            # Group by 科目1
-            if k1 not in category_groups:
-                category_groups[k1] = []
-            category_groups[k1].append(row_dict)
+    # GET PAYMENT SHEET DATA
+    pay_formatted = safe_gspread_call(ws_pay.get_all_values, value_render_option="FORMATTED_VALUE")
     
-        # Now assemble the final sheet data
-        # Ensure standard order: クレジットカード -> 口座引落 -> 銀行振込
-        target_k1_order = ["クレジットカード", "口座引落", "銀行振込"]
-        
-        # Build array for batch update (Row 8 onwards)
-        final_sheet_array = []
-        # Ver 5.4.3: header_len は冒頭で計算した「カレンダー最大長」を維持し、ここで再定義（短縮）しない
+    h_row_idx = -1
+    for i_r, r_v in enumerate(pay_formatted):
+        if r_v and str(r_v[0]).strip().lower() in ["id", "key"]:
+            h_row_idx = i_r
+            break
+    if h_row_idx == -1: h_row_idx = 6
     
-        def dict_to_row(d):
-            r = []
-            prefix = d.get("protected_prefix") # List of original cells if in NEXT_MONTH protection
+    actual_headers = pay_formatted[h_row_idx]
+    
+    # GET COLUMNS BY MONTH
+    month_cols = []
+    for i, h in enumerate(actual_headers):
+        h_clean = _clean_val(h).strip()
+        y_m = _get_year_month(h_clean)
+        if y_m != (9999, 12):
+            month_cols.append({"col_idx": i, "year": y_m[0], "month": y_m[1], "ym": y_m[0]*100 + y_m[1]})
             
-            for i in range(header_len):
-                if i == 0: continue # Skip Column A (ID column)
-                
-                h = pay_headers[i] if i < len(pay_headers) else ""
-                
-                # Physical protection: If this index is before the split point, use the raw prefix data
-                if prefix and i < len(prefix):
-                    r.append(prefix[i])
-                    continue
-                    
-                # Otherwise, use normal logic (for columns from start_ym onwards)
-                ach = actual_h_ids[i]
-                if "科目1" in ach or "科目１" in ach or "固定支払1" in ach or "固定支払１" in ach: val = d.get("科目１", "")
-                elif "科目2" in ach or "科目２" in ach or "固定支払2" in ach or "固定支払２" in ach: val = d.get("科目２", "")
-                elif "変動" in ach or ("固定" in ach and "支払" not in ach): val = d.get("変動or固定", "")
-                elif "有限" in ach or "無限" in ach: val = d.get("有限or無限", "")
-                elif "Sno" in ach or "seq" in ach.lower(): val = d.get("Sno", "")
-                elif "詳細" in ach or "明細" in ach: val = d.get("科目詳細", "")
-                elif "大分類" in ach: val = d.get("大分類", "")
-                elif ach in month_cols:
-                    val = d.get(ach, "")
-                elif (ach + "月") in month_cols:
-                    val = d.get(ach + "月", "")
-                elif ach.replace("月", "") in [m.replace("月", "") for m in month_cols]:
-                    # Find matched month item
-                    match_m = next((m for m in month_cols if m.replace("月", "") == ach.replace("月", "")), None)
-                    val = d.get(match_m, "")
-                else:
-                    # 完了フラグ列の特定: 「月名の右隣の列」を最優先条件とする（位置ベース）
-                    is_flag_col = False
-                    prev_target_m = None
-                    if i > 0:
-                        potential_prev_m = actual_h_ids[i-1]
-                        if potential_prev_m in month_cols or (potential_prev_m + "月") in month_cols:
-                            is_flag_col = True
-                            prev_target_m = potential_prev_m if potential_prev_m in month_cols else (potential_prev_m + "月")
-                    
-                    if is_flag_col:
-                        val = d.get(f"{prev_target_m}_flag", "")
-                    else:
-                        # それ以外はフォールバック（大分類名等）
-                        val = d.get(ach, d.get(h, ""))
-                r.append(val)
-            return r
-            
-        start_row_idx = 8 # 1-based, after row 7 headers
-        current_row_num = start_row_idx
+    # FIND INDICES
+    cat1_idx = next((i for i, h in enumerate(actual_headers) if "大分類" in h or "カテゴリ1" in h), -1)
+    k1_idx = next((i for i, h in enumerate(actual_headers) if "科目1" in h or "科目１" in h or "固定支払1" in h or "固定支払１" in h), -1)
+    v_f_idx = next((i for i, h in enumerate(actual_headers) if "変動" in h and "固定" in h), -1)
+    f_i_idx = next((i for i, h in enumerate(actual_headers) if "有限" in h and "無限" in h), -1)
+    k2_idx = next((i for i, h in enumerate(actual_headers) if "科目2" in h or "科目２" in h), -1)
+    sno_idx = next((i for i, h in enumerate(actual_headers) if "Sno" in h or "seq" in h.lower()), -1)
+    det_idx = next((i for i, h in enumerate(actual_headers) if "詳細" in h or "明細" in h), -1)
+    
+    if det_idx == -1: return False, "支払管理シートに「科目明細」列が見つかりません。"
+    
+    # Tracking allocated empty rows to avoid putting multiple master items on the same empty row
+    allocated_empty_rows = set()
+    
+    requests = []
+    
+    for m_rec in master_data:
+        m_detail = _clean_val(_find_val(m_rec, ["詳細", "明細"])).strip()
+        m_k1 = _clean_val(_find_val(m_rec, ["科目1", "科目１", "固定支払1", "固定支払１"])).strip()
+        m_sno = _clean_val(_find_val(m_rec, ["Sno", "seq"])).strip()
         
-        # Formula ranges memory
-        group_ranges = []
+        if not m_detail or not m_k1: continue
         
-        # Track rows for '変動' highlighting
-        variable_rows = []
-        
-        # Format requests for borders
-        sheet_id = ws_pay.id
-        format_requests = []
-        
-        # 1. Clear previous borders from row 8 downwards
-        format_requests.append({
-            "updateBorders": {
-                "range": {
-                    "sheetId": sheet_id,
-                    "startRowIndex": 7,
-                    "endRowIndex": 500,
-                    "startColumnIndex": 0,
-                    "endColumnIndex": header_len
-                },
-                "top": {"style": "NONE"},
-                "bottom": {"style": "NONE"},
-                "left": {"style": "NONE"},
-                "right": {"style": "NONE"},
-                "innerHorizontal": {"style": "NONE"},
-                "innerVertical": {"style": "NONE"}
-            }
-        })
-        
-        # 標準の順序（カード、引落、振込）を優先し、それ以外の新規カテゴリもすべて含める
-        all_categories = target_k1_order + [k for k in category_groups.keys() if k not in target_k1_order]
-        
-        st.write("📝 書き込み用データの組み立てを開始します...")
-        for tk in all_categories:
-            st.write(f"  📂 カテゴリ: **{tk}** を処理中...")
-            group_rows = category_groups.get(tk, [])
-            if not group_rows and tk not in target_k1_order:
-                # 標準カテゴリ以外が空の場合はスキップ
-                continue
+        # FIND TARGET ROW IN PAY SHEET
+        # Priority 1: Exact text match in Detail column
+        target_r_idx = -1
+        for r_i, r_v in enumerate(pay_formatted):
+            if r_i <= h_row_idx: continue
+            if len(r_v) > det_idx and _clean_val(r_v[det_idx]).strip() == m_detail:
+                target_r_idx = r_i
+                break
                 
-            # --- 新仕様: カテゴリごとの出力行数の完全固定化 ---
-            pad_limit = -1
-            if tk == "クレジットカード":
-                pad_limit = 15
-            elif tk == "口座引落":
-                pad_limit = 10
-            elif tk == "銀行振込":
-                pad_limit = 10
-                
-            # 上限を超えた場合は表示崩れを防ぐため切り捨てる
-            if pad_limit != -1 and len(group_rows) > pad_limit:
-                group_rows = group_rows[:pad_limit]
-
-            g_start = current_row_num
-            sno = 1
-            
-            last_var = ""
-            last_inf = ""
-            last_k2 = ""
-            
-            for gr in group_rows:
-                gr["Sno"] = str(sno)
-                sno += 1
-                last_var = gr["変動or固定"]
-                last_inf = gr["有限or無限"]
-                last_k2 = gr["科目２"]
-                
-                final_sheet_array.append(dict_to_row(gr))
-                current_row_num += 1
-                
-            # 指定された上限（pad_limit）に到達するまで空行動的パディング
-            pad_amount = 3 # 指定外のカテゴリ用のデフォルト値
-            if pad_limit != -1:
-                pad_amount = pad_limit - len(group_rows)
-                
-            for _ in range(pad_amount):
-                empty_dict = {
-                    "大分類": "固定費",
-                    "変動or固定": last_var,
-                    "有限or無限": last_inf,
-                    "科目１": tk,
-                    "科目２": last_k2,
-                    "Sno": str(sno)
-                }
-                sno += 1
-                r = dict_to_row(empty_dict)
-                final_sheet_array.append(r)
-                current_row_num += 1
-                
-            g_end = current_row_num - 1
-            
-            # Add 計 row
-            # B列から開始するため header_len - 1
-            subtotal_row = [""] * (header_len - 1)
-            try:
-                k1_idx = -1
-                for i_h, h_v in enumerate(actual_h_ids):
-                    if h_v == "科目1" or h_v == "科目１" or h_v == "固定支払1" or h_v == "固定支払１":
-                        k1_idx = i_h
-                        break
-                if k1_idx != -1:
-                    # B列開始なのでインデックスを調整 (-1) し、境界チェックを追加
-                    if 0 <= k1_idx - 1 < len(subtotal_row):
-                        subtotal_row[k1_idx - 1] = f"【{tk} 計】"
-            except: pass
-            
-            # Add formulas for months
-            for mc in month_cols:
-                try:
-                    # actual_h_ids からインデックスを特定
-                    m_norm = _normalize(mc)
-                    c_idx = -1
-                    for i_h, h_v in enumerate(actual_h_ids):
-                        if h_v == m_norm or h_v.replace("月","") == m_norm.replace("月",""):
-                            c_idx = i_h
+        # Priority 2: Fallback to matching K1 + matching Sno, ONLY IF DET is EMPTY
+        if target_r_idx == -1 and k1_idx != -1 and sno_idx != -1:
+            for r_i, r_v in enumerate(pay_formatted):
+                if r_i <= h_row_idx or r_i in allocated_empty_rows: continue
+                if len(r_v) > k1_idx and _clean_val(r_v[k1_idx]).strip() == m_k1:
+                    if len(r_v) > sno_idx and _clean_val(r_v[sno_idx]).strip() == m_sno:
+                        r_det = _clean_val(r_v[det_idx]).strip() if len(r_v) > det_idx else ""
+                        if not r_det:
+                            target_r_idx = r_i
+                            allocated_empty_rows.add(r_i)
                             break
-                    
-                    if c_idx == -1: continue
-                    
-                    f_idx = c_idx + 1 # 完了F
-                    col_letter = chr(ord('A') + c_idx) if c_idx < 26 else chr(ord('A') + c_idx//26 - 1) + chr(ord('A') + c_idx%26)
-                    flag_letter = chr(ord('A') + f_idx) if f_idx < 26 else chr(ord('A') + f_idx//26 - 1) + chr(ord('A') + f_idx%26)
-                    if g_start <= g_end:
-                        # 完了Fが空の行のみを合計
-                        formula = f"=SUMIFS({col_letter}{g_start}:{col_letter}{g_end}, {flag_letter}{g_start}:{flag_letter}{g_end}, \"\")"
-                        # B列開始なのでインデックスを調整 (-1) し、境界チェックを追加
-                        if 0 <= c_idx - 1 < len(subtotal_row):
-                            subtotal_row[c_idx - 1] = formula
-                except: pass
-                
-            final_sheet_array.append(subtotal_row)
-            
-            # Add thick border format request for this group
-            format_requests.append({
-                "updateBorders": {
-                    "range": {
-                        "sheetId": sheet_id,
-                        "startRowIndex": g_start - 1, # 0-based
-                        "endRowIndex": current_row_num, # 0-based exclusive (includes the subtotal row)
-                        "startColumnIndex": 0,
-                        "endColumnIndex": header_len
-                    },
-                    "top": {"style": "SOLID_MEDIUM"},
-                    "bottom": {"style": "SOLID_MEDIUM"},
-                    "left": {"style": "SOLID_MEDIUM"},
-                    "right": {"style": "SOLID_MEDIUM"}
-                }
-            })
-            
-            group_ranges.append(current_row_num) # save the row number of the subtotal
-            
-            # Add background color and bold for subtotal row
-            format_requests.append({
-                "repeatCell": {
-                    "range": {
-                        "sheetId": sheet_id,
-                        "startRowIndex": current_row_num - 1, # 0-based
-                        "endRowIndex": current_row_num,
-                        "startColumnIndex": 0,
-                        "endColumnIndex": header_len
-                    },
-                    "cell": {
-                        "userEnteredFormat": {
-                            "backgroundColor": {
-                                "red": 1.0,
-                                "green": 0.95,
-                                "blue": 0.8
-                            },
-                            "textFormat": {
-                                "bold": True
-                            }
-                        }
-                    },
-                    "fields": "userEnteredFormat(backgroundColor,textFormat.bold)"
-                }
-            })
-            
-            current_row_num += 1
-            
-        # Add Grand Total Row
-        # B列から開始するため header_len - 1
-        grand_total_row = [""] * (header_len - 1)
-        try:
-            # ヘッダー項目をクリーンアップして検索 (="科目１" 等の数式対応)
-            clean_pay_headers = [_clean_val(h) for h in pay_headers]
-            k1_idx = clean_pay_headers.index("科目１")
-            
-            # B列開始なのでインデックスを調整 (-1) し、境界チェックを追加
-            if 0 < len(grand_total_row): grand_total_row[0] = "固定費合計"
-            if 0 <= k1_idx - 1 < len(grand_total_row):
-                grand_total_row[k1_idx - 1] = "固定費合計"
-            
-            # 科目明細列（G列付近）にも念のため文言を入れる
-            k_detail_idx = -1
-            for h_i, h_val in enumerate(pay_headers):
-                h_clean = _clean_v(h_val).strip()
-                if "科目明細" in h_clean or "詳細" in h_clean: 
-                    k_detail_idx = h_i
-                    break
-            if k_detail_idx != -1:
-                if 0 <= k_detail_idx - 1 < len(grand_total_row):
-                    grand_total_row[k_detail_idx - 1] = "固定費合計"
-                
-        except: pass
-        
-        for mc in month_cols:
-            try:
-                # actual_h_ids からインデックスを特定
-                m_norm = _normalize(mc)
-                c_idx = -1
-                for i_h, h_v in enumerate(actual_h_ids):
-                    if h_v == m_norm or h_v.replace("月","") == m_norm.replace("月",""):
-                        c_idx = i_h
+                            
+        # Priority 3: Fallback to matched K1 and first EMPTY Det slot
+        if target_r_idx == -1 and k1_idx != -1:
+            for r_i, r_v in enumerate(pay_formatted):
+                if r_i <= h_row_idx or r_i in allocated_empty_rows: continue
+                if len(r_v) > k1_idx and _clean_val(r_v[k1_idx]).strip() == m_k1:
+                    r_det = _clean_val(r_v[det_idx]).strip() if len(r_v) > det_idx else ""
+                    if not r_det:
+                        target_r_idx = r_i
+                        allocated_empty_rows.add(r_i)
                         break
                 
-                if c_idx == -1: continue
-                
-                f_idx = c_idx + 1
-                col_letter = chr(ord('A') + c_idx) if c_idx < 26 else chr(ord('A') + c_idx//26 - 1) + chr(ord('A') + c_idx%26)
-                flag_letter = chr(ord('A') + f_idx) if f_idx < 26 else chr(ord('A') + f_idx//26 - 1) + chr(ord('A') + f_idx%26)
-                if group_ranges:
-                    # 各サブグループの「計」行そのものがすでにSUMIFSになっているので、
-                    # グランドトータルは単純にそれ。を合計しても良いが、完了Fが1の「計」行はないはず。
-                    # B列開始なのでインデックスを調整 (-1) し、境界チェックを追加
-                    if group_ranges:
-                        cells = [f"IF({flag_letter}{r}=\"\", {col_letter}{r}, 0)" for r in group_ranges]
-                        formula = f"=SUM({','.join(cells)})"
-                        if 0 <= c_idx - 1 < len(grand_total_row):
-                            grand_total_row[c_idx - 1] = formula
-            except: pass
+        if target_r_idx == -1:
+            continue # NO AVAILABLE ROW - SKIP
             
-        # 合計行のA〜G列（またはheader_len）を結合して中央揃え
-        st.write("🎨 固定費合計行の書式設定中...")
-        try:
-            k_detail_idx = -1
-            for h_i, h_val in enumerate(pay_headers):
-                h_clean = _clean_v(h_val).strip()
-                if "科目明細" in h_clean or "詳細" in h_clean: k_detail_idx = h_i
-            
-            # もし科目明細が見つからなければ、G列（インデックス6）までを対象とする
-            merge_end = k_detail_idx + 1 if k_detail_idx != -1 else 7
-            
-            # 💡 [Ver 5.5.0] APIError(400)対策：既存の結合情報をメタデータから取得
-            existing_merges = []
-            try:
-                remote_meta = safe_gspread_call(ss.fetch_sheet_metadata)
-                current_sheet_info = next((s for s in remote_meta['sheets'] if s['properties']['title'].strip() == "支払管理"), None)
-                if current_sheet_info:
-                    existing_merges = current_sheet_info.get('merges', [])
-            except: pass
+        # Populate metadata (Category, Subject2, V/F, F/I) and Detail string itself
+        m_cat1 = _clean_val(_find_val(m_rec, ["大分類", "カテゴリ1"])).strip()
+        m_vf = _clean_val(_find_val(m_rec, ["変動or固定"])).strip()
+        m_fi = _clean_val(_find_val(m_rec, ["有限or無限"])).strip()
+        m_k2 = _clean_val(_find_val(m_rec, ["科目2", "科目２"])).strip()
 
-            # 管理対象範囲（Row 8 以降、小遣い行の手前まで）に重なる結合を正確に解除
-            # ※ unmergeCells は既存の結合範囲と「完全に一致」する範囲を指定する必要がある
-            unmerge_target_start = 7
-            unmerge_target_end = boundary_row - 1
-            
-            for m_range in existing_merges:
-                m_start = m_range.get('startRowIndex', 0)
-                m_end = m_range.get('endRowIndex', 0)
-                # 垂直方向に重なっているか判定
-                if not (m_end <= unmerge_target_start or m_start >= unmerge_target_end):
-                    format_requests.append({"unmergeCells": {"range": m_range}})
-            
-            format_requests.append({
-                "mergeCells": {
-                    "mergeType": "MERGE_ALL",
-                    "range": {
-                        "sheetId": sheet_id,
-                        "startRowIndex": current_row_num - 1,
-                        "endRowIndex": current_row_num,
-                        "startColumnIndex": 0,
-                        "endColumnIndex": merge_end
-                    }
-                }
-            })
-            # 中央揃え
-            format_requests.append({
-                "repeatCell": {
-                    "range": {
-                        "sheetId": sheet_id,
-                        "startRowIndex": current_row_num - 1,
-                        "endRowIndex": current_row_num,
-                        "startColumnIndex": 0,
-                        "endColumnIndex": merge_end
-                    },
-                    "cell": {
-                        "userEnteredFormat": {
-                            "horizontalAlignment": "CENTER",
-                            "verticalAlignment": "MIDDLE",
-                        }
-                    },
-                    "fields": "userEnteredFormat(horizontalAlignment,verticalAlignment)"
-                }
-            })
-        except: pass
+        meta_updates = []
+        if cat1_idx != -1 and m_cat1: meta_updates.append((cat1_idx, m_cat1))
+        if v_f_idx != -1 and m_vf:   meta_updates.append((v_f_idx, m_vf))
+        if f_i_idx != -1 and m_fi:   meta_updates.append((f_i_idx, m_fi))
+        if k2_idx != -1 and m_k2:    meta_updates.append((k2_idx, m_k2))
         
-        final_sheet_array.append(grand_total_row)
-        
-        # Add background color and bold for grand total row (Fixed Cost Total - Blue Reverse)
-        format_requests.append({
-            "repeatCell": {
-                "range": {
-                    "sheetId": sheet_id,
-                    "startRowIndex": current_row_num - 1,
-                    "endRowIndex": current_row_num,
-                    "startColumnIndex": 0,
-                    "endColumnIndex": header_len
-                },
-                "cell": {
-                    "userEnteredFormat": {
-                        "backgroundColor": {
-                            "red": 0.0,
-                            "green": 0.0,
-                            "blue": 1.0
-                        },
-                        "textFormat": {
-                            "bold": True,
-                            "foregroundColor": {"red": 1.0, "green": 1.0, "blue": 1.0}
-                        }
-                    }
-                },
-                "fields": "userEnteredFormat(backgroundColor,textFormat.bold,textFormat.foregroundColor)"
-            }
-        })
-        total_data_end = current_row_num
-        
-        # Base borders request for ALL data (insert at index 1 so it runs after ANY clears and before THICK borders)
-        base_border_request = {
-            "updateBorders": {
-                "range": {
-                    "sheetId": sheet_id,
-                    "startRowIndex": 7, # 8行目から
-                    "endRowIndex": 1000, # 常に1000行目まで書式を維持（空行でも数式や書式が入るように）
-                    "startColumnIndex": 0,
-                    "endColumnIndex": header_len
-                },
-                "top": {"style": "SOLID"},
-                "bottom": {"style": "SOLID"},
-                "left": {"style": "SOLID"},
-                "right": {"style": "SOLID"},
-                "innerHorizontal": {"style": "SOLID"},
-                "innerVertical": {"style": "SOLID"}
-            }
-        }
-        format_requests.insert(1, base_border_request)
-        
-        # Add thick borders for each year (12 month columns)
-        try:
-            years = sorted(list(set([mc.split(".")[0] for mc in month_cols])))
-            for y in years:
-                start_m = f"{y}.1月"
-                end_m = f"{y}.12月"
-                if start_m in pay_headers and end_m in pay_headers:
-                    sc = pay_headers.index(start_m)
-                    ec = pay_headers.index(end_m)
-                    format_requests.append({
-                        "updateBorders": {
-                            "range": {
-                                "sheetId": sheet_id,
-                                "startRowIndex": 6, # include header
-                                "endRowIndex": total_data_end,
-                                "startColumnIndex": sc,
-                                "endColumnIndex": ec + 1 # exclusive
-                            },
-                            "top": {"style": "SOLID_MEDIUM"},
-                            "bottom": {"style": "SOLID_MEDIUM"},
-                            "left": {"style": "SOLID_MEDIUM"},
-                            "right": {"style": "SOLID_MEDIUM"}
-                        }
-                    })
-        except:
-            pass
-            
-        # Format numbers with commas (#,##0)
-        try:
-            first_month = month_cols[0]
-            if first_month in pay_headers:
-                start_m_col = pay_headers.index(first_month)
-                format_requests.append({
-                    "repeatCell": {
-                        "range": {
-                            "sheetId": sheet_id,
-                            "startRowIndex": 7, # data only
-                            "endRowIndex": 1000, # Extend to cover potential future rows
-                            "startColumnIndex": start_m_col,
-                            "endColumnIndex": header_len
-                        },
-                        "cell": {
-                            "userEnteredFormat": {
-                                "numberFormat": {
-                                    "type": "NUMBER",
-                                    "pattern": "#,##0"
-                                }
-                            }
-                        },
-                        "fields": "userEnteredFormat.numberFormat"
-                    }
+        # Detail column
+        meta_updates.append((det_idx, m_detail))
+
+        for idx, val in meta_updates:
+            current_val = pay_formatted[target_r_idx][idx] if idx < len(pay_formatted[target_r_idx]) else ""
+            if str(current_val).strip() != val:
+                # Calculate column letter (A, B, ..., Z, AA, AB, ...)
+                if idx < 26:
+                    col_letter = chr(ord("A") + idx)
+                else:
+                    col_letter = chr(ord("A") + idx // 26 - 1) + chr(ord("A") + idx % 26)
+                
+                requests.append({
+                    "range": f"支払管理!{col_letter}{target_r_idx + 1}",
+                    "values": [[val]]
                 })
-        except:
-            pass
             
-        # 完了Fの左側を破線にする
-        try:
-            for c_idx, h_name in enumerate(pay_headers):
-                clean_h = str(h_name).replace("\n", "").replace(" ", "").strip()
-                if "完了" in clean_h:
-                    format_requests.append({
-                        "updateBorders": {
-                            "range": {
-                                "sheetId": sheet_id,
-                                "startRowIndex": 7, 
-                                "endRowIndex": 1000,
-                                                                "endColumnIndex": c_idx + 1
-                            },
-                            "left": {"style": "DASHED"}
-                        }
+        # Values extraction
+        amt_str = str(_find_val(m_rec, ["支払額", "金額"], exclude=["最終月額", "最終"])).replace(",", "").replace("¥", "").replace("￥", "")
+        amt = amt_str.strip()
+        final_amt_str = str(_find_val(m_rec, ["最終月額"])).replace(",", "").replace("¥", "").replace("￥", "").strip()
+        final_amt = final_amt_str if final_amt_str else amt
+        
+        start_m_str = str(_find_val(m_rec, ["開始"])).strip()
+        end_m_str = str(_find_val(m_rec, ["完済", "終了", "完了"])).strip()
+        is_finite_str = str(_find_val(m_rec, ["有限", "無限"]))
+        pay_month_freq = str(_find_val(m_rec, ["支払月", "頻度"])).strip()
+        
+        is_finite = "有限" in is_finite_str
+        sy, sm = _get_year_month(start_m_str) if start_m_str else (0,0)
+        ey, em = _get_year_month(end_m_str) if (is_finite and end_m_str) else (9999,12)
+        start_ym_val = sy * 100 + sm
+        end_ym_val = ey * 100 + em
+        
+        # Months check
+        for m_col in month_cols:
+            c_idx = m_col["col_idx"]
+            col_ym = m_col["ym"]
+            c_m = m_col["month"]
+            
+            # UIから指定された開始月以前のデータ更新はスキップする
+            if start_ym and col_ym < start_ym:
+                continue
+                
+            val_to_set = ""
+            if col_ym >= start_ym_val and (not is_finite or col_ym <= end_ym_val):
+                months_targeted = []
+                if "偶数" in pay_month_freq:
+                    months_targeted = [2, 4, 6, 8, 10, 12]
+                elif "奇数" in pay_month_freq:
+                    months_targeted = [1, 3, 5, 7, 9, 11]
+                else:
+                    mm = re.findall(r"\d+", pay_month_freq)
+                    if mm:
+                        months_targeted = [int(x) for x in mm]
+                    else:
+                        months_targeted = [c_m]
+                
+                if c_m in months_targeted:
+                    if is_finite and col_ym == end_ym_val:
+                        val_to_set = final_amt
+                    else:
+                        val_to_set = amt
+            
+            current_val = pay_formatted[target_r_idx][c_idx] if c_idx < len(pay_formatted[target_r_idx]) else ""
+            if val_to_set and val_to_set != str(current_val).replace(",", ""):
+                col_letter = chr(ord("A") + c_idx) if c_idx < 26 else chr(ord("A") + c_idx//26 - 1) + chr(ord("A") + c_idx%26)
+                cell_name = f"{col_letter}{target_r_idx + 1}"
+                requests.append({
+                    "range": f"支払管理!{cell_name}",
+                    "values": [[int(val_to_set) if val_to_set.isdigit() else val_to_set]]
+                })
+                
+    # --- 【追加仕様】小遣い予算（78行目）の反映 ---
+    ozukai_record = None
+    for m in master_data:
+        k1 = _clean_val(_find_val(m, ["科目1", "科目１", "固定支払1", "固定支払１"])).strip()
+        if k1 == "小遣い予算":
+            ozukai_record = m
+            break
+            
+    if ozukai_record:
+        ozukai_amt_str = str(_find_val(ozukai_record, ["金額", "支払額"])).replace(",", "").replace("¥", "").replace("￥", "").strip()
+        ozukai_start_str = str(_find_val(ozukai_record, ["開始", "開始月"])).strip()
+        
+        s_y, s_m = _get_year_month(ozukai_start_str) if ozukai_start_str else (0, 0)
+        start_ym_val = s_y * 100 + s_m
+        
+        target_r_idx = 77  # 78行目 (0-indexed)
+        
+        for m_col in month_cols:
+            c_idx = m_col["col_idx"]
+            col_ym = m_col["ym"]
+            
+            if start_ym and col_ym < start_ym:
+                continue
+                
+            if col_ym >= start_ym_val and ozukai_amt_str:
+                current_val = pay_formatted[target_r_idx][c_idx] if target_r_idx < len(pay_formatted) and c_idx < len(pay_formatted[target_r_idx]) else ""
+                if ozukai_amt_str != str(current_val).replace(",", "").strip():
+                    col_letter = chr(ord("A") + c_idx) if c_idx < 26 else chr(ord("A") + c_idx//26 - 1) + chr(ord("A") + c_idx%26)
+                    cell_name = f"{col_letter}{target_r_idx + 1}"
+                    requests.append({
+                        "range": f"支払管理!{cell_name}",
+                        "values": [[int(ozukai_amt_str) if ozukai_amt_str.isdigit() else ozukai_amt_str]]
                     })
-        except: pass
-            
-        # 最終的なシート配列を全スキャンして「変動」の行を特定する (Ver 4.15.0 厳密化)
-        variable_rows = []
-        try:
-            # 「変動or固定」列のインデックスを特定
-            v_idx = -1
-            for i, h in enumerate(pay_headers):
-                ch = _normalize(_clean_val(h))
-                if "変動" in ch or ("固定" in ch and "支払" not in ch):
-                    v_idx = i
-                    break
-            
-            if v_idx != -1:
-                for r_idx, row in enumerate(final_sheet_array):
-                    if v_idx < len(row):
-                        row_val = _normalize(_clean_val(row[v_idx]))
-                        if "変動" in row_val:
-                            variable_rows.append(r_idx)
-        except Exception as e:
-            print(f"Error in variable_rows scan: {e}")
-            
-        # Format rows with "変動" to have yellow background in cols B to G (index 1 to 7)
-        for r_idx in variable_rows:
-            format_requests.append({
-                "repeatCell": {
-                    "range": {
-                        "sheetId": sheet_id,
-                        "startRowIndex": r_idx + 7, # 0-indexed row number (Row 8 is index 7)
-                        "endRowIndex": r_idx + 8,
-                        "startColumnIndex": 1,
-                        "endColumnIndex": 7
-                    },
-                    "cell": {
-                        "userEnteredFormat": {
-                            "backgroundColor": {
-                                "red": 1.0,
-                                "green": 1.0,
-                                "blue": 0.4  # Yellow
-                            }
-                        }
-                    },
-                    "fields": "userEnteredFormat.backgroundColor"
-                }
-            })
+
+    if requests:
+        safe_gspread_call(ss.values_batch_update, {"valueInputOption": "USER_ENTERED", "data": requests})
         
-        # Write back to sheet and apply formats
-        # 空間の確保と書き込み (Ver 4.27.0: 小遣い行を押し出す)
-        data_row_count = len(final_sheet_array)
-        available_space = boundary_row - 8 # Row 8 to boundary_row-1
-        
-        if data_row_count > available_space:
-            # 不足分を境界行（小遣い行）に挿入して押し出す
-            diff = data_row_count - available_space
-            safe_gspread_call(ws_pay.insert_rows, [[""] * header_len] * diff, row=boundary_row)
-        elif ozukai_row == -1:
-            # 小遣い行がない場合の従来の挙動 (全件更新時の行数確保)
-            current_rows = ws_pay.row_count
-            needed_total = 7 + data_row_count
-            if needed_total > current_rows:
-                safe_gspread_call(ws_pay.add_rows, needed_total - current_rows)
-            
-        # データ書き込み開始位置を B8 (作成開始位置) に変更
-        st.write(f"💾 スプレッドシートへ書き込み中... ({len(final_sheet_array)} 行)")
-        safe_gspread_call(ws_pay.update, values=final_sheet_array, range_name="B8", value_input_option='USER_ENTERED')
-        
-        # --- 小遣い予算の書き込み (統合Ver 5.4.5) ---
-        try:
-            ozukai_budget_row_idx = -1
-            target_det_idx = next((i for i, h in enumerate(actual_headers) if "詳細" in _clean_val(h).strip() or "明細" in _clean_val(h).strip()), -1)
-            
-            if target_det_idx != -1:
-                final_pay_cells = safe_gspread_call(ws_pay.get_all_values)
-                for i, row in enumerate(final_pay_cells):
-                    if target_det_idx < len(row) and _normalize(_clean_val(row[target_det_idx])) == "小遣い予算":
-                        ozukai_budget_row_idx = i + 1
-                        break
-                        
-            if ozukai_budget_row_idx != -1 and 'budget_map' in locals() and budget_map:
-                base_row = final_pay_cells[ozukai_budget_row_idx - 1]
-                # B列からヘッダー長までのデータを作成
-                update_vals = [base_row[i] if i < len(base_row) else "" for i in range(1, header_len)]
-                for i in range(1, header_len):
-                    ach = actual_h_ids[i] if i < len(actual_h_ids) else ""
-                    if ach in budget_map:
-                        update_vals[i-1] = budget_map[ach]
-                safe_gspread_call(ws_pay.update, values=[update_vals], range_name=f"B{ozukai_budget_row_idx}", value_input_option='USER_ENTERED')
-        except Exception as e:
-            print(f"Ozukai Budget Expansion Error: {e}")
-
-        # 書式を一括適用
-        safe_gspread_call(ss.batch_update, {"requests": format_requests})
-
-        # --- 新仕様：バックアップシートは削除せず、常に最新を維持して保管 ---
-        pass
-
-        # --- 正常終了時の更新日時記録 (F4: 固定費データ展開) ---
-        try:
-            current_now = datetime.now(JST).strftime("%Y-%m-%d %H:%M:%S")
-            safe_gspread_call(ws_pay.update, values=[[current_now]], range_name="F4", value_input_option='USER_ENTERED')
-        except:
-            pass
-
-        # --- A列(ID列)の保守と数式設定 ---
-        ensure_id_column_and_formula(ws_pay)
-        # --- 自動で変動費データ更新を実施 (Ver 4.17.0 追加仕様) ---
-        if mode == "NEXT_MONTH":
-            # 内部で execute_variable_cost_update を呼び出す (バックアップ重複回避)
-            v_success, v_msg = execute_variable_cost_update(username, start_ym, skip_backup=True)
-            if not v_success:
-                return True, f"固定費展開は成功しましたが、変動費更新でエラーが発生しました: {v_msg}"
-            return True, "固定費展開および変動費データ更新が正常に完了しました！"
-
-        return True, "データ展開に成功しました！"
-    except Exception as e:
-        return False, f"書き込みエラー: {e}"
-    finally:
-        # バックアップデータの明示的な破棄 (Ver 4.17.0 追加仕様)
-        try:
-            if 'pay_raw' in locals(): del pay_raw
-            if 'old_data_map' in locals(): del old_data_map
-        except: pass
-
+    return True, "データ展開に成功しました！"
 def show_open_management_sheet():
     """支払管理シートを確認する UI"""
     st.markdown("<h2 style='font-size: 1.75rem !important;'>📊 支払管理シートを確認</h2>", unsafe_allow_html=True)
@@ -1225,160 +467,91 @@ def show_open_management_sheet():
     st.link_button("🌐 開く", url=target_url, type="primary", use_container_width=True)
 
 def show_fixed_cost_data_expansion():
-    """固定費データ展開 UI"""
+    import streamlit as st
     st.markdown("## 🛠️ 固定費データ展開")
-    st.info("「固定費マスター」の情報をもとに、「支払管理」シートに月別のデータ（2036年12月まで）を展開・更新します。")
-    
+    st.info("「固定費マスター」の情報をもとに、「支払管理」シートに月別のデータを「値のみ」で安全に展開・追加します。")
     username = st.session_state.get("username", "")
-    
     from app import get_gspread_client, safe_gspread_call
-    
-    # 状態確認
     client = get_gspread_client()
     if not client:
         st.error("Google Drive APIに接続できません。")
         return
-        
-    sheet_name = f"{username}_支払管理"
+    ss = None
     try:
-        ss = client.open(sheet_name)
-        # Handle possible trailing or leading spaces in the tab name
-        ws_pay = next((ws for ws in ss.worksheets() if ws.title.strip() == "支払管理"), None)
-        if not ws_pay:
-            raise Exception("支払管理シートが見つかりません。")
-        pay_raw = safe_gspread_call(ws_pay.get_all_values)
-    except Exception as e:
-        st.warning(f"現在、あなた（{username}）専用の支払管理シート、または必要なシートが見つかりません。")
-        st.info("「支払管理シート新規作成」メニューからシートを発行してください。")
-        return
-        
-    # 展開済みか判定
-    # 8行目以降に何らかのデータがあるか
-    is_expanded = False
+        ss = client.open(f"{username}_支払管理")
+    except: pass
     
-    # ヘッダー行を「ID」が含まれる行として動的に特定 (Ver 4.26.3)
-    h_row_idx = -1
-    for i_r, r_v in enumerate(pay_raw):
-        if r_v and str(r_v[0]).strip().lower() in ["id", "key"]:
-            h_row_idx = i_r
-            break
-    if h_row_idx == -1: h_row_idx = 6 # フォールバック
+    import datetime
+    from dateutil.relativedelta import relativedelta
+    now = datetime.datetime.now()
+    month_options = [f"{now.year}/{now.month:02d}（当月）"]
+    for i in range(1, 6):
+        dt = now + relativedelta(months=i)
+        month_options.append(f"{dt.year}/{dt.month:02d}")
 
-    if len(pay_raw) > h_row_idx + 1:
-        # Check if rows after header have actual data
-        for row in pay_raw[h_row_idx + 1:]:
-            # check any cell has value
-            if any(cell.strip() for cell in row):
-                is_expanded = True
-                break
-                
-    if is_expanded:
-        st.warning(f"「{sheet_name}」は既にデータ展開済です。下記をご確認下さい。")
-        
-        # 確認状態を管理
-        if "fce_confirm_re_execute" not in st.session_state:
-            st.session_state["fce_confirm_re_execute"] = False
-        if "fce_confirm_next_month" not in st.session_state:
-            st.session_state["fce_confirm_next_month"] = False
+    st.markdown("### 実行オプション")
+    st.markdown("#### A: 全期間の再設定")
 
-        if st.session_state["fce_confirm_re_execute"]:
-            st.warning("⚠️ **既に設定済のデータも全て再作成されてしまいます。よろしいでしょうか？**")
-            c1, c2 = st.columns(2)
-            with c1:
-                if st.button("✅ はい（実行）", type="primary", use_container_width=True):
-                    st.session_state["fce_action"] = "RE_EXECUTE"
-                    st.session_state["fce_confirm_re_execute"] = False
-                    st.rerun()
-            with c2:
-                if st.button("❌ キャンセル", use_container_width=True):
-                    st.session_state["fce_confirm_re_execute"] = False
-                    st.rerun()
-        elif st.session_state["fce_confirm_next_month"]:
-            st.info("📅 **展開を開始する年月を選択してください（選択した月以降が更新されます）。**")
-            # 選択肢の生成
-            from dateutil.relativedelta import relativedelta
-            now_dt = datetime.now(JST)
-            next_month_dt = now_dt + relativedelta(months=1)
-            
-            years = [y for y in range(2026, 2037) if y >= next_month_dt.year]
-            months_all = [m for m in range(1, 13)]
-            
-            col_y, col_m = st.columns(2)
-            with col_y:
-                sel_y = st.selectbox("開始年", years, index=0)
-            with col_m:
-                # 選択された年が翌月の年と同じなら、翌月以降に制限
-                if sel_y == next_month_dt.year:
-                    valid_months = [m for m in months_all if m >= next_month_dt.month]
-                else:
-                    valid_months = months_all
-                sel_m = st.selectbox("開始月", valid_months, index=0)
-            
-            target_ym = f"{sel_y}.{sel_m}月"
-            st.write(f"展開・更新の適用開始月: **{target_ym}**")
-            st.caption(f"※{target_ym}より前の月のデータ（金額および完了フラグ）は絶対に変更されません。")
-            
-            c1, c2 = st.columns(2)
-            with c1:
-                if st.button("🚀 確定して実行", type="primary", use_container_width=True):
-                    st.session_state["fce_action"] = "NEXT_MONTH"
-                    st.session_state["fce_start_ym"] = target_ym
-                    st.session_state["fce_confirm_next_month"] = False
-                    st.rerun()
-            with c2:
-                if st.button("❌ キャンセル", use_container_width=True, key="cancel_nm"):
-                    st.session_state["fce_confirm_next_month"] = False
-                    st.rerun()
-        else:
-            col1, col2, col3 = st.columns(3)
-            with col1:
-                if st.button("再実行", type="primary", use_container_width=True):
-                    st.session_state["fce_confirm_re_execute"] = True
-                    st.rerun()
-            with col2:
-                if st.button("翌月以降", use_container_width=True):
-                    st.session_state["fce_confirm_next_month"] = True
-                    st.rerun()
-            with col3:
-                if st.button("キャンセル", use_container_width=True):
-                    st.session_state["fce_action"] = "CANCEL"
-                    st.rerun()
-                
-        action = st.session_state.get("fce_action")
-        if action in ["RE_EXECUTE", "NEXT_MONTH"]:
+    if "confirm_expansion" not in st.session_state:
+        st.session_state.confirm_expansion = False
+
+    if not st.session_state.confirm_expansion:
+        if st.button("🚀 新規データ展開 or 再作成", type="primary", use_container_width=True):
+            st.session_state.confirm_expansion = True
+            st.rerun()
+
+    if st.session_state.confirm_expansion:
+        st.warning("⚠️ 既にデータ展開されている場合は全て初期化します。本当によろしいですか？")
+        col1, col2 = st.columns(2)
+        with col1:
+            confirm = st.button("はい、実行します", type="primary", use_container_width=True)
+        with col2:
+            cancel = st.button("キャンセル（いいえ）", use_container_width=True)
+
+        if confirm:
+            st.session_state.confirm_expansion = False
             with st.spinner("データ展開中...（数秒〜数十秒かかります）"):
-                # NEXT_MONTH の場合は開始年月を渡す
-                start_ym = st.session_state.get("fce_start_ym") if action == "NEXT_MONTH" else None
-                success, msg = execute_expansion(username, mode=action, start_ym=start_ym)
+                success, msg = execute_expansion(username)
                 if success:
-                    # 続けて変動費データ更新を実行 (バックアップ重複回避)
                     with st.spinner("続けて変動費（クレジットカード利用等）を集計中..."):
                         v_success, v_msg = execute_variable_cost_update(username, skip_backup=True)
                         if v_success:
                             st.success("固定費データの展開と変動費の集計が完了しました！")
                         else:
-                            st.warning(f"固定費の展開は完了しましたが、変動費の更新に失敗しました: {v_msg}")
-                    st.markdown(f"**🔗 [支払管理シートを確認]({ss.url})**")
-                    st.session_state["fce_action"] = None
+                            st.warning(f"固定費展開は完了しましたが、変動費更新でエラーが発生しました: {v_msg}")
+                    if ss:
+                        st.markdown(f"**🔗 [支払管理シートを確認]({ss.url})**")
                 else:
                     st.error(msg)
-                    
-    else:
-        if st.button("新規データ展開", type="primary"):
-            with st.spinner("データ展開中...（数秒〜数十秒かかります）"):
-                success, msg = execute_expansion(username, mode="NEW")
-                if success:
-                    # 続けて変動費データ更新を実行 (バックアップ重複回避)
-                    with st.spinner("続けて変動費（クレジットカード利用等）を集計中..."):
-                        v_success, v_msg = execute_variable_cost_update(username, skip_backup=True)
-                        if v_success:
-                            st.success("固定費データの展開と変動費の集計が完了しました！")
-                        else:
-                            st.warning(f"固定費の展開は完了しましたが、変動費の更新に失敗しました: {v_msg}")
-                    st.markdown(f"**🔗 [支払管理シートを確認]({ss.url})**")
-                else:
-                    st.error(msg)
+        elif cancel:
+            st.session_state.confirm_expansion = False
+            st.rerun()
 
+    st.markdown("---")
+    st.markdown("#### B: 指定月以降のデータ展開（既存データ保持）")
+    st.info("選択した月以降のデータのみを更新し、過去の確定データは保護します。")
+    
+    colA, colB = st.columns([1, 1])
+    with colA:
+        selected_month_str = st.selectbox("更新を開始する月を選択", options=month_options, label_visibility="collapsed")
+    with colB:
+        if st.button("🔄 翌月以降データ展開", use_container_width=True):
+            clean_str = selected_month_str.replace("（当月）", "")
+            y, m = clean_str.split("/")
+            s_ym = int(y) * 100 + int(m)
+            with st.spinner(f"{clean_str} 以降のデータを展開中..."):
+                success, msg = execute_expansion(username, start_ym=s_ym)
+                if success:
+                    with st.spinner("続けて変動費を集計中..."):
+                        v_success, v_msg = execute_variable_cost_update(username, start_ym=s_ym, skip_backup=True)
+                        if v_success:
+                            st.success(f"{clean_str} 以降の固定費展開と変動費更新が完了しました！")
+                        else:
+                            st.warning(f"固定費展開は完了しましたが、変動費更新でエラーが発生しました: {v_msg}")
+                    if ss:
+                        st.markdown(f"**🔗 [支払管理シートを確認]({ss.url})**")
+                else:
+                    st.error(msg)
 def execute_variable_cost_update(username, start_ym=None, skip_backup=False):
     from app import get_gspread_client, safe_gspread_call, get_payment_methods, get_sheet, TRANSACTIONS_WORKSHEET_NAME
     import calendar
@@ -1403,20 +576,9 @@ def execute_variable_cost_update(username, start_ym=None, skip_backup=False):
     except Exception as e:
         return False, f"支払管理シート({sheet_name})が見つかりません。先に「支払管理シート新規作成」を実行してください。"
         
-    # --- 変動費データ更新 単独実行時のバックアップ作成 ---
+    # --- B. 変動費データ更新 単独実行時のバックアップ作成 ---
     if not skip_backup:
-        try:
-            bk_name = "支払管理BK"
-            try:
-                old_bk = ss.worksheet(bk_name)
-                safe_gspread_call(ss.del_worksheet, old_bk)
-            except Exception:
-                pass # 既存の同名バックアップが存在しない場合は無視
-            
-            # バックアップシートの作成と恒久保存
-            safe_gspread_call(ss.duplicate_sheet, ws_pay.id, new_sheet_name=bk_name)
-        except Exception as e:
-            print(f"Variable Cost Update Backup error: {e}")
+        createBackup(ss)
 
     # 数式を維持するために FORMULA レンダリングオプションで取得
     pay_raw = safe_gspread_call(ws_pay.get_all_values, value_render_option='FORMULA')
@@ -1713,27 +875,46 @@ def execute_variable_cost_update(username, start_ym=None, skip_backup=False):
                 
                 # 支払日の判定と自動フラグ設定 (変動費・カード個別行)
                 try:
-                    p_day_m = re.search(r"\d+", str(pay_date_str))
-                    p_day = int(p_day_m.group()) if p_day_m else 27
-                    
-                    # 20日基準の表示年月シフトルールに従って支払日を特定
+                    amt_val = str(amt).strip().replace(",", "").replace("¥", "").replace("￥", "")
+                    has_valid_amount = False
+                    if amt_val and amt_val != "-":
+                        try:
+                            if float(amt_val) > 0:
+                                has_valid_amount = True
+                        except: pass
+
+                    is_past_due = False
                     y, m = _get_year_month(mc)
-                    if y != 9999:
-                        base_date_dt = datetime(y, m, 1)
-                        if p_day <= 20:
-                            target_pay_dt = base_date_dt + relativedelta(months=1)
-                        else:
-                            target_pay_dt = base_date_dt
+                    if y != 9999 and has_valid_amount:
+                        off = 1
+                        if "当月" in str(pay_month_str): off = 0
+                        elif "翌々月" in str(pay_month_str): off = 2
                         
-                        from app import calculate_credit_card_periods
-                        t_periods = calculate_credit_card_periods(target_pay_dt, closing_str, pay_month_str, pay_date_str)
-                        if t_periods:
-                            actual_due_date = t_periods[0]["pay_date"]
-                            if datetime.now(JST).date() >= actual_due_date:
-                                # 正しいインデックスを使用 (Ver 4.27.4: -1を削除)
-                                if 0 <= f_idx < len(row_arr):
-                                    row_arr[f_idx] = "1"
-                except: pass
+                        # 【例外ルール】変動費カード(50-52行)で「翌月21日以降払」の場合は当月(0)とみなす
+                        d_m_check = re.search(r"\d+", str(pay_date_str))
+                        if d_m_check:
+                            p_day_val = int(d_m_check.group())
+                            if off == 1 and p_day_val >= 21:
+                                off = 0
+                                
+                            base_dt = datetime(y, m, 1) + relativedelta(months=off)
+                            due_dt = base_dt + relativedelta(day=p_day_val)
+                            
+                            # 営業日チェックと翌営業日へのスライド
+                            while due_dt.weekday() >= 5 or jpholiday.is_holiday(due_dt.date()):
+                                due_dt += timedelta(days=1)
+                                
+                            if datetime.now(JST).date() >= due_dt.date():
+                                is_past_due = True
+
+                    if has_valid_amount and is_past_due:
+                        if 0 <= f_idx < len(row_arr):
+                            row_arr[f_idx] = "1"
+                    else:
+                        if 0 <= f_idx < len(row_arr):
+                            row_arr[f_idx] = ""
+                except Exception as ex: 
+                    print(f"Error in var flag: {ex}")
             except: pass
             
         cc_rows_array.append(row_arr)
@@ -1777,8 +958,9 @@ def execute_variable_cost_update(username, start_ym=None, skip_backup=False):
                     var_total_row[c_idx] = formula
         except: pass
         
-    cc_rows_array.append(var_total_row)
-    current_row_num += 1
+    # pass # FIXED_FORMAT_MAINTENANCE: Do not append dynamic var_total_row
+    # cc_rows_array.append(var_total_row)
+    # current_row_num += 1
     
     # === クレジットカード総合計ブロック ===
     summary_start_row = current_row_num
@@ -1854,8 +1036,9 @@ def execute_variable_cost_update(username, start_ym=None, skip_backup=False):
                                     r_fc[f_idx] = 1
                 except: pass
             except: pass
-        cc_rows_array.append(r_fc)
-        current_row_num += 1
+        # pass # FIXED_FORMAT_MAINTENANCE: Do not append dynamic r_fc
+        # cc_rows_array.append(r_fc)
+        # current_row_num += 1
         
         # 2. 変動費分 (Ver 4.28.1: ラベル更新)
         vc_row_idx = var_cost_rows.get(cc_name)
@@ -1912,8 +1095,9 @@ def execute_variable_cost_update(username, start_ym=None, skip_backup=False):
                                     r_vc[f_idx] = 1
                 except: pass
             except: pass
-        cc_rows_array.append(r_vc)
-        current_row_num += 1
+        # pass # FIXED_FORMAT_MAINTENANCE: Do not append dynamic r_vc
+        # cc_rows_array.append(r_vc)
+        # current_row_num += 1
         
         # 3. 合計 (固定費分+変動費分)
         # 支払日の文言判定
@@ -1954,8 +1138,9 @@ def execute_variable_cost_update(username, start_ym=None, skip_backup=False):
                 if 0 <= c_idx < len(r_sum):
                     r_sum[c_idx] = "=" + formula
             except: pass
-        cc_rows_array.append(r_sum)
-        card_total_rows.append(current_row_num)
+        # pass # FIXED_FORMAT_MAINTENANCE: Do not append dynamic r_sum
+        # cc_rows_array.append(r_sum)
+        # card_total_rows.append(current_row_num)
         current_row_num += 1
         
     # クレジットカード支払残_合計額 (Orange)
@@ -1995,8 +1180,9 @@ def execute_variable_cost_update(username, start_ym=None, skip_backup=False):
                 if 0 <= c_idx < len(r_grand):
                     r_grand[c_idx] = 0
         except: pass
-    cc_rows_array.append(r_grand)
-    current_row_num += 1
+    # pass # FIXED_FORMAT_MAINTENANCE: Do not append dynamic r_grand
+    # cc_rows_array.append(r_grand)
+    # current_row_num += 1
     
     # === 支払合計 (Ver 4.28.2: B列以降) ===
     pay_total_dict = {"大分類": "固定費＆変動費_支払残_合計額", "科目１": "固定費＆変動費_支払残_合計額"}
@@ -2044,8 +1230,9 @@ def execute_variable_cost_update(username, start_ym=None, skip_backup=False):
                 if 0 <= c_idx < len(r_pay_total):
                     r_pay_total[c_idx] = 0
         except: pass
-    cc_rows_array.append(r_pay_total)
-    current_row_num += 1
+    # pass # FIXED_FORMAT_MAINTENANCE: Do not append dynamic r_pay_total
+    # cc_rows_array.append(r_pay_total)
+    # current_row_num += 1
     
     summary_end_row = current_row_num - 1
     
@@ -2057,8 +1244,9 @@ def execute_variable_cost_update(username, start_ym=None, skip_backup=False):
         current_rows = ws_pay.row_count
         if start_row_num <= current_rows:
             clear_end_row = min(boundary_row - 1, current_rows)
-            if start_row_num <= clear_end_row:
-                safe_gspread_call(ws_pay.batch_clear, [f"B{start_row_num}:ZZ{clear_end_row}"])
+            pass # FIXED_FORMAT_MAINTENANCE: Do not completely clear B:ZZ bounds.
+            # if start_row_num <= clear_end_row:
+            #     safe_gspread_call(ws_pay.batch_clear, [f"B{start_row_num}:ZZ{clear_end_row}"])
 
         # 空間の確保と書き込み (小遣い行を押し出す)
         data_count = len(cc_rows_array)
@@ -2066,10 +1254,64 @@ def execute_variable_cost_update(username, start_ym=None, skip_backup=False):
         
         if data_count > available_space:
             diff = data_count - available_space
-            safe_gspread_call(ws_pay.insert_rows, [[""] * header_len] * diff, row=boundary_row)
+        pass # FIXED_FORMAT_REMOVED_NO_INSERTIONS
             
         # 新しい変動費データを書き込み
         st.write("💾 変動費集計結果をシートに書き込み中...")
+        
+        # 50行から52行のE列(インデックス4)とG列(インデックス6)への値の設定をしないように既存の値を復元
+        # 54行から63行のH列(インデックス7)への値の設定をしないように既存の値を復元
+        for i, r in enumerate(cc_rows_array):
+            target_r_idx = start_row_num - 1 + i
+            sheet_row_num = target_r_idx + 1
+            if target_r_idx < len(pay_raw):
+                raw_row = pay_raw[target_r_idx]
+                
+                if sheet_row_num in [50, 51, 52]:
+                    if len(raw_row) > 4 and len(r) > 4:
+                        r[4] = raw_row[4]
+                    if len(raw_row) > 6 and len(r) > 6:
+                        r[6] = raw_row[6]
+                
+                if 54 <= sheet_row_num <= 62:
+                    if len(raw_row) > 7 and len(r) > 7:
+                        r[7] = raw_row[7]
+                    
+                    # --- 【追加仕様】クレジットカード内訳集計ロジック ---
+                    # H列に含まれる「固定費」または「変動費」キーワードを特定
+                    h_val = str(r[7]).strip()
+                    cost_type_keyword = ""
+                    if "固定費" in h_val: cost_type_keyword = "固定費"
+                    elif "変動費" in h_val: cost_type_keyword = "変動費"
+                    
+                    # F列(Index 5)のカード名を取得
+                    card_name = str(r[5]).strip()
+                    
+                    if cost_type_keyword and card_name:
+                        # 8行〜52行 (Index 7〜51) を走査して集計
+                        # 既に取得済みの pay_formatted (書式付き値) を使用
+                        source_data = pay_formatted[7:52] if len(pay_formatted) > 7 else []
+                        
+                        for m_col in month_cols:
+                            c_idx = m_col["col_idx"]
+                            total_sum = 0
+                            for src_row in source_data:
+                                if len(src_row) > 3:
+                                    src_cat = str(src_row[0]).strip() # A列 (大分類)
+                                    src_k2 = str(src_row[3]).strip()  # D列 (科目２)
+                                    if cost_type_keyword in src_cat and src_k2 == card_name:
+                                        # 金額を取得して加算
+                                        amt_val = str(src_row[c_idx]).strip()
+                                        total_sum += safe_money_int_cast(amt_val)
+                            
+                            # 集計値をセット (0の場合は空文字列にして「値のみ」で上書き)
+                            if 0 <= c_idx < len(r):
+                                r[c_idx] = total_sum if total_sum > 0 else ""
+                
+                if sheet_row_num == 63:
+                    if len(raw_row) > 7 and len(r) > 7:
+                        r[7] = raw_row[7]
+        
         # A列をスキップしてB列から書き込み (Ver 4.27.4: r[1:] で A列を除外)
         safe_gspread_call(ws_pay.update, values=[r[1:] for r in cc_rows_array], range_name=f"B{start_row_num}", value_input_option='USER_ENTERED')
         
@@ -2078,6 +1320,8 @@ def execute_variable_cost_update(username, start_ym=None, skip_backup=False):
             update_data = [] # List of {'range': ..., 'values': [[...]]}
             # 1. 各サブセクションの集計行を更新
             for row_num, s_row, e_row in fixed_subtotals:
+                if 54 <= row_num <= 63:
+                    continue # FIXED_FORMAT_MAINTENANCE: Do not touch total rows here
                 row_vals = [""] * header_len
                 for mc in month_cols:
                     c_idx = -1
@@ -2106,7 +1350,7 @@ def execute_variable_cost_update(username, start_ym=None, skip_backup=False):
                 update_data.append({'range': f"A{row_num}", 'values': [row_vals]})
 
             # 2. グランド合計（固定費合計）行の更新 (Ver 5.0.1 循環参照回避ロジック)
-            if grand_total_row_num != -1:
+            if grand_total_row_num != -1 and not (54 <= grand_total_row_num <= 63):
                 row_vals = [""] * header_len
                 for mc in month_cols:
                     c_idx = -1
@@ -2185,6 +1429,10 @@ def execute_variable_cost_update(username, start_ym=None, skip_backup=False):
                     if r_idx >= len(pay_raw): break
                     row = pay_raw[r_idx]
                     
+                    # --- 【追加仕様】内訳エリア（54行〜62行）は完了F更新対象外 ---
+                    if 54 <= r_idx + 1 <= 62:
+                        continue
+                    
                     is_cc = False
                     is_bw = False
                     current_info = None
@@ -2193,8 +1441,9 @@ def execute_variable_cost_update(username, start_ym=None, skip_backup=False):
                     r_k1 = str(row[idx_k1]).strip() if idx_k1 != -1 else ""
                     r_k2 = str(row[idx_k2]).strip() if idx_k2 != -1 else ""
                     r_det = str(row[idx_det]).strip() if idx_det != -1 else ""
+                    r_dai = str(row[idx_dai]).strip() if idx_dai != -1 else ""
                     
-                    if r_k1 == "クレジットカード": is_cc = True
+                    if r_k1 == "クレジットカード" or r_dai == "変動費": is_cc = True
                     elif r_k1 == "口座引落": is_bw = True
                     
                     if is_cc:
@@ -2236,36 +1485,70 @@ def execute_variable_cost_update(username, start_ym=None, skip_backup=False):
                                             break
                                 if c_idx == -1: continue
                                 
+                                # UIから指定された開始月以前のフラグ更新はスキップする
+                                y_mc, m_mc = _get_year_month(mc)
+                                col_ym_val = y_mc * 100 + m_mc
+                                if start_ym and col_ym_val < start_ym:
+                                    continue
+                                
                                 f_idx = c_idx + 1
                                 if f_idx >= len(row_to_update): continue
                                 
-                                if str(row_to_update[f_idx]).strip() == "1": continue
+                                current_flag = str(row_to_update[f_idx]).strip()
                                 
-                                # 支払日判定
+                                # FORMULA文字列を避けるため、画面表示状態(pay_formatted)を取得して判定する
+                                fmt_val = ""
+                                if r_idx < len(pay_formatted) and c_idx < len(pay_formatted[r_idx]):
+                                    fmt_val = str(pay_formatted[r_idx][c_idx]).strip().replace(",", "").replace("¥", "").replace("￥", "")
+                                
+                                # 1. 金額チェック: 空欄ではなく、> 0 の場合のみ True
+                                has_valid_amount = False
+                                if fmt_val and fmt_val != "-":
+                                    try:
+                                        if float(fmt_val) > 0:
+                                            has_valid_amount = True
+                                    except: pass
+                                
+                                # 2. 日付チェックの準備
+                                is_past_due = False
                                 y, m = _get_year_month(mc)
-                                if y != 9999:
+                                if y != 9999 and has_valid_amount:
                                     if is_bw:
-                                        # 口座引落の場合：引落日の文言を優先的に判定
                                         if "翌月" in p_date: off = 1
                                         elif "当月" in p_date: off = 0
                                         elif "前月" in p_date: off = -1
-                                        else:
-                                            # 文言がない場合はデフォルトで当月判定（または頻度から推測）
-                                            off = 0
+                                        else: off = 0
                                     else:
-                                        # クレジットカードの場合
                                         off = 1
                                         if "当月" in p_month: off = 0
                                         elif "翌々月" in p_month: off = 2
-                                    
+                                        
+                                        # 【例外ルール】変動費カードかつ翌月21日以降払いは「当月」とみなす
+                                        if r_dai == "変動費" and off == 1:
+                                            d_m_check = re.search(r"\d+", p_date)
+                                            if d_m_check and int(d_m_check.group()) >= 21:
+                                                off = 0
+                                                
                                     base_dt = datetime(y, m, 1) + relativedelta(months=off)
                                     d_m = re.search(r"\d+", p_date)
                                     if d_m:
                                         d_v = int(d_m.group())
-                                        due_dt = base_dt + relativedelta(day=d_v)
-                                        if datetime.now(JST).date() >= due_dt.date():
-                                            row_to_update[f_idx] = "1"
-                                            row_changed = True
+                                        try:
+                                            due_dt = base_dt + relativedelta(day=d_v)
+                                            # 営業日チェックと翌営業日へのスライド
+                                            while due_dt.weekday() >= 5 or jpholiday.is_holiday(due_dt.date()):
+                                                due_dt += timedelta(days=1)
+                                                
+                                            if datetime.now(JST).date() >= due_dt.date():
+                                                is_past_due = True
+                                        except: pass
+
+                                # 最終フラグの決定
+                                new_flag = "1" if (has_valid_amount and is_past_due) else ""
+                                
+                                if current_flag != new_flag:
+                                    row_to_update[f_idx] = new_flag
+                                    row_changed = True
                             except: pass
                         
                         if row_changed:
@@ -2335,7 +1618,7 @@ def execute_variable_cost_update(username, start_ym=None, skip_backup=False):
         # --- 合計行・集計行の描画 ---
         st.write("📊 集計エリアの書式設定（セル結合など）を開始...")
         
-        # 💡 [Ver 5.5.0] 指定範囲に重なる結合をすべて解除する（重複やAPIError[400]の正確な防止）
+        # 💡 [Ver 5.6.0] クレジットカード内訳（54-62行）の自動集計ロジック実装
         if 'existing_merges' in locals() and existing_merges:
             try:
                 # 調査・解除対象範囲: 固定費合計 row 以降、全体エリア
@@ -2528,7 +1811,8 @@ def execute_variable_cost_update(username, start_ym=None, skip_backup=False):
         except: pass
 
         if format_requests:
-            safe_gspread_call(ss.batch_update, {"requests": format_requests})
+            pass # FIXED_FORMAT_MAINTENANCE: No formatting or merging allowed.
+            # safe_gspread_call(ss.batch_update, {"requests": format_requests})
 
         # --- 更新日時記録 (F5) ---
         try:
@@ -2539,12 +1823,12 @@ def execute_variable_cost_update(username, start_ym=None, skip_backup=False):
         # --- A列(ID列)の保守と数式設定 ---
         ensure_id_column_and_formula(ws_pay)
 
-        # --- 追加仕様: 支払い方法の名前と月別集計金額をH72から順に設定 ---
+        # --- 追加仕様: 支払い方法の名前と月別集計金額をH79から順に設定（最大10件） ---
         try:
             from app import get_payment_methods
             pm_list = get_payment_methods(username)
             if pm_list:
-                valid_pms = [m for m in pm_list if str(m.get("name", "")).strip()]
+                valid_pms = [m for m in pm_list if str(m.get("name", "")).strip()][:10]
                 if valid_pms:
                     # H列(index 7)を起点とした2D配列を作成
                     grid_width = header_len - 7 if header_len > 7 else 1
@@ -2609,80 +1893,179 @@ def execute_variable_cost_update(username, start_ym=None, skip_backup=False):
                         update_grid.append(row_data)
                         
                     if update_grid:
-                        # 既存の記述が残らないようにH72から該当行のZZ列までをクリア
-                        end_row = 72 + len(update_grid) - 1
-                        safe_gspread_call(ws_pay.batch_clear, [f"H72:ZZ{end_row}"])
+                        # 既存の記述が残らないようにH79から該当行のZZ列までをクリア
+                        end_row = 79 + len(update_grid) - 1
+                        safe_gspread_call(ws_pay.batch_clear, [f"H79:ZZ{end_row}"])
                         
-                        safe_gspread_call(ws_pay.update, values=update_grid, range_name="H72", value_input_option='USER_ENTERED')
+                        safe_gspread_call(ws_pay.update, values=update_grid, range_name="H79", value_input_option='USER_ENTERED')
         
         except Exception as e:
-            print(f"H72 Payment Methods Tracking update error: {e}")
+            print(f"H79 Payment Methods Tracking update error: {e}")
 
-        # --- 新仕様: 「収入」シートからのデータ自動連係マッピング ---
+        # --- 【追加仕様】「収入」データ連動ロジック（H96〜H100への数式セット） ---
         try:
+            ws_income = None
             try:
                 ws_income = ss.worksheet("収入")
-            except:
-                ws_income = None
+            except: pass
             
             if ws_income:
-                income_raw = safe_gspread_call(ws_income.get_all_values, value_render_option='UNFORMATTED_VALUE')
-                if len(income_raw) > 7: # 8行目があるか
-                    income_headers = income_raw[7] # 8行目 (0-based index 7)
-                    income_data_map = {}
+                # 文字列として安全に比較するため FORMATTED_VALUE を使用
+                income_raw = safe_gspread_call(ws_income.get_all_values, value_render_option='FORMATTED_VALUE')
+                if len(income_raw) > 7: # 8行目(index 7)がヘッダー
+                    income_headers = income_raw[7]
                     
-                    # 収入シートの全行からB列(インデックス1)をキーにデータを辞書化
+                    # 1. 収入シートの行番号マッピング（B列）
+                    income_row_map = {}
                     for r_i, r_v in enumerate(income_raw):
                         if r_i <= 7 or not r_v: continue
                         i_name = str(r_v[1]).strip() if len(r_v) > 1 else ""
-                        if not i_name: continue
-                        
-                        i_map = {}
-                        # 収入シートの各月と金額をマッピング
-                        for col_idx, h_str in enumerate(income_headers):
-                            month_str = _normalize(_clean_val(str(h_str)))
-                            if "月" in month_str and col_idx < len(r_v):
-                                val = r_v[col_idx]
-                                if val not in [None, ""]:
-                                    i_map[month_str] = val
-                        if i_map:
-                            income_data_map[i_name] = i_map
+                        if i_name:
+                            income_row_map[i_name] = r_i + 1 # 1-based row number
                             
-                    if income_data_map:
-                        # 支払管理の89行目〜94行目を走査してマッピング (0-based index 88 to 93)
-                        for target_r in range(88, 94):
-                            # H列(インデックス7番)の収入項目名を取得
-                            if target_r < len(pay_formatted):
-                                target_row_vals = pay_formatted[target_r]
-                                p_name = str(target_row_vals[7]).strip() if len(target_row_vals) > 7 else ""
+                    # 2. 収入シートの列アルファベットマッピング（8行目ヘッダー）
+                    income_col_map = {}
+                    for c_idx, h_str in enumerate(income_headers):
+                        clean_h = _normalize(_clean_val(str(h_str)))
+                        if "月" in clean_h:
+                            col_letter = chr(ord('A') + c_idx) if c_idx < 26 else chr(ord('A') + c_idx//26 - 1) + chr(ord('A') + c_idx%26)
+                            income_col_map[clean_h] = col_letter
+                            
+                    # 3. 支払管理シート(H96〜H100)の照合と数式書き込み
+                    # 96行目は 0-based index: 95。100行目は 99。
+                    for target_r in range(95, 100):
+                        if target_r < len(pay_formatted):
+                            target_row_vals = pay_formatted[target_r]
+                            # H列はインデックス7
+                            p_name = str(target_row_vals[7]).strip() if len(target_row_vals) > 7 else ""
+                            
+                            if p_name and p_name in income_row_map:
+                                inc_row_num = income_row_map[p_name]
                                 
-                                if p_name in income_data_map:
-                                    matched_map = income_data_map[p_name]
+                                # シートの行全体をコピー（元の数式や値を維持）
+                                base_row = list(pay_raw[target_r]) if target_r < len(pay_raw) else []
+                                if len(base_row) < header_len:
+                                    base_row.extend([""] * (header_len - len(base_row)))
                                     
-                                    # 現在の支払管理シートの該当行データをベースにする (pay_raw利用で数式など維持)
-                                    base_row = list(pay_raw[target_r]) if target_r < len(pay_raw) else []
-                                    if len(base_row) < header_len:
-                                        base_row.extend([""] * (header_len - len(base_row)))
-                                        
-                                    has_update = False
-                                    # I列(インデックス8番)以降の対象月のみを上書き
-                                    for c_idx in range(8, header_len):
-                                        h_str = actual_headers[c_idx] if c_idx < len(actual_headers) else ""
-                                        clean_h = _normalize(_clean_val(str(h_str)))
-                                        alt_h = clean_h.replace("月", "") + "月"
-                                        
-                                        if clean_h in matched_map:
-                                            base_row[c_idx] = matched_map[clean_h]
-                                            has_update = True
-                                        elif alt_h in matched_map:
-                                            base_row[c_idx] = matched_map[alt_h]
+                                has_update = False
+                                # I列(インデックス8)以降の対象年月列を探して数式をセット
+                                for c_idx in range(8, header_len):
+                                    pay_h_str = actual_headers[c_idx] if c_idx < len(actual_headers) else ""
+                                    pay_clean_h = _normalize(_clean_val(str(pay_h_str)))
+                                    pay_alt_h = pay_clean_h.replace("月", "") + "月"
+                                    
+                                    # 支払管理の対象年月が、収入シートのヘッダーにあるか
+                                    target_col_letter = income_col_map.get(pay_clean_h) or income_col_map.get(pay_alt_h)
+                                    
+                                    if target_col_letter:
+                                        formula_str = f"='収入'!{target_col_letter}{inc_row_num}"
+                                        # すでに同じ数式が入っていなければ更新
+                                        if str(base_row[c_idx]).strip() != formula_str:
+                                            base_row[c_idx] = formula_str
                                             has_update = True
                                             
-                                    if has_update:
-                                        # 行全体をA列から書き戻す
-                                        safe_gspread_call(ws_pay.update, values=[base_row], range_name=f"A{target_r + 1}", value_input_option='USER_ENTERED')
+                                if has_update:
+                                    # A列から行全体を上書き(数式として解釈させるため USER_ENTERED を指定)
+                                    safe_gspread_call(ws_pay.update, values=[base_row], range_name=f"A{target_r + 1}", value_input_option='USER_ENTERED')
         except Exception as e:
-            print(f"Income Sync error: {e}")
+            print(f"Income Sync formula mapping error: {e}")
+
+        # --- 【追加仕様】クレジットカード内訳：カード名の自動同期（54行〜63行） ---
+        try:
+            # 1. 内部データ (cc_methods) から ID とカード名のマップを生成
+            # シートの再読み込みを避け、実行時に確定しているマスター情報（cc_methods）を直接使用する
+            id_to_card_name = {str(i + 1): cc.get("name", "") for i, cc in enumerate(cc_methods)}
+            
+            # ターゲット範囲の探索用シートデータ（最新版を取得）
+            pay_fresh = safe_gspread_call(ws_pay.get_all_values, value_render_option='FORMULA')
+            ws_title = ws_pay.title
+
+            # 2. ターゲット範囲（54行〜63行目）をマッピング
+            f_requests = []
+            for sheet_row in range(54, 64): # 54行目〜63行目 (1-indexed)
+                idx = sheet_row - 1
+                if idx < len(pay_fresh):
+                    r_raw = pay_fresh[idx]
+                    # ターゲット行（内訳エリア）では G列(index 6) に ID が入っている
+                    g_val = str(r_raw[6]).strip() if len(r_raw) > 6 else ""
+                    
+                    target_f_val = id_to_card_name.get(g_val, "")
+                    if g_val and target_f_val:
+                        # 書き込み先は F列(index 5)
+                        current_f_val = str(r_raw[5]).strip() if len(r_raw) > 5 else ""
+                        
+                        # カード名に変更がある場合のみ更新リクエストに追加
+                        if current_f_val != target_f_val:
+                            f_requests.append({
+                                "range": f"{ws_title}!F{sheet_row}",
+                                "values": [[target_f_val]]
+                            })
+                            
+                    # --- 3. H列の内容(変動費分/固定費分など)に基づく月次データの展開 ---
+                    # F列の値（カード名）を取得（上記で確定した値、または現在のセル値）
+                    f_val = target_f_val if (g_val and g_val in id_to_card_name) else (str(r_raw[5]).strip() if len(r_raw) > 5 else "")
+                    h_val = str(r_raw[7]).strip() if len(r_raw) > 7 else ""
+                    
+                    if f_val and h_val:
+                        has_row_update = False
+                        
+                        # 固定費行の取得 (存在する場合のみ)
+                        fc_rows = []
+                        if "fc_payment_rows" in locals() and f_val in fc_payment_rows:
+                            fc_rows = fc_payment_rows[f_val]
+                        
+                        for c_idx in range(8, len(actual_headers)):
+                            h_str = actual_headers[c_idx] if c_idx < len(actual_headers) else ""
+                            clean_h = _normalize(_clean_val(str(h_str)))
+                            alt_h = clean_h.replace("月", "") + "月"
+                            
+                            # 完了フラグ列は更新対象外としてスキップ
+                            if "完了" in clean_h:
+                                continue
+                                
+                            val = ""
+                            f_idx = c_idx + 1 # 完了フラグ列インデックス
+                            col_letter = chr(ord('A') + c_idx) if c_idx < 26 else chr(ord('A') + c_idx//26 - 1) + chr(ord('A') + c_idx%26)
+                            flag_letter = chr(ord('A') + f_idx) if f_idx < 26 else chr(ord('A') + f_idx//26 - 1) + chr(ord('A') + f_idx%26)
+                            
+                            # H列の内容に応じて出し分け (数値または数式を転記)
+                            if "変動" in h_val:
+                                # 変動費分
+                                val = cc_monthly_amounts.get(f_val, {}).get(clean_h)
+                                if val is None or val == "":
+                                    val = cc_monthly_amounts.get(f_val, {}).get(alt_h, 0)
+                                if val == "": val = 0
+                            elif "固定" in h_val:
+                                # 固定費分
+                                if fc_rows:
+                                    cells = [f'IF({flag_letter}{r}="", {col_letter}{r}, 0)' for r in fc_rows]
+                                    val = f"=SUM({','.join(cells)})"
+                                else:
+                                    val = 0
+                            elif "計" in h_val or "残" in h_val or "合算" in h_val:
+                                # 変動費(値) + 固定費(数式) の合算
+                                vc_val = cc_monthly_amounts.get(f_val, {}).get(clean_h)
+                                if vc_val is None or vc_val == "":
+                                    vc_val = cc_monthly_amounts.get(f_val, {}).get(alt_h, 0)
+                                if vc_val == "": vc_val = 0
+                                
+                                if fc_rows:
+                                    fc_formula = "SUM(" + ",".join([f'IF({flag_letter}{r}="", {col_letter}{r}, 0)' for r in fc_rows]) + ")"
+                                    val = f"={vc_val} + {fc_formula}"
+                                else:
+                                    val = vc_val
+                                    
+                            if val != "":
+                                f_requests.append({
+                                    "range": f"{ws_title}!{col_letter}{sheet_row}",
+                                    "values": [[val]]
+                                })
+                                has_row_update = True
+                            
+            if f_requests:
+                safe_gspread_call(ss.values_batch_update, {"valueInputOption": "USER_ENTERED", "data": f_requests})
+        except Exception as e:
+            print(f"Row 54-63 mapping error: {e}")
 
         return True, "変動費データの更新が完了しました！"
     except Exception as e:

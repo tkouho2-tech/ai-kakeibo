@@ -1,0 +1,197 @@
+import os
+import re
+
+target_file = 'fixed_cost_expansion.py'
+with open(target_file, 'rb') as f:
+    content = f.read().decode('utf-8', 'replace')
+
+lines = content.splitlines()
+
+# We need to find where the det_idx is defined and replace the loop logic.
+
+def find_bounds():
+    s_idx = -1
+    for i, l in enumerate(lines):
+        if l.startswith('def execute_expansion'):
+            s_idx = i
+            break
+    if s_idx == -1: return -1, -1
+    e_idx = len(lines)
+    for i in range(s_idx + 1, len(lines)):
+        if lines[i].startswith('def ') or lines[i].startswith('class '):
+            e_idx = i
+            break
+    return s_idx, e_idx
+
+s, e = find_bounds()
+if s != -1:
+    exec_func = lines[s:e]
+    # We will completely replace exec_func with a patched version that does the fallback
+    
+    new_exec = [
+        'def execute_expansion(username, mode="NEW", start_ym=None):',
+        '    from app import get_gspread_client, safe_gspread_call',
+        '    from fixed_cost_expansion import _find_val, _clean_val, _normalize, _get_year_month',
+        '    import re',
+        '    ',
+        '    client = get_gspread_client()',
+        '    if not client: return False, "Google Drive APIに接続できません。"',
+        '    ',
+        '    try:',
+        '        ss = client.open(f"{username}_支払管理")',
+        '        ws_master = ss.worksheet("固定費マスター")',
+        '        ws_pay = next((ws for ws in ss.worksheets() if ws.title.strip() == "支払管理"), None)',
+        '        if not ws_pay: return False, "支払管理シートが見つかりません。"',
+        '    except Exception as e:',
+        '        return False, f"シート読み込みエラー: {e}"',
+        '        ',
+        '    master_raw = safe_gspread_call(ws_master.get_all_values)',
+        '    if not master_raw or len(master_raw) < 2: return False, "固定費マスターにデータがありません。"',
+        '    headers = master_raw[0]',
+        '    master_data = [dict(zip(headers, r + [""]*(len(headers)-len(r)))) for r in master_raw[1:]]',
+        '    ',
+        '    # GET PAYMENT SHEET DATA',
+        '    pay_formatted = safe_gspread_call(ws_pay.get_all_values, value_render_option="FORMATTED_VALUE")',
+        '    ',
+        '    h_row_idx = -1',
+        '    for i_r, r_v in enumerate(pay_formatted):',
+        '        if r_v and str(r_v[0]).strip().lower() in ["id", "key"]:',
+        '            h_row_idx = i_r',
+        '            break',
+        '    if h_row_idx == -1: h_row_idx = 6',
+        '    ',
+        '    actual_headers = pay_formatted[h_row_idx]',
+        '    ',
+        '    # GET COLUMNS BY MONTH',
+        '    month_cols = []',
+        '    for i, h in enumerate(actual_headers):',
+        '        h_clean = _clean_val(h).strip()',
+        '        y_m = _get_year_month(h_clean)',
+        '        if y_m != (9999, 12):',
+        '            month_cols.append({"col_idx": i, "year": y_m[0], "month": y_m[1], "ym": y_m[0]*100 + y_m[1]})',
+        '            ',
+        '    # FIND INDICES',
+        '    det_idx = next((i for i, h in enumerate(actual_headers) if "詳細" in h or "明細" in h), -1)',
+        '    k1_idx = next((i for i, h in enumerate(actual_headers) if "科目1" in h or "科目１" in h or "固定支払1" in h or "固定支払１" in h), -1)',
+        '    sno_idx = next((i for i, h in enumerate(actual_headers) if "Sno" in h or "seq" in h.lower()), -1)',
+        '    ',
+        '    if det_idx == -1: return False, "支払管理シートに「科目明細」列が見つかりません。"',
+        '    ',
+        '    # Tracking allocated empty rows to avoid putting multiple master items on the same empty row',
+        '    allocated_empty_rows = set()',
+        '    ',
+        '    requests = []',
+        '    ',
+        '    for m_rec in master_data:',
+        '        m_detail = _clean_val(_find_val(m_rec, ["詳細", "明細"])).strip()',
+        '        m_k1 = _clean_val(_find_val(m_rec, ["科目1", "科目１", "固定支払1", "固定支払１"])).strip()',
+        '        m_sno = _clean_val(_find_val(m_rec, ["Sno", "seq"])).strip()',
+        '        ',
+        '        if not m_detail or not m_k1: continue',
+        '        ',
+        '        # FIND TARGET ROW IN PAY SHEET',
+        '        # Priority 1: Exact text match in Detail column',
+        '        target_r_idx = -1',
+        '        for r_i, r_v in enumerate(pay_formatted):',
+        '            if r_i <= h_row_idx: continue',
+        '            if len(r_v) > det_idx and _clean_val(r_v[det_idx]).strip() == m_detail:',
+        '                target_r_idx = r_i',
+        '                break',
+        '                ',
+        '        # Priority 2: Fallback to matching K1 + matching Sno, ONLY IF DET is EMPTY',
+        '        if target_r_idx == -1 and k1_idx != -1 and sno_idx != -1:',
+        '            for r_i, r_v in enumerate(pay_formatted):',
+        '                if r_i <= h_row_idx or r_i in allocated_empty_rows: continue',
+        '                if len(r_v) > k1_idx and _clean_val(r_v[k1_idx]).strip() == m_k1:',
+        '                    if len(r_v) > sno_idx and _clean_val(r_v[sno_idx]).strip() == m_sno:',
+        '                        r_det = _clean_val(r_v[det_idx]).strip() if len(r_v) > det_idx else ""',
+        '                        if not r_det:',
+        '                            target_r_idx = r_i',
+        '                            allocated_empty_rows.add(r_i)',
+        '                            break',
+        '                            ',
+        '        # Priority 3: Fallback to matched K1 and first EMPTY Det slot',
+        '        if target_r_idx == -1 and k1_idx != -1:',
+        '            for r_i, r_v in enumerate(pay_formatted):',
+        '                if r_i <= h_row_idx or r_i in allocated_empty_rows: continue',
+        '                if len(r_v) > k1_idx and _clean_val(r_v[k1_idx]).strip() == m_k1:',
+        '                    r_det = _clean_val(r_v[det_idx]).strip() if len(r_v) > det_idx else ""',
+        '                    if not r_det:',
+        '                        target_r_idx = r_i',
+        '                        allocated_empty_rows.add(r_i)',
+        '                        break',
+        '                ',
+        '        if target_r_idx == -1:',
+        '            continue # NO AVAILABLE ROW - SKIP',
+        '            ',
+        '        # Populate the Detail string itself since it was empty!',
+        '        current_det = pay_formatted[target_r_idx][det_idx] if det_idx < len(pay_formatted[target_r_idx]) else ""',
+        '        if str(current_det).strip() != m_detail:',
+        '            col_letter = chr(ord("A") + det_idx) if det_idx < 26 else chr(ord("A") + det_idx//26 - 1) + chr(ord("A") + det_idx%26)',
+        '            requests.append({',
+        '                "range": f"支払管理!{col_letter}{target_r_idx + 1}",',
+        '                "values": [[m_detail]]',
+        '            })',
+        '            ',
+        '        # Values extraction',
+        '        amt_str = str(_find_val(m_rec, ["支払額", "金額"], exclude=["最終月額", "最終"])).replace(",", "").replace("¥", "").replace("￥", "")',
+        '        amt = amt_str.strip()',
+        '        final_amt_str = str(_find_val(m_rec, ["最終月額"])).replace(",", "").replace("¥", "").replace("￥", "").strip()',
+        '        final_amt = final_amt_str if final_amt_str else amt',
+        '        ',
+        '        start_m_str = str(_find_val(m_rec, ["開始"])).strip()',
+        '        end_m_str = str(_find_val(m_rec, ["完済", "終了", "完了"])).strip()',
+        '        is_finite_str = str(_find_val(m_rec, ["有限", "無限"]))',
+        '        pay_month_freq = str(_find_val(m_rec, ["支払月", "頻度"])).strip()',
+        '        ',
+        '        is_finite = "有限" in is_finite_str',
+        '        sy, sm = _get_year_month(start_m_str) if start_m_str else (0,0)',
+        '        ey, em = _get_year_month(end_m_str) if (is_finite and end_m_str) else (9999,12)',
+        '        start_ym_val = sy * 100 + sm',
+        '        end_ym_val = ey * 100 + em',
+        '        ',
+        '        # Months check',
+        '        for m_col in month_cols:',
+        '            c_idx = m_col["col_idx"]',
+        '            col_ym = m_col["ym"]',
+        '            c_m = m_col["month"]',
+        '            ',
+        '            val_to_set = ""',
+        '            if col_ym >= start_ym_val and (not is_finite or col_ym <= end_ym_val):',
+        '                months_targeted = []',
+        '                if "偶数" in pay_month_freq:',
+        '                    months_targeted = [2, 4, 6, 8, 10, 12]',
+        '                elif "奇数" in pay_month_freq:',
+        '                    months_targeted = [1, 3, 5, 7, 9, 11]',
+        '                else:',
+        '                    mm = re.findall(r"\d+", pay_month_freq)',
+        '                    if mm:',
+        '                        months_targeted = [int(x) for x in mm]',
+        '                    else:',
+        '                        months_targeted = [c_m]',
+        '                ',
+        '                if c_m in months_targeted:',
+        '                    if is_finite and col_ym == end_ym_val:',
+        '                        val_to_set = final_amt',
+        '                    else:',
+        '                        val_to_set = amt',
+        '            ',
+        '            current_val = pay_formatted[target_r_idx][c_idx] if c_idx < len(pay_formatted[target_r_idx]) else ""',
+        '            if val_to_set and val_to_set != str(current_val).replace(",", ""):',
+        '                col_letter = chr(ord("A") + c_idx) if c_idx < 26 else chr(ord("A") + c_idx//26 - 1) + chr(ord("A") + c_idx%26)',
+        '                cell_name = f"{col_letter}{target_r_idx + 1}"',
+        '                requests.append({',
+        '                    "range": f"支払管理!{cell_name}",',
+        '                    "values": [[int(val_to_set) if val_to_set.isdigit() else val_to_set]]',
+        '                })',
+        '                ',
+        '    if requests:',
+        '        safe_gspread_call(ss.values_batch_update, {"valueInputOption": "USER_ENTERED", "data": requests})',
+        '        ',
+        '    return True, "データ展開に成功しました！"'
+    ]
+
+    final_lines = lines[:s] + new_exec + lines[e:]
+    with open(target_file, 'w', encoding='utf-8', newline='\n') as f:
+        f.write('\n'.join(final_lines))
+

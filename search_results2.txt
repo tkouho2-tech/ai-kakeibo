@@ -1,0 +1,15 @@
+927: def render_speech_synthesis_button(text, key):
+952:         if (window.speechSynthesis.speaking) {{
+953:             window.speechSynthesis.cancel();
+959:         window.speechSynthesis.cancel();
+962:             const uttr = new SpeechSynthesisUtterance('{clean_text}');
+969:                 console.error("SpeechSynthesisError:", e);
+974:             window.speechSynthesis.speak(uttr);
+988:         <button id="mic-btn-{key_prefix}" style="
+1006:         const btn = document.getElementById('mic-btn-{key_prefix}');
+1008:         const recognition = new (window.SpeechRecognition || window.webkitSpeechRecognition)();
+1020:         recognition.onspeechend = () => {{
+2298:                         render_speech_synthesis_button(msg["content"], f"ai_{i}")
+2365:                                 render_speech_synthesis_button(response_text, "ai_latest")
+2400:                         render_speech_synthesis_button(msg["content"], f"help_{i}")
+2471:                                 render_speech_synthesis_button(full_response, "help_latest")
