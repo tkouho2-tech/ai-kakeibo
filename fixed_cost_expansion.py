@@ -1618,7 +1618,7 @@ def execute_variable_cost_update(username, start_ym=None, skip_backup=False):
         # --- 合計行・集計行の描画 ---
         st.write("📊 集計エリアの書式設定（セル結合など）を開始...")
         
-        # 💡 [Ver 5.6.0] クレジットカード内訳（54-62行）の自動集計ロジック実装
+        # 💡 [Ver 5.7.0] クレジットカード内訳（54-62行）の自動集計ロジック実装
         if 'existing_merges' in locals() and existing_merges:
             try:
                 # 調査・解除対象範囲: 固定費合計 row 以降、全体エリア
