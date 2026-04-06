@@ -391,12 +391,18 @@ def execute_expansion(username, mode="NEW", start_ym=None):
                         val_to_set = amt
             
             current_val = pay_formatted[target_r_idx][c_idx] if c_idx < len(pay_formatted[target_r_idx]) else ""
-            if val_to_set and val_to_set != str(current_val).replace(",", ""):
+            normalized_current = str(current_val).replace(",", "").strip()
+            
+            # 条件不一致月も明示的にクリア（"" をセット）するための判定
+            if str(val_to_set) != normalized_current:
                 col_letter = chr(ord("A") + c_idx) if c_idx < 26 else chr(ord("A") + c_idx//26 - 1) + chr(ord("A") + c_idx%26)
                 cell_name = f"{col_letter}{target_r_idx + 1}"
+                
+                # 数値の場合は int 変換、空文字や非数値の場合はそのままセット
+                final_val = int(val_to_set) if str(val_to_set).isdigit() else val_to_set
                 requests.append({
                     "range": f"支払管理!{cell_name}",
-                    "values": [[int(val_to_set) if val_to_set.isdigit() else val_to_set]]
+                    "values": [[final_val]]
                 })
                 
     # --- 【追加仕様】小遣い予算（78行目）の反映 ---
@@ -423,15 +429,23 @@ def execute_expansion(username, mode="NEW", start_ym=None):
             if start_ym and col_ym < start_ym:
                 continue
                 
+            val_to_set = ""
             if col_ym >= start_ym_val and ozukai_amt_str:
-                current_val = pay_formatted[target_r_idx][c_idx] if target_r_idx < len(pay_formatted) and c_idx < len(pay_formatted[target_r_idx]) else ""
-                if ozukai_amt_str != str(current_val).replace(",", "").strip():
-                    col_letter = chr(ord("A") + c_idx) if c_idx < 26 else chr(ord("A") + c_idx//26 - 1) + chr(ord("A") + c_idx%26)
-                    cell_name = f"{col_letter}{target_r_idx + 1}"
-                    requests.append({
-                        "range": f"支払管理!{cell_name}",
-                        "values": [[int(ozukai_amt_str) if ozukai_amt_str.isdigit() else ozukai_amt_str]]
-                    })
+                val_to_set = ozukai_amt_str
+            
+            # 78行目の現在の値を取得
+            current_val = pay_formatted[target_r_idx][c_idx] if target_r_idx < len(pay_formatted) and c_idx < len(pay_formatted[target_r_idx]) else ""
+            normalized_current = str(current_val).replace(",", "").strip()
+            
+            if str(val_to_set) != normalized_current:
+                col_letter = chr(ord("A") + c_idx) if c_idx < 26 else chr(ord("A") + c_idx//26 - 1) + chr(ord("A") + c_idx%26)
+                cell_name = f"{col_letter}{target_r_idx + 1}"
+                
+                final_val = int(val_to_set) if str(val_to_set).isdigit() else val_to_set
+                requests.append({
+                    "range": f"支払管理!{cell_name}",
+                    "values": [[final_val]]
+                })
 
     if requests:
         safe_gspread_call(ss.values_batch_update, {"valueInputOption": "USER_ENTERED", "data": requests})
@@ -1618,7 +1632,7 @@ def execute_variable_cost_update(username, start_ym=None, skip_backup=False):
         # --- 合計行・集計行の描画 ---
         st.write("📊 集計エリアの書式設定（セル結合など）を開始...")
         
-        # 💡 [Ver 5.8.0] クレジットカード内訳（54-62行）の自動集計ロジック実装
+        # 💡 [Ver 5.9.0] クレジットカード内訳（54-62行）の自動集計および収入項目の動的同期ロジック実装
         if 'existing_merges' in locals() and existing_merges:
             try:
                 # 調査・解除対象範囲: 固定費合計 row 以降、全体エリア
@@ -1931,9 +1945,9 @@ def execute_variable_cost_update(username, start_ym=None, skip_backup=False):
                             col_letter = chr(ord('A') + c_idx) if c_idx < 26 else chr(ord('A') + c_idx//26 - 1) + chr(ord('A') + c_idx%26)
                             income_col_map[clean_h] = col_letter
                             
-                    # 3. 支払管理シート(H96〜H100)の照合と数式書き込み
-                    # 96行目は 0-based index: 95。100行目は 99。
-                    for target_r in range(95, 100):
+                    # 3. 支払管理シートの照合と数式書き込み (対象行を動的にスキャン)
+                    # 以前は96-100行目に固定されていましたが、レイアウトの差異に対応するため全体から検索します
+                    for target_r in range(len(pay_formatted)):
                         if target_r < len(pay_formatted):
                             target_row_vals = pay_formatted[target_r]
                             # H列はインデックス7
