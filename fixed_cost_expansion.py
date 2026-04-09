@@ -1537,8 +1537,9 @@ def execute_variable_cost_update(username, start_ym=None, skip_backup=False):
                                         if "当月" in p_month: off = 0
                                         elif "翌々月" in p_month: off = 2
                                         
-                                        # 【例外ルール】変動費カードかつ翌月21日以降払いは「当月」とみなす
-                                        if r_dai == "変動費" and off == 1:
+                                        # 【例外ルール】変動費、または固定費のクレジットカードで、翌月21日以降払いは「当月」とみなす (Ver 5.9.2)
+                                        is_unified_target = (r_dai == "変動費") or (r_dai == "固定費" and r_k1 == "クレジットカード")
+                                        if is_unified_target and off == 1:
                                             d_m_check = re.search(r"\d+", p_date)
                                             if d_m_check and int(d_m_check.group()) >= 21:
                                                 off = 0
