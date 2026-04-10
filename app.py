@@ -3585,9 +3585,9 @@ def main():
                 [data-testid="stSidebar"] label[data-baseweb="radio"] div {
                     font-size: calc(1rem - 1pt) !important;
                 }
-                /* サイドバーの大タイトル下の余白を詰める */
+                /* サイドバーの大タイトル下の余白を調整 */
                 [data-testid="stSidebar"] .stMarkdown {
-                    margin-bottom: -15px !important;
+                    margin-bottom: 0px !important;
                 }
                 /* メイン画面の表示タイトルを2pt大きく */
                 .block-container h2 { font-size: calc(1.75rem + 2pt) !important; }
@@ -3596,7 +3596,7 @@ def main():
                 .block-container h5 { font-size: calc(1.00rem + 2pt) !important; }
                 </style>
             """, unsafe_allow_html=True)
-            st.subheader("マイニィ [Ver 5.9.2]")
+            st.subheader("マイニィ [Ver 5.9.3]")
             st.write(f"🔑 ユーザー: **{st.session_state['username']}**")
             st.markdown("---")
             if 'menu_selection' not in st.session_state:
@@ -3636,32 +3636,34 @@ def main():
             st.session_state["menu_g6"] = current_sel if current_sel in group6_opts else None
             
             # ＝＝＝ 変動費管理セクション ＝＝＝
-            st.markdown("<div style='padding-bottom: 30px;'><h3 style='color: #007bff; border-bottom: 2px solid #007bff; padding-bottom: 5px; margin: 0;'>🔵 変動費管理</h3></div>", unsafe_allow_html=True)
+            st.markdown("<div style='padding-bottom: 15px;'><h3 style='color: #007bff; border-bottom: 2px solid #007bff; padding-bottom: 5px; margin: 0;'>🔵 変動費管理</h3></div>", unsafe_allow_html=True)
             
-            st.markdown("【表示・分析系】")
+            st.markdown("<p style='margin-bottom: -5px; font-weight: bold;'>【表示・分析系】</p>", unsafe_allow_html=True)
             st.radio("g1", group1_opts, key="menu_g1", 
                      on_change=on_menu_change, args=("menu_g1",), label_visibility="collapsed")
             
-            st.markdown("【レシート管理】")
+            st.markdown("<p style='margin-top: 10px; margin-bottom: -5px; font-weight: bold;'>【レシート管理】</p>", unsafe_allow_html=True)
             st.radio("g2", group2_opts, key="menu_g2", 
                      on_change=on_menu_change, args=("menu_g2",), label_visibility="collapsed")
             
-            st.markdown("【相談・サポート】")
-            st.radio("g3", group3_opts, key="menu_g3", 
-                     on_change=on_menu_change, args=("menu_g3",), label_visibility="collapsed")
-            
-            st.markdown("【マスター設定】")
+            st.markdown("<p style='margin-top: 10px; margin-bottom: -5px; font-weight: bold;'>【マスター設定】</p>", unsafe_allow_html=True)
             st.radio("g4", group4_opts, key="menu_g4", 
                      on_change=on_menu_change, args=("menu_g4",), label_visibility="collapsed")
 
             # ＝＝＝ 支払管理セクション ＝＝＝
-            st.markdown("<div style='padding-top: 10px; padding-bottom: 30px;'><h3 style='color: #ff6b6b; border-bottom: 2px solid #ff6b6b; padding-bottom: 5px; margin: 0;'>🔴 支払管理</h3></div>", unsafe_allow_html=True)
+            st.markdown("<div style='padding-top: 20px; padding-bottom: 15px;'><h3 style='color: #ff6b6b; border-bottom: 2px solid #ff6b6b; padding-bottom: 5px; margin: 0;'>🔴 支払管理</h3></div>", unsafe_allow_html=True)
             
             st.radio("g5", group5_opts, key="menu_g5", 
                      on_change=on_menu_change, args=("menu_g5",), label_visibility="collapsed")
 
+            # ＝＝＝ 相談・サポートセクション ＝＝＝
+            st.markdown("<div style='padding-top: 20px; padding-bottom: 15px;'><h3 style='color: #e6ac00; border-bottom: 2px solid #e6ac00; padding-bottom: 5px; margin: 0;'>🟡 相談・サポート</h3></div>", unsafe_allow_html=True)
+            
+            st.radio("g3", group3_opts, key="menu_g3", 
+                     on_change=on_menu_change, args=("menu_g3",), label_visibility="collapsed")
+
             if st.session_state.get('username', '').lower() == 'tkouho' and group6_opts:
-                st.markdown("<div style='padding-top: 10px; padding-bottom: 30px;'><h3 style='color: #006400; border-bottom: 2px solid #006400; padding-bottom: 5px; margin: 0;'><span style='font-size: 1.5em; vertical-align: middle;'>●</span> ツール</h3></div>", unsafe_allow_html=True)
+                st.markdown("<div style='padding-top: 20px; padding-bottom: 15px;'><h3 style='color: #006400; border-bottom: 2px solid #006400; padding-bottom: 5px; margin: 0;'>🟢 ツール</h3></div>", unsafe_allow_html=True)
                 st.radio("g6", group6_opts, key="menu_g6", 
                          on_change=on_menu_change, args=("menu_g6",), label_visibility="collapsed")
 
@@ -4198,11 +4200,10 @@ def main():
                                         st.error("🚨 ログインセッションが切れました。再度ログインしてください。")
                                         st.stop()
                                         
+                                    # 支払い方法の詳細をループの外で取得（リクエスト数削減のため）
+                                    p_type, p_close, p_month, p_date = get_payment_details_for_transaction(target_username, selected_payment)
+                                    
                                     for item in results:
-                                        # -----------------------------------------------------------
-                                        # セッション整合性チェック (ユーザー名の漏洩防止)
-                                        target_username = str(current_user).lower().strip()
-                                        # -----------------------------------------------------------
                                         # カテゴリの正規化（14カテゴリ体系に強制）
                                         majors = list(get_categories().keys())
                                         major = str(item.get("major_category", "その他"))
@@ -4228,7 +4229,6 @@ def main():
                                         # 日付を yyyy-mm-dd に整形
                                         formatted_date = edited_date.strftime("%Y-%m-%d") if edited_date else ""
     
-                                        p_type, p_close, p_month, p_date = get_payment_details_for_transaction(target_username, selected_payment)
                                         row_data = [
                                             target_username,
                                             formatted_date,
@@ -4253,7 +4253,8 @@ def main():
                                         safe_gspread_call(sheet.append_rows, rows_to_append)
                                         written_count = len(rows_to_append)
                                     
-                                    st.session_state.flash_message = f"✅ 解析が完了し、{written_count}件のデータを保存しました！"
+                                    st.success(f"✅ 解析が完了し、{written_count}件のデータを保存しました！")
+                                    st.toast(f"✅ {written_count}件の登録が完了しました", icon="🚀")
                                     
                                     time.sleep(1)
                                     
@@ -4447,12 +4448,14 @@ def main():
                                 
                                 target_username = str(current_user).lower().strip()
                                 
+                                # 支払い方法の詳細をループの外で取得（リクエスト数削減のため）
+                                p_type, p_close, p_month, p_date = get_payment_details_for_transaction(target_username, selected_payment_manual)
+                                
                                 for itm, cat in zip(valid_items, categories):
                                     major = cat.get("major_category", "その他")
                                     minor = cat.get("minor_category", "📁未分類")
                                     amt = safe_money_int_cast(itm.get("amount", 0))
                                     
-                                    p_type, p_close, p_month, p_date = get_payment_details_for_transaction(target_username, selected_payment_manual)
                                     row_data = [
                                         target_username,
                                         str(input_date.strftime('%Y-%m-%d')),
@@ -4477,6 +4480,8 @@ def main():
                                     safe_gspread_call(sheet.append_rows, rows_to_append)
                                 
                                 st.success(f"✅ {len(rows_to_append)}件のデータを登録しました！")
+                                st.toast(f"✅ {len(rows_to_append)}件の登録が完了しました", icon="🚀")
+                                
                                 # フォームIDを更新して全ウィジェットを強制リセット
                                 st.session_state.manual_input_form_id += 1
                                 st.session_state.manual_input_items = [{"id": int(time.time() * 1000), "name": "", "amount": 0}]
@@ -5249,46 +5254,42 @@ MBTI: {mbti}
                             app_manual = """
 あなたは、この高機能家計簿アプリ「マイニー」の公式サポートAIです。
 ユーザーから機能の質問や操作方法を聞かれたら、以下の情報を元に、親切かつ分かりやすく案内してください。
-現在の左側サイドバーのメニュー構成は以下の4つの大分類に分かれています。
+現在の左側サイドバーのメニュー構成は以下の3つの大分類に分かれています。
 
-【表示・分析系】（家計の状況を確認・分析するメニュー）
+【🔵 変動費管理】
+分析や日々のレシート登録、基本管理を行うセクションです。
 ・ダッシュボード（月次集計）：月間の総支出、予算の残り、日別の支出推移をグラフで確認できます。内訳は「店舗別」「大分類別」「支払い方法別」に切り替え可能で、最大で商品（明細）レベルまで掘り下げることができます。
 ・ダッシュボード（年次集計）：選択した年の支出を月ごとに集計・表示し、前年対比棒グラフなどを確認できます。
-・カレンダー：初期表示で「本日の日付」が自動選択され、本日の支出明細がすぐに見られます。月間カレンダー上の日付クリックでも明細が表示されます。
-・クレジットカード：登録したカードの利用状況を「当月支払」「次回支払額」「次回以降支払額」の3つの期間に分けて表示します。それぞれの期間の明細は、日付＋店舗名＞大分類＞小分類＞商品名の4階層のドリルダウンで詳細を確認できます。未払い金額に対して現在の利用率や残高も表示されます。
-・固定費管理：毎月の固定費と変動費のシミュレーションを行い、支払い方法別の小計や総合計を確認できます。ワンクリックで支払いスプレッドシートへの連携（GAS連携）も可能です。
+・カレンダー：日付クリックで支出明細が表示されます。初期表示では「本日の日付」が自動選択されます。
+・クレジットカード：登録したカードの利用状況を「当月支払」「次回支払」「次回以降」の3期間に分けて詳細表示します。限度額に対する利用割合も確認可能です。
+・レシート取込：写真をアップロードし、AIで自動解析します。「Gift」等のキーワードは自動で割引として処理されます。
+・レシート手入力：表形式で高速に支出データを入力できます。
+・レシート修正：過去データの検索・修正・削除を一括で行えます。
+・支払方法マスター：クレジットカードの締日・支払日設定が可能です。iPhone（Safari）等のFace ID（パスワード自動入力）にも対応しています。
+・銀行マスター：銀行口座やデビットカードの管理を行います。
+・プロフィール設定：AI相談用の情報設定やパスワード変更を行います。
 
-【支払管理】（Googleスプレッドシートと連携して未来の収支を管理するメニュー）
-・支払管理シート新規作成：アプリ専用のGoogleスプレッドシート（家計管理の基盤）をワンクリックで自動生成します。
-・固定費マスター設定：毎月の家賃、定期代、サブスクリプション、小遣いの予算などの「支出ルール」を登録・編集します。
-・固定費データ展開：マスター設定に基づき、将来（2036年まで）のタイムラインへ支払予定額を一括展開します。小遣い予算（78行目）などもここに含まれます。
-・変動費データ更新：クレジットカードの利用実態を自動集計し、支払管理シートに反映します。
-   - 特徴：「内訳エリア（54-62行）」では、各カードごとの固定費・変動費それぞれの合計額がソース行（8-52行）から自動計算・転記されます。
-   - 特徴：各項目の引落日設定に基づき、現在日時をトリガーとして「完了フラグ」を自動更新し、支払いの進捗を可視化します。
-・支払管理シートを確認：連携先のGoogleスプレッドシートを直接開き、詳細なガントチャートや月次合計、年間推移をリアルタイムに確認・編集できます。
+【🔴 支払管理】
+Googleスプレッドシートと連携し、固定費シミュレーションや未来の収支を管理するセクションです。
+・支払管理シート新規作成：ユーザー専用のスプレッドシートを自動生成します。
+・固定費マスター設定：家賃やサブスク等の「支出ルール」を登録・編集します。
+・固定費データ展開：マスターに基づき、2036年までの月別カレンダーへ予定額を一括展開します。データが0件でもエラーにならず正常にスキップされる安心設計です。
+・変動費データ更新：クレジットカードの利用実績をシートの「内訳エリア（54-62行目）」や各月カラムへ反映します。引落日を過ぎると「完了フラグ」が自動でセットされます。
+・支払管理シートを確認：連携先のGoogleスプレッドシートを直接開きます。
 
-【レシート管理】（支出データを登録・修正するメニュー）
-・レシート取込：写真をアップロードし、AIで自動解析します。「Gift」や「ギフト」のキーワードがあれば自動で「割引・ポイント利用」のマイナス金額として抽出します。解析結果はアコーディオン形式（大分類＞小分類＞商品）で詳細を確認できます。支払い方法が「未設定」のまま登録ボタンを押すと警告が出ますが、そのまま再度押すことで未設定のまま登録も可能です。
-・レシート手入力：キーボード操作で画面上の表に高速連続入力が可能です。こちらも支払い方法の初期値は「未設定」です。
-・レシート修正：過去データの検索・修正・削除、対象レシートの一括更新が行えます。個別の明細を修正中（選択中）のときは、誤操作を防ぐためにレシート全体の日付や店舗名などのヘッダーがロックされる仕組みがあります。
-
-【相談・サポート】（使い方や家計の悩みを解決するメニュー）
-・マニュアル：このアプリの全機能と使い方の一覧です。（※各項目にはテキスト読み上げ機能がついています）
-・ヘルプチャット：あなた（AIアシスタント）にアプリの操作方法などを直接質問できる機能です。
-・AI相談（専属FP）：ユーザーの実際の家計データを元に、AIがFPとして個別アドバイスを行います。
-
-【マスター設定】（アプリの基本動作を制御する設定メニュー）
-・支払方法マスター：クレジットカードや現金などの支払い手段を登録、修正、削除します。新規アカウント登録時には自動で「未設定」「現金」「PayPay」の3件が登録されます。
-・カテゴリマスター（オーナー限定）：アプリの表示で使う大分類と小分類を追加・管理できます。使用済みのデータは変更・削除できない保護機能つきです。
-・プロフィール設定：AI相談用の情報設定のほか、自分のアカウントのログインパスワードをいつでも変更できます。
+【🟡 相談・サポート】
+・マニュアル：全機能と使い方の詳細一覧です（テキスト読み上げ機能付き）。
+・ヘルプチャット：あなた（AIアシスタント）に直接質問できる、今使用しているこの機能です。
+・AI相談（専属FP）：ユーザーの実際の収支データをAIが読み解き、個別の家計診断やアドバイスを行います。
 
 【その他の便利機能】
-・データのダウンロード：サイドバー下部の「データのダウンロード」から、全データのExcel/CSV出力が可能です。
+・Face ID対応：ログイン画面で生体認証によるパスワード自動入力が利用可能です。
+・データのダウンロード：サイドバー下部から、全データをExcel/CSV形式で出力できます。
 
 回答のコツ：
-・各機能への移動は、画面左側の「サイドバー（メニュー）」の大カテゴリから行えることを案内してください。
-・「クレジットカード」の正しい表示方法を聞かれたら、「マスター設定の支払方法マスター」での設定案内を行ってください。
-・専門用語は控え、明るく親身なトーンで答えてください。
+・各セクションの絵文字（🔵🔴🟡）を使って案内すると親切です。
+・データが空でもエラーを出さず「スキップ」で正常終了する改善についても触れてください。
+・専門用語は控え、親身なトーンで答えてください。
 """
                             
                             # 2. 送信直前でチャットオブジェクトを「履歴付き」で作成
@@ -5327,229 +5328,97 @@ MBTI: {mbti}
             
         elif menu_selection == "マニュアル":
             st.markdown("### 📗 マイニー公式マニュアル")
-            st.info("家計簿アプリ「マイニー」の全機能とメインメニュー（サイドバー）の構成に基づいて使い方を案内します。")
+            st.info("家計簿アプリ「マイニー」の全機能と最新のサイドバー構成（🔵🔴🟡）に基づいて使い方を案内します。")
             
-            st.markdown("<h4 style='color: navy; margin-top: 30px;'>【表示・分析系】</h4>", unsafe_allow_html=True)
-            st.caption("入力された家計データを様々な角度から確認・分析するためのメニューです。")
-            with st.expander("📊 ダッシュボード（月次集計）", expanded=True):
-                text_dash_month = """
-                **概要**: 月間の総支出、予算、日別の推移をグラフで可視化します。
-                **操作手順**:
-                1. サイドバーから「ダッシュボード（月次集計）」を選択します。
-                2. 画面上部の月選択（前月・翌月ボタン等）で確認したい月を選びます。
-                3. 画面中央のボタン群（「店舗別」「大分類別」「支払い方法別」）をクリックして分析軸を切り替えます。
-                4. 各項目のアコーディオン（詳細枠）をクリックすると、最大で「商品（明細）」レベルまで深い階層で内訳を追跡できます。
-                - **カラー同期**: 円グラフと積上げ棒グラフで同じカテゴリには同じ色が適用されます。
-                """
-                st.markdown(text_dash_month)
-                render_speech_synthesis_button(text_dash_month.replace("**", "").replace("-", ""), "sp_dash_mon")
-
+            # --- 🔵 変動費管理 ---
+            st.markdown("<h4 style='color: #007bff; margin-top: 30px;'>【🔵 変動費管理】</h4>", unsafe_allow_html=True)
+            
+            with st.expander("📊 ダッシュボード（月次集計）"):
+                text = "**概要**: 月間の総支出、予算、日別の推移をグラフで可視化します。\n**特長**: 「店舗別」「大分類別」「支払い方法別」に切り替え可能で、最大で「商品（明細）」レベルまでドリルダウン（掘り下げ）して詳細を確認できます。"
+                st.markdown(text); render_speech_synthesis_button(text, "sp_dash_mon")
+                
             with st.expander("📊 ダッシュボード（年次集計）"):
-                text_dash_year = """
-                **概要**: 選択した「年」全体の支出データを集計・分析します。
-                **操作手順**:
-                1. サイドバーから「ダッシュボード（年次集計）」を選択します。
-                2. 画面上部の年選択（前年・翌年ボタン等）で集計対象の年を切り替えます。
-                3. 上部の「前年対比棒グラフ」や「年次大分類別シェア円グラフ」で傾向を視覚的に把握します。
-                4. 画面下部に並ぶ各カテゴリ別内訳のアコーディオンを展開すると、年間を通した支出の詳細を追跡できます。
-                """
-                st.markdown(text_dash_year)
-                render_speech_synthesis_button(text_dash_year.replace("**", "").replace("-", ""), "sp_dash_yr")
+                text = "**概要**: 選択した「年」全体の支出データを月ごとに集計・分析します。前年対比や大分類別シェアを視覚的に把握できます。"
+                st.markdown(text); render_speech_synthesis_button(text, "sp_dash_yr")
                 
             with st.expander("📅 カレンダー"):
-                text_calendar = """
-                **概要**: 日付ごとの支出額をカレンダー形式で一覧できます。
-                **操作手順**:
-                1. サイドバーから「カレンダー」を選択します。初期状態では本日の明細が自動的に下部に表示されます。
-                2. カレンダー上の任意の日付マス（青は土曜、赤は日曜・祝日）をクリックします。
-                3. カレンダー下部にその日の「支出明細」が一覧表示されます。
-                4. 「店舗別」「大分類別」「支払い方法別」の切り替えボタンを使い、最大5階層（店舗名 ＞ 支払い方法 ＞ 大分類 ＞ 小分類 ＞ 商品）でデータを掘り下げて確認します。
-                """
-                st.markdown(text_calendar)
-                render_speech_synthesis_button(text_calendar.replace("**", "").replace("-", ""), "sp_cal")
+                text = "**概要**: 日付ごとの支出額をカレンダー形式で一覧できます。日付クリックでその日の詳細明細が表示されます。"
+                st.markdown(text); render_speech_synthesis_button(text, "sp_cal")
                 
             with st.expander("💳 クレジットカード"):
-                text_cc = """
-                **概要**: 登録したクレジットカードの利用状況や引き落としスケジュールを管理します。
-                **操作手順**:
-                1. サイドバーから「クレジットカード」を選択します。
-                2. 画面上部のセレクトボックスから、確認したい特定のカード（または全体）を選びます。
-                3. 画面中央のラジオボタンで「当月支払」「次回支払額」「次回以降支払額」の3つの期間を切り替えます。
-                4. 表示された明細のアコーディオン（日付＋店舗名 ＞ 大分類 ＞ 小分類 ＞ 商品名）を開いて、利用内容や限度額に対する現在の利用割合（プログレスバー）を確認します。
-                """
-                st.markdown(text_cc)
-                render_speech_synthesis_button(text_cc.replace("**", "").replace("-", ""), "sp_cc")
-
-            st.markdown("<h4 style='color: navy; margin-top: 30px;'>【支払管理】</h4>", unsafe_allow_html=True)
-            st.caption("毎月の固定費のシミュレーションと支払い情報を管理するためのメニューです。")
-            with st.expander("📄 支払管理：各機能の詳細"):
-                st.markdown("#### 1. 支払管理シート新規作成")
-                text_pm_create = """
-                **概要**: ユーザー専用のGoogleスプレッドシート「{ユーザー名}_支払管理」を自動生成します。
-                **操作手順**:
-                1. 「支払管理シート新規作成」ボタンをクリックします。
-                2. 数秒後、ドライブ上に「支払管理」タブと「固定費マスター」タブを持つシートが作成されます。
-                """
-                st.markdown(text_pm_create)
+                text = "**概要**: 登録カードの利用状況を「当月支払」「次回支払」「次回以降」の3期間で詳細管理します。利用可能額に対する割合もプログレスバーで確認可能です。"
+                st.markdown(text); render_speech_synthesis_button(text, "sp_cc")
                 
-                st.markdown("#### 2. 固定費マスター設定")
-                text_pm_master = """
-                **概要**: 毎月発生する家賃、通信費、保険料、貯蓄などの「ルール」を登録します。
-                **重要設定**: 「科目１（引落・カード等）」と「科目２（カード名・銀行名等）」を正しく設定することで、後の自動計算が有効になります。
-                """
-                st.markdown(text_pm_master)
-
-                st.markdown("#### 3. 固定費データ展開")
-                text_pm_expand = """
-                **概要**: マスターの設定内容に基づき、2036年までの月別カレンダーへ自動的に金額を展開（転記）します。
-                **特徴**: 手動で一つずつ入力する手間を省き、自動的に罫線や背景色のフォーマットも適用されます。
-                """
-                st.markdown(text_pm_expand)
-
-                st.markdown("#### 4. 変動費データ更新")
-                text_pm_var = """
-                **概要**: クレジットカード利用などの日々の変動費を集計し、支払管理シートに反映します。
-                **自動集計ロジック**: 54行目〜62行目の「内訳エリア」では、F列のカード名とH列の種別（固定/変動）に基づき、8-52行目の明細から該当金額を自動的に合算して転記します。
-                **完了フラグ**: 引落日を過ぎた項目には自動で「1（完了）」が入り、支払残高から除外されます。
-                """
-                st.markdown(text_pm_var)
-
-                st.markdown("#### 5. 支払管理シートを確認")
-                text_pm_open = """
-                **概要**: 構築されたスプレッドシートを直接ブラウザで開きます。
-                **活用法**: ここで月ごとの合計額（支払総額）をチェックし、翌月以降の資金繰りを計画します。
-                """
-                st.markdown(text_pm_open)
+            with st.expander("📸 レシート取込"):
+                text = "**概要**: 写真をアップロードしAIで解析。店舗名・商品名・金額を自動抽出します。ギフト券（Gift等）の割引も自動判別してマイナス計上します。"
+                st.markdown(text); render_speech_synthesis_button(text, "sp_rec_ai")
                 
-                # 連結したテキストを読み上げ
-                full_text_pm = text_pm_create + text_pm_master + text_pm_expand + text_pm_var + text_pm_open
-                render_speech_synthesis_button(full_text_pm.replace("**", "").replace("-", ""), "sp_pm_all")
+            with st.expander("⌨️ レシート手入力"):
+                text = "**概要**: キーボード操作で素早く支出を入力できます。金額入力後にEnterキーを押すことで連続して明細を追加できる高速入力設計です。"
+                st.markdown(text); render_speech_synthesis_button(text, "sp_rec_man")
+                
+            with st.expander("✏️ レシート修正"):
+                text = "**概要**: 過去に登録したデータの検索・修正・削除、対象データの一括更新が行えます。修正作業中は安全のため全体のヘッダー操作が自動ロックされます。"
+                st.markdown(text); render_speech_synthesis_button(text, "sp_rec_edit")
+                
+            with st.expander("🛠️ 支払方法マスター"):
+                text = "**概要**: クレジットカードの締日・支払日、現金、PayPay等の支払い手段を管理します。iPhone等のFace ID（パスワード自動入力）にも対応しています。"
+                st.markdown(text); render_speech_synthesis_button(text, "sp_mast_pay")
+                
+            with st.expander("🏦 銀行マスター"):
+                text = "**概要**: 銀行口座やデビットカードの情報を登録・管理します。収支の引き落とし先として指定できるようになります。"
+                st.markdown(text); render_speech_synthesis_button(text, "sp_mast_bank")
+                
+            with st.expander("⚙️ プロフィール設定"):
+                text = "**概要**: AI相談用の自己紹介設定（年齢・職業・趣味等）や、アカウントのログインパスワードの変更を行います。"
+                st.markdown(text); render_speech_synthesis_button(text, "sp_mast_prof")
 
-            st.markdown("<h4 style='color: navy; margin-top: 30px;'>【レシート管理】</h4>", unsafe_allow_html=True)
-            st.caption("日々の買い物や支出の記録を追加・修正するためのメニューです。")
-            with st.expander("📸 レシート取込（AI解析）"):
-                text_ai_receipt = """
-                **概要**: レシートの写真を撮ってアップロードするだけで、AIが内容を読み取ります。
-                **操作手順**:
-                1. サイドバーから「レシート取込」を選択します。
-                2. 画面上のボタン（Browse files 等）からレシートの画像を選択し、「レシートを解析する」をクリックします。
-                3. AIが店舗名・商品名・金額などを自動解析します（Gift等の割引や消費税も自動処理されます）。
-                4. 解析結果が「大分類 ＞ 小分類 ＞ 商品」の階層形式で表示されるので、内容を確認・修正します。
-                5. 問題なければ「登録」をクリックします（支払い方法未設定時は確認メッセージが出ます）。
-                """
-                st.markdown(text_ai_receipt)
-                render_speech_synthesis_button(text_ai_receipt.replace("**", "").replace("-", ""), "sp_ai_rec")
+            # --- 🔴 支払管理 ---
+            st.markdown("<h4 style='color: #ff6b6b; margin-top: 30px;'>【🔴 支払管理】</h4>", unsafe_allow_html=True)
+            
+            with st.expander("📄 支払管理シート新規作成"):
+                text = "**概要**: ユーザー専用のGoogleスプレッドシート「支払管理」を自動生成します。家計管理の基盤となるシートです。"
+                st.markdown(text); render_speech_synthesis_button(text, "sp_pm_create")
+                
+            with st.expander("⚙️ 固定費マスター設定"):
+                text = "**概要**: 家賃、保険、サブスクリプション等、毎月の定期支払ルールを登録・編集します。ここが自動展開のソースになります。"
+                st.markdown(text); render_speech_synthesis_button(text, "sp_pm_fcost")
+                
+            with st.expander("📅 固定費データ展開"):
+                text = "**概要**: マスターに基づき2036年までのカレンダーへ予定を一括書き込みます。設定が0件でもエラーにならず正常にスキップされる設計です。"
+                st.markdown(text); render_speech_synthesis_button(text, "sp_pm_expand")
+                
+            with st.expander("🔄 変動費データ更新"):
+                text = "**概要**: クレジットカード等の実績を集計しシートへ反映。カード別の内訳自動合算や引落日に合わせた「完了フラグ」の更新を行います。"
+                st.markdown(text); render_speech_synthesis_button(text, "sp_pm_vcost")
+                
+            with st.expander("🔍 支払管理シートを確認"):
+                text = "**概要**: 連携先のGoogleスプレッドシートを直接ブラウザで開き、年間の収支計画やガントチャートをリアルタイムに確認できます。"
+                st.markdown(text); render_speech_synthesis_button(text, "sp_pm_open")
 
-            with st.expander("⌨️ レシート手入力（高速入力）"):
-                text_manual_receipt = """
-                **概要**: キーボード操作で素早く支出を入力できます。
-                **操作手順**:
-                1. サイドバーから「レシート手入力」を選択します。
-                2. 上部の入力欄に「日付」と「店舗名」を設定します。
-                3. 下部の表で「商品名」「金額」「大分類」「小分類」を入力します（金額入力後Enterキー等で自動で次の行が追加されます）。
-                4. 入力が終わったら、下部で「支払い方法」を選んで「一括登録」ボタンをクリックして保存します。
-                """
-                st.markdown(text_manual_receipt)
-                render_speech_synthesis_button(text_manual_receipt.replace("**", "").replace("-", ""), "sp_man_rec")
-
-            with st.expander("✏️ レシート修正・履歴管理"):
-                text_edit_receipt = """
-                **概要**: 過去に登録した全てのデータを一覧・検索・編集できます。
-                **操作手順**:
-                1. サイドバーから「レシート修正」を選択します。
-                2. 対象月を選択するか、検索ボックスからキーワードを入力して対象のレシートを探します。
-                3. 画面左側のリストからレシートを選択すると、右側にその詳細（明細一覧）が表示されます。
-                4. 日付、店舗名を追加・修正する場合は上部から、個別の明細を修正する場合は表から直接書き換えます。
-                5. 修正が終わったら「変更を保存」ボタンを押します（※個別明細の編集中はレシート全体の操作がロックされます）。
-                """
-                st.markdown(text_edit_receipt)
-                render_speech_synthesis_button(text_edit_receipt.replace("**", "").replace("-", ""), "sp_edit_rec")
-
-            st.markdown("<h4 style='color: navy; margin-top: 30px;'>【相談・サポート】</h4>", unsafe_allow_html=True)
-            st.caption("アプリの使い方に困った時や、家計改善のアドバイスが欲しい時のメニューです。")
+            # --- 🟡 相談・サポート ---
+            st.markdown("<h4 style='color: #e6ac00; margin-top: 30px;'>【🟡 相談・サポート】</h4>", unsafe_allow_html=True)
+            
             with st.expander("📗 マニュアル"):
-                text_manual = """
-                **概要**: 今ご覧いただいているこの画面です。全機能の概要と使い方を確認できます。
-                **操作手順**:
-                1. サイドバーから「マニュアル」を選択します。
-                2. 確認したい説明項目（アコーディオン）をクリックして展開します。
-                3. 音声で使い方を聞きたい場合は、文章の下にある「音声で読み上げる」ボタンを押してください。
-                """
-                st.markdown(text_manual)
-                render_speech_synthesis_button(text_manual.replace("**", ""), "sp_manual")
+                text = "**概要**: 今ご覧いただいている画面です。全機能のサイドバー項目ごとの詳細な使い道・操作手順を確認できます。"
+                st.markdown(text); render_speech_synthesis_button(text, "sp_sup_manual")
                 
-            with st.expander("❓ ヘルプチャット"):
-                text_help = """
-                **概要**: アプリの使い方で困ったら、チャットで何でも質問できます。
-                **操作手順**:
-                1. サイドバーから「ヘルプチャット」を選択します。
-                2. 画面下部の入力欄に質問内容（例：「レシートはどう登録するの？」）を入力し、エンターキーを押します。
-                3. AIアシスタントが回答を生成し表示します。右下のマイクボタンから音声で質問することも可能です。
-                """
-                st.markdown(text_help)
-                render_speech_synthesis_button(text_help.replace("**", "").replace("-", ""), "sp_help")
+            with st.expander("❓ ヘルプ"):
+                text = "**概要**: AIアシスタントにチャット形式でアプリの操作方法を質問できます。音声入力や読み上げにも対応しています。"
+                st.markdown(text); render_speech_synthesis_button(text, "sp_sup_help")
                 
             with st.expander("🤖 AI相談（専属FP）"):
-                text_ai_fp = """
-                **概要**: あなたの実際の支出データを基に、AIがプロのFPとして分析やアドバイスを行います。
-                本アプリで最も活用していただきたい、パーソナライズされたコンサルティング機能です。
-                **操作手順**:
-                1. サイドバーから「AI相談（専属FP）」を選択します。
-                2. 下部のチャット入力欄に相談内容を入力します（例：「先月より食費が増えた理由は？」）。
-                3. 入力欄右側のマイクボタンを押すと、声による相談も可能です。
-                4. AIがあなたの登録プロフィールや実際の支出データを読み解き、パーソナライズされた回答を提示します。
-                """
-                st.markdown(text_ai_fp)
-                render_speech_synthesis_button(text_ai_fp.replace("**", "").replace("-", ""), "sp_ai_fp")
-                
-            st.markdown("<h4 style='color: navy; margin-top: 30px;'>【マスター設定】</h4>", unsafe_allow_html=True)
-            st.caption("アプリ全体の基本設定や、あなたに合わせたカスタマイズを行うメニューです。")
-            with st.expander("💳 支払方法マスター"):
-                text_pay_master = """
-                **概要**: アプリ全体で利用する「支払い方法」を管理します。新規登録時には「未設定」「現金」「PayPay」が自動で作成されます。
-                **操作手順**:
-                1. サイドバーから「支払方法マスター」を選択します。
-                2. 【新規登録の場合】: 左側のフォームに支払い方法の名称等を入力し「登録」ボタンを押します。クレジットカードの場合は締日や支払日なども設定できます。
-                3. 【修正・削除の場合】: 右側の一覧表から対象の名称を選び、「更新」または「削除」を行います。
-                """
-                st.markdown(text_pay_master)
-                render_speech_synthesis_button(text_pay_master.replace("**", "").replace("-", ""), "sp_pay_master")
+                text = "**概要**: 実際の収支データとプロフィールに基づき、AIがプロのFPとして高度な個別分析や節約・資産運用の提案を行います。"
+                st.markdown(text); render_speech_synthesis_button(text, "sp_sup_ai")
 
-            if st.session_state.get('username', '').lower() == 'tkouho':
-                with st.expander("📂 カテゴリマスター（オーナー専用）"):
-                    text_cat_master = """
-                    **概要**: アプリ全体の「大分類」と「小分類」の構成を直感的に設定します。
-                    **操作手順**:
-                    1. サイドバーから「カテゴリマスター」を選択します。
-                    2. 画面左側のリストから編集したい「大分類」を選択します。
-                    3. 画面右側にその大分類に属する「小分類」のリストが表示されるので、追加・変更・削除を行い、「保存」ボタンを押します。
-                    ※既に使用されているカテゴリは変更・削除が自動ブロックされます。
-                    """
-                    st.markdown(text_cat_master)
-                    render_speech_synthesis_button(text_cat_master.replace("**", "").replace("-", ""), "sp_cat_master")
-
-            with st.expander("⚙️ プロフィール設定"):
-                text_profile = """
-                **概要**: パーソナライズ設定とアカウント管理を行うメニューです。
-                **操作手順**:
-                1. サイドバーから「プロフィール設定」を選択します。
-                2. AI向けのプロフィール（年齢、職業、趣味、目標等）を入力・確認し「プロフィールを保存」を押します。
-                3. パスワードを変更する場合は、下部の変更フォームに現在のパスワードと新パスワードを入力し「パスワードを変更する」を押します。
-                """
-                st.markdown(text_profile)
-                render_speech_synthesis_button(text_profile.replace("**", "").replace("-", ""), "sp_profile")
-                
-            st.markdown("<h4 style='color: navy; margin-top: 30px;'>その他の便利機能</h4>", unsafe_allow_html=True)
+            # --- その他 ---
+            st.markdown("<h4 style='color: #6c757d; margin-top: 30px;'>その他の便利機能</h4>", unsafe_allow_html=True)
             with st.expander("📥 データのダウンロード"):
-                text_download = """
-                **概要**: 登録したすべての支出データを、自分の端末に保存できます。
-                **操作手順**:
-                1. サイドバーを一番下までスクロールします。
-                2. 「データのダウンロード」セクションで、「エクセル形式(.xlsx)」または「CSV形式(.csv)」のファイルダウンロードボタンをクリックします。
-                3. お使いの端末にファイルが保存されます。
-                """
-                st.markdown(text_download)
-                render_speech_synthesis_button(text_download.replace("**", "").replace("-", ""), "sp_dl")
+                text = "**概要**: サイドバー最下部のメニューから、登録した全支出データをExcelまたはCSV形式で保存できます。バックアップや独自の集計に活用してください。"
+                st.markdown(text); render_speech_synthesis_button(text, "sp_dl_manual")
+            
+            st.markdown("---")
+            st.caption("マイニー [Ver 5.9.3] - 常に最新の技術であなたの家計管理をサポートします。")
 
         elif menu_selection == "クレジットカード":
             show_credit_card_dashboard()
@@ -5579,10 +5448,34 @@ MBTI: {mbti}
         elif menu_selection == "支払管理シートを確認":
             show_open_management_sheet()
             
-        st.caption("マイニー Ver 5.9.2 - ユーザー: %s" % st.session_state['username'])
+        st.caption("マイニー Ver 5.9.3 - ユーザー: %s" % st.session_state['username'])
             
     # 未ログインの状態 (ログイン・登録画面)
     else:
+        # iPhoneのFace ID (パスワード自動入力) に対応するための属性付与スクリプト
+        st.components.v1.html(
+            """
+            <script>
+            function setAutocomplete() {
+                const doc = window.parent.document;
+                const inputs = doc.querySelectorAll('input');
+                inputs.forEach(input => {
+                    const label = input.getAttribute('aria-label') || "";
+                    if (label.includes('ユーザー名')) {
+                        input.setAttribute('autocomplete', 'username');
+                    } else if (label.includes('パスワード')) {
+                        input.setAttribute('autocomplete', 'current-password');
+                    }
+                });
+            }
+            // Streamlitのレンダリングに合わせて複数回実行
+            setTimeout(setAutocomplete, 500);
+            setTimeout(setAutocomplete, 1500);
+            setTimeout(setAutocomplete, 3000);
+            </script>
+            """,
+            height=0
+        )
         st.title("AI家計簿アプリ")
         
         tab1, tab2 = st.tabs(["ログイン", "新規ユーザー登録"])
@@ -5591,12 +5484,12 @@ MBTI: {mbti}
             st.subheader("ログイン")
             
 
-            with st.form("login_form"):
+            with st.form(key="login_form"):
                 login_username = st.text_input("ユーザー名", key="login_username_input_v2")
                 login_password = st.text_input("パスワード", type="password", key="login_password_input_v2")
                 remember_me = st.checkbox("ログイン状態を保持する", value=True, key="remember_me_input_v2")
                 
-                submitted = st.form_submit_button("ログイン", use_container_width=True, type="primary")
+                submitted = st.form_submit_button(label="ログイン", use_container_width=True, type="primary")
             
             if submitted:
                 if login_username and login_password:
@@ -5615,12 +5508,12 @@ MBTI: {mbti}
         with tab2:
             st.subheader("新規ユーザー登録")
             
-            with st.form("register_form"):
+            with st.form(key="register_form"):
                 reg_username = st.text_input("新しいユーザー名", key="reg_username_v2")
                 reg_password = st.text_input("新しいパスワード", type="password", key="reg_password_v2")
                 reg_password_confirm = st.text_input("パスワード（確認用）", type="password", key="reg_password_confirm_v2")
                 
-                reg_submitted = st.form_submit_button("登録する", use_container_width=True, type="primary")
+                reg_submitted = st.form_submit_button(label="登録する", use_container_width=True, type="primary")
             
             if reg_submitted:
                 if reg_username and reg_password and reg_password_confirm:

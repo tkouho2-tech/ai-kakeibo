@@ -186,9 +186,10 @@ def createBackup(ss):
 
 
 def execute_expansion(username, mode="NEW", start_ym=None):
-    from app import get_gspread_client, safe_gspread_call
+    from app import get_gspread_client, safe_gspread_call, get_payment_methods
     from fixed_cost_expansion import _find_val, _clean_val, _normalize, _get_year_month
     import re
+    from dateutil.relativedelta import relativedelta
     
     client = get_gspread_client()
     if not client: return False, "Google Drive APIに接続できません。"
@@ -232,9 +233,13 @@ def execute_expansion(username, mode="NEW", start_ym=None):
         return False, f"シート読み込みエラー: {e}"
         
     master_raw = safe_gspread_call(ws_master.get_all_values)
-    if not master_raw or len(master_raw) < 2: return False, "固定費マスターにデータがありません。"
+    if not master_raw or len(master_raw) < 2:
+        return True, "固定費マスターにデータがないため、展開をスキップしました。"
     headers = master_raw[0]
     master_data = [dict(zip(headers, r + [""]*(len(headers)-len(r)))) for r in master_raw[1:]]
+    
+    # GET PAYMENT METHODS FOR OFFSET CALCULATION
+    methods = safe_gspread_call(get_payment_methods, username)
     
     # GET PAYMENT SHEET DATA
     pay_formatted = safe_gspread_call(ws_pay.get_all_values, value_render_option="FORMATTED_VALUE")
@@ -360,6 +365,28 @@ def execute_expansion(username, mode="NEW", start_ym=None):
         start_ym_val = sy * 100 + sm
         end_ym_val = ey * 100 + em
         
+        # --- クレジットカード支払日に基づくオフセット（シフト）判定 ---
+        offset = 0
+        if _normalize(m_k1) == "クレジットカード":
+            # 支払方法マスターから該当カードの設定を探す（正規化して比較）
+            m_k2_norm = _normalize(m_k2)
+            method = next((m for m in methods if _normalize(m.get("name", "")) == m_k2_norm), None)
+            
+            if method:
+                c_date = _normalize(method.get("closing_date", ""))
+                p_month = _normalize(method.get("payment_month", ""))
+                p_date_str = _normalize(method.get("payment_date", ""))
+                
+                # 支払日の数値を抽出
+                p_day_match = re.search(r"\d+", p_date_str)
+                p_day_val = int(p_day_match.group()) if p_day_match else 0
+                
+                # 条件判定: 「月末」または「末日」締 且つ 「翌月」払 且つ 「20日」以降
+                is_month_end = ("月末" in c_date or "末日" in c_date)
+                is_next_month = ("翌月" in p_month)
+                if is_month_end and is_next_month and p_day_val >= 20:
+                    offset = 1
+
         # Months check
         for m_col in month_cols:
             c_idx = m_col["col_idx"]
@@ -370,8 +397,14 @@ def execute_expansion(username, mode="NEW", start_ym=None):
             if start_ym and col_ym < start_ym:
                 continue
                 
+            # オフセット適用後の「利用月」ベースで判定を行う
+            # 展開先の月(col_ym)からオフセット分を引いた月を利用月とする
+            usage_date = datetime(m_col["year"], m_col["month"], 1) - relativedelta(months=offset)
+            usage_ym = usage_date.year * 100 + usage_date.month
+            usage_m = usage_date.month
+
             val_to_set = ""
-            if col_ym >= start_ym_val and (not is_finite or col_ym <= end_ym_val):
+            if usage_ym >= start_ym_val and (not is_finite or usage_ym <= end_ym_val):
                 months_targeted = []
                 if "偶数" in pay_month_freq:
                     months_targeted = [2, 4, 6, 8, 10, 12]
@@ -382,10 +415,10 @@ def execute_expansion(username, mode="NEW", start_ym=None):
                     if mm:
                         months_targeted = [int(x) for x in mm]
                     else:
-                        months_targeted = [c_m]
+                        months_targeted = [usage_m] # 利用月の月で判定
                 
-                if c_m in months_targeted:
-                    if is_finite and col_ym == end_ym_val:
+                if usage_m in months_targeted:
+                    if is_finite and usage_ym == end_ym_val:
                         val_to_set = final_amt
                     else:
                         val_to_set = amt
@@ -490,10 +523,12 @@ def show_fixed_cost_data_expansion():
     if not client:
         st.error("Google Drive APIに接続できません。")
         return
-    ss = None
+    sheet_name = f"{username}_支払管理"
     try:
-        ss = client.open(f"{username}_支払管理")
-    except: pass
+        ss = client.open(sheet_name)
+    except Exception:
+        st.warning("現在、あなた専用の支払管理シートが見つかりません。先に『支払管理シート新規作成』を行ってください。")
+        return
     
     import datetime
     from dateutil.relativedelta import relativedelta
@@ -709,13 +744,15 @@ def execute_variable_cost_update(username, start_ym=None, skip_backup=False):
         return False, f"支払方法マスターの取得に失敗しました: {e}"
         
     if not cc_methods:
-        return False, "クレジットカードが1件も登録されていません。「支払方法マスター」を確認してください。"
+        return True, "クレジットカードが登録されていないため、変動費の集計をスキップしました。"
         
     st.write("📊 取引履歴を取得し、各月の支払額を集計中...")
     try:
         tx_sheet = get_sheet(TRANSACTIONS_WORKSHEET_NAME)
         all_txs = safe_gspread_call(tx_sheet.get_all_records)
         user_txs = [tx for tx in all_txs if str(tx.get("username", "")).lower() == username.lower()]
+        if not user_txs:
+            return True, "対象となる取引データがないため、変動費の更新をスキップしました。"
     except Exception as e:
         return False, f"取引履歴の取得に失敗しました: {e}"
         
@@ -2103,8 +2140,8 @@ def show_variable_cost_update():
     sheet_name = f"{username}_支払管理"
     try:
         ss = client.open(sheet_name)
-    except Exception as e:
-        st.warning("現在、あなた専用の支払管理シートが見つかりません。先に「支払管理シート新規作成」を行ってください。")
+    except Exception:
+        st.warning("現在、あなた専用の支払管理シートが見つかりません。先に『支払管理シート新規作成』を行ってください。")
         return
         
     if st.button("更新を実行する", type="primary"):
