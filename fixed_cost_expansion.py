@@ -830,7 +830,7 @@ def execute_variable_cost_update(username, start_ym=None, skip_backup=False):
             p_day_match = re.search(r"\d+", str(pay_date_str))
             p_day_val = int(p_day_match.group()) if p_day_match else 27
         except: p_day_val = 27
-        timing_label = "翌月" if p_day_val <= 20 else "当月"
+        timing_label = "翌月" if p_day_val < 20 else "当月"
         payment_desc = f"支払日は{timing_label}の{pay_date_str}となります。"
 
         cc_row_dict = {
@@ -851,7 +851,7 @@ def execute_variable_cost_update(username, start_ym=None, skip_backup=False):
                 
                 # 表示ルールの適用: 20日基準で表示年月をシフト
                 # 20日以前なら：支払月 ＝ 表示月
-                # 21日以降なら：支払月 ＝ 表示月 － 1ヶ月 (翌月の21日以降なら翌月の年月に表示、の逆算)
+                # 20日以降なら：支払月 ＝ 表示月 － 1ヶ月 (翌月の20日以降なら翌月の年月に表示、の逆算)
                 try:
                     p_day_m = re.search(r"\d+", str(pay_date_str))
                     p_day = int(p_day_m.group()) if p_day_m else 0
@@ -1076,7 +1076,7 @@ def execute_variable_cost_update(username, start_ym=None, skip_backup=False):
                         p_day = int(p_day_m.group()) if p_day_m else 27
                         
                         base_date_dt = datetime(y, m, 1)
-                        if p_day <= 20:
+                        if p_day < 20:
                             target_pay_dt = base_date_dt + relativedelta(months=1)
                         else:
                             target_pay_dt = base_date_dt
@@ -1160,7 +1160,7 @@ def execute_variable_cost_update(username, start_ym=None, skip_backup=False):
             p_day_sum_m = re.search(r"\d+", str(pay_date_str))
             p_day_sum_v = int(p_day_sum_m.group()) if p_day_sum_m else 27
         except: p_day_sum_v = 27
-        timing_sum_label = "翌月" if p_day_sum_v <= 20 else "当月"
+        timing_sum_label = "翌月" if p_day_sum_v < 20 else "当月"
         payment_sum_desc = f"支払日は{timing_sum_label}の{pay_date_str}となります。"
 
         sum_dict = {"大分類": "クレジットカード 支払残額", "科目１": "クレジットカード 支払残額", "科目２": cc_name, "科目詳細": payment_sum_desc}
@@ -1578,11 +1578,11 @@ def execute_variable_cost_update(username, start_ym=None, skip_backup=False):
                                         if "当月" in p_month: off = 0
                                         elif "翌々月" in p_month: off = 2
                                         
-                                        # 【例外ルール】変動費、または固定費のクレジットカードで、翌月21日以降払いは「当月」とみなす (Ver 5.9.2)
+                                        # 【重要】変動Ａまたは固定のクレジットカードで、20日以降は「遅」とみなす (Ver 5.9.2)
                                         is_unified_target = (r_dai == "変動費") or (r_dai == "固定費" and r_k1 == "クレジットカード")
                                         if is_unified_target and off == 1:
                                             d_m_check = re.search(r"\d+", p_date)
-                                            if d_m_check and int(d_m_check.group()) >= 21:
+                                            if d_m_check and int(d_m_check.group()) >= 20:
                                                 off = 0
                                                 
                                     base_dt = datetime(y, m, 1) + relativedelta(months=off)
