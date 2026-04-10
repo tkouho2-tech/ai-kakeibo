@@ -850,23 +850,21 @@ def execute_variable_cost_update(username, start_ym=None, skip_backup=False):
                 base_date = datetime(my, mm, 1)
                 
                 # 表示ルールの適用: 20日基準で表示年月をシフト
-                # 20日以前なら：支払月 ＝ 表示月
-                # 20日以降なら：支払月 ＝ 表示月 － 1ヶ月 (翌月の20日以降なら翌月の年月に表示、の逆算)
+                # 20日未満なら：支払月（表示月） ＝ 利用月
+                # 20日以降なら：支払月（表示月） ＝ 利用月 ＋ 1ヶ月  （利用月 ＝ 表示月 － 1ヶ月）
                 try:
                     p_day_m = re.search(r"\d+", str(pay_date_str))
                     p_day = int(p_day_m.group()) if p_day_m else 0
                 except:
                     p_day = 0
                 
-                # 20日以降（または数値なしの末日等）は「遅い支払」と判定し、オフセットを適用
-                is_pay_late = (p_day >= 20 or "末日" in str(pay_date_str) or "月末" in str(pay_date_str))
-
+                # 改訂ルール#8：
+                # 通常：利用月 ＝ 支払月（表示月）
+                # 遅い（20日以降）：利用月 ＝ 支払月（表示月） － 1ヶ月
                 if not is_pay_late:
-                    # 支払月の前月に表示する（例: 2/10払 → 1月カラム） => 支払月 ＝ 表示月 ＋ 1ヶ月
-                    target_pay_date = base_date + relativedelta(months=1)
-                else:
-                    # 支払月と同じ年月に表示する（例: 2/27払 → 2月カラム） => 支払月 ＝ 表示月
                     target_pay_date = base_date
+                else:
+                    target_pay_date = base_date - relativedelta(months=1)
                 
                 from app import calculate_credit_card_periods
                 periods = calculate_credit_card_periods(target_pay_date, closing_str, pay_month_str, pay_date_str)
