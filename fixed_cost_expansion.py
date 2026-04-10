@@ -377,14 +377,15 @@ def execute_expansion(username, mode="NEW", start_ym=None):
                 p_month = _normalize(method.get("payment_month", ""))
                 p_date_str = _normalize(method.get("payment_date", ""))
                 
-                # 支払日の数値を抽出
+                # 支払日の数値抽出と判定
                 p_day_match = re.search(r"\d+", p_date_str)
                 p_day_val = int(p_day_match.group()) if p_day_match else 0
+                is_pay_late = (p_day_val >= 20 or "末日" in p_date_str or "月末" in p_date_str)
                 
-                # 条件判定: 「月末」または「末日」締 且つ 「翌月」払 且つ 「20日」以降
+                # 条件判定: 「月末」または「末日」締 且つ 「翌月」払 且つ 「20日以降（または末日）」
                 is_month_end = ("月末" in c_date or "末日" in c_date)
                 is_next_month = ("翌月" in p_month)
-                if is_month_end and is_next_month and p_day_val >= 20:
+                if is_month_end and is_next_month and is_pay_late:
                     offset = 1
 
         # Months check
@@ -853,11 +854,14 @@ def execute_variable_cost_update(username, start_ym=None, skip_backup=False):
                 # 21日以降なら：支払月 ＝ 表示月 － 1ヶ月 (翌月の21日以降なら翌月の年月に表示、の逆算)
                 try:
                     p_day_m = re.search(r"\d+", str(pay_date_str))
-                    p_day = int(p_day_m.group()) if p_day_m else 27
+                    p_day = int(p_day_m.group()) if p_day_m else 0
                 except:
-                    p_day = 27
+                    p_day = 0
+                
+                # 20日以降（または数値なしの末日等）は「遅い支払」と判定し、オフセットを適用
+                is_pay_late = (p_day >= 20 or "末日" in str(pay_date_str) or "月末" in str(pay_date_str))
 
-                if p_day <= 20:
+                if not is_pay_late:
                     # 支払月の前月に表示する（例: 2/10払 → 1月カラム） => 支払月 ＝ 表示月 ＋ 1ヶ月
                     target_pay_date = base_date + relativedelta(months=1)
                 else:
@@ -941,12 +945,12 @@ def execute_variable_cost_update(username, start_ym=None, skip_backup=False):
                         if "当月" in str(pay_month_str): off = 0
                         elif "翌々月" in str(pay_month_str): off = 2
                         
-                        # 【例外ルール】変動費カード(50-52行)で「翌月21日以降払」の場合は当月(0)とみなす
+                        # 【例外ルール】変動費カード(50-52行)で「翌月20日以降払」の場合は当月(0)とみなす
                         d_m_check = re.search(r"\d+", str(pay_date_str))
-                        if d_m_check:
-                            p_day_val = int(d_m_check.group())
-                            if off == 1 and p_day_val >= 21:
-                                off = 0
+                        p_day_val = int(d_m_check.group()) if d_m_check else 0
+                        is_late = (p_day_val >= 20 or "末日" in str(pay_date_str) or "月末" in str(pay_date_str))
+                        if off == 1 and is_late:
+                            off = 0
                                 
                             base_dt = datetime(y, m, 1) + relativedelta(months=off)
                             due_dt = base_dt + relativedelta(day=p_day_val)
