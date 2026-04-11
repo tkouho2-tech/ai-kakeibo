@@ -382,11 +382,15 @@ def execute_expansion(username, mode="NEW", start_ym=None):
                 p_day_val = int(p_day_match.group()) if p_day_match else 0
                 is_pay_late = (p_day_val >= 20 or "末日" in p_date_str or "月末" in p_date_str)
                 
-                # 条件判定: 「月末」または「末日」締 且つ 「翌月」払 且つ 「20日以降（または末日）」
-                is_month_end = ("月末" in c_date or "末日" in c_date)
-                is_next_month = ("翌月" in p_month)
-                if is_month_end and is_next_month and is_pay_late:
+                # 【Ver 6.0.0 変更】判定条件を20日基準（is_pay_late）のみに簡素化・統一
+                if is_pay_late:
                     offset = 1
+                
+                # ユーザー確認用ログの出力
+                if offset > 0:
+                    st.write(f"  - ⚡ 20日基準適用: **{m_k2}** (支払日: {p_date_str}) → 1ヶ月シフトします。")
+                else:
+                    st.write(f"  - 💳 カード判定: **{m_k2}** (支払日: {p_date_str}) → シフトなし。")
 
         # Months check
         for m_col in month_cols:
@@ -831,6 +835,8 @@ def execute_variable_cost_update(username, start_ym=None, skip_backup=False):
             p_day_val = int(p_day_match.group()) if p_day_match else 27
         except: p_day_val = 27
         timing_label = "翌月" if p_day_val < 20 else "当月"
+        # 【Ver 6.0.0】is_pay_late をこのスコープで正しく定義
+        is_pay_late = (p_day_val >= 20 or "末日" in str(pay_date_str) or "月末" in str(pay_date_str))
         payment_desc = f"支払日は{timing_label}の{pay_date_str}となります。"
 
         cc_row_dict = {
@@ -846,7 +852,10 @@ def execute_variable_cost_update(username, start_ym=None, skip_backup=False):
         
         for mc in month_cols:
             try:
-                my, mm = [int(x.replace("月","")) for x in mc.split(".")]
+                # 【Ver 6.0.0】堅牢な解析への切り替え (点やスラッシュの違いに左右されない)
+                my, mm = _get_year_month(_clean_val(mc).strip())
+                if my == 9999:
+                    continue
                 base_date = datetime(my, mm, 1)
                 
                 # 表示ルールの適用: 20日基準で表示年月をシフト
@@ -861,6 +870,7 @@ def execute_variable_cost_update(username, start_ym=None, skip_backup=False):
                 # 改訂ルール#8：
                 # 通常：利用月 ＝ 支払月（表示月）
                 # 遅い（20日以降）：利用月 ＝ 支払月（表示月） － 1ヶ月
+                # 【Ver 6.0.0】未定義だった is_pay_late を使用
                 if not is_pay_late:
                     target_pay_date = base_date
                 else:
