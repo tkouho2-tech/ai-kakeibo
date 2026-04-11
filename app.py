@@ -3596,8 +3596,18 @@ def main():
                 .block-container h5 { font-size: calc(1.00rem + 2pt) !important; }
                 </style>
             """, unsafe_allow_html=True)
-            st.subheader("マイニィ [Ver 6.0.0]")
+            st.subheader("マイニィ [Ver 6.1.0]")
             st.write(f"🔑 ユーザー: **{st.session_state['username']}**")
+            # --- プロフェッショナル診断ツール (Ver 6.1.0) ---
+            with st.sidebar.expander("🛠️ システム診断", expanded=False):
+                client = get_gspread_client()
+                if client:
+                    try:
+                        ss = client.open(SPREADSHEET_NAME)
+                        st.caption(f"📄 Sheet ID: `{ss.id}`")
+                        st.caption(f"📧 Service Account: `{client.auth.signer_email}`")
+                    except:
+                        st.caption("⚠️ 診断情報の取得に失敗しました。")
             st.markdown("---")
             if 'menu_selection' not in st.session_state:
                 st.session_state['menu_selection'] = "カレンダー"
@@ -5420,7 +5430,7 @@ Googleスプレッドシートと連携し、固定費シミュレーション�
                 st.markdown(text); render_speech_synthesis_button(text, "sp_dl_manual")
             
             st.markdown("---")
-            st.caption("マイニー [Ver 6.0.0] - 常に最新の技術であなたの家計管理をサポートします。")
+            st.caption("マイニー [Ver 6.1.0] - 常に最新の技術であなたの家計管理をサポートします。")
 
         elif menu_selection == "クレジットカード":
             show_credit_card_dashboard()
@@ -5450,7 +5460,7 @@ Googleスプレッドシートと連携し、固定費シミュレーション�
         elif menu_selection == "支払管理シートを確認":
             show_open_management_sheet()
             
-        st.caption("マイニー Ver 6.0.0 - ユーザー: %s" % st.session_state['username'])
+        st.caption("マイニー Ver 6.1.0 - ユーザー: %s" % st.session_state['username'])
             
     # 未ログインの状態 (ログイン・登録画面)
     else:

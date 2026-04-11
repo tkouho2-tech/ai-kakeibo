@@ -386,11 +386,12 @@ def execute_expansion(username, mode="NEW", start_ym=None):
                 if is_pay_late:
                     offset = 1
                 
-                # ユーザー確認用ログの出力
+                # ユーザー確認用ログの出力 (Ver 6.1.0 診断強化)
+                log_msg = f"  - 💳 カード: **{m_k2}** (判定用支払日: `{p_day_val}`, 締日: `{c_date}`, 支払月: `{p_month}`, 支払日内容: `{p_date_str}`)"
                 if offset > 0:
-                    st.write(f"  - ⚡ 20日基準適用: **{m_k2}** (支払日: {p_date_str}) → 1ヶ月シフトします。")
+                    st.write(f"{log_msg} → ⚡ **1ヶ月シフト適用**")
                 else:
-                    st.write(f"  - 💳 カード判定: **{m_k2}** (支払日: {p_date_str}) → シフトなし。")
+                    st.write(f"{log_msg} → シフトなし")
 
         # Months check
         for m_col in month_cols:
