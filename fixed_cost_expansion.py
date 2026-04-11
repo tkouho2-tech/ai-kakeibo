@@ -270,8 +270,6 @@ def execute_expansion(username, mode="NEW", start_ym=None):
         y_m = _get_year_month(h_clean)
         if y_m != (9999, 12):
             month_cols.append({"col_idx": i, "year": y_m[0], "month": y_m[1], "ym": y_m[0]*100 + y_m[1]})
-            # 【Ver 6.2.0】解析デバッグログ
-            st.write(f"  - 📅 列解析: `{h}` → `{y_m[0]}年{y_m[1]}月` として認識")
             
     # FIND INDICES
     cat1_idx = next((i for i, h in enumerate(actual_headers) if "大分類" in h or "カテゴリ1" in h), -1)
