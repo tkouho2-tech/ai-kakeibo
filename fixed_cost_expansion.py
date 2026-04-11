@@ -31,18 +31,27 @@ def _get_year_month(ym_str):
     s = str(ym_str).strip()
     if not s:
         return (9999, 12)
+    
+    # 【Ver 6.2.0】環境（ロケール）による日付形式の差異を吸収するため、Pandasの柔軟な解析を導入
+    try:
+        # 日本語が含まれる場合は置換してからパース
+        s_clean = s.replace("年","/").replace("月","/").replace(".","/")
+        dt = pd.to_datetime(s_clean, errors='coerce')
+        if pd.notnull(dt) and dt.year > 1900:
+            return (dt.year, dt.month)
+    except:
+        pass
+
+    # フォールバック: 正規表現による抽出 (従来どおり)
     # YYYY/M, YYYY/MM, YYYY.M, YYYY.MM, YYYY年M月 などに対応
     m = re.search(r"(\d{4})[年/\.\-](\d{1,2})", s)
     if m:
         return (int(m.group(1)), int(m.group(2)))
-    # YY/M など 2000年代と仮定
-    m2 = re.search(r"(\d{2})[年/\.\-](\d{1,2})", s)
-    if m2:
-        y_val = int(m2.group(1))
-        if y_val < 50: # 20xx
-            return (2000 + y_val, int(m2.group(2)))
-        else: # 19xx (一応)
-            return (1900 + y_val, int(m2.group(2)))
+    # US形式 (M/D/YYYY) への対応
+    m_us = re.search(r"(\d{1,2})[/\.\-](\d{1,2})[/\.\-](\d{4})", s)
+    if m_us:
+        return (int(m_us.group(3)), int(m_us.group(1)))
+        
     return (9999, 12)
 
 def ensure_id_column_and_formula(ws_pay):
