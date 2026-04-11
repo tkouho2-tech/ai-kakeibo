@@ -322,7 +322,8 @@ def get_sheet(worksheet_name, create_if_not_found=False):
         
         return safe_gspread_call(_open_sheet)
     except gspread.exceptions.SpreadsheetNotFound:
-        st.error(f"エラー: スプレッドシート '{SPREADSHEET_NAME}' が見つかりません。クレデンシャルのメールアドレス ({client.auth.signer_email}) とスプレッドシートを共有してください。")
+        email = client.auth.signer_email if hasattr(client, "auth") else client.http_client.auth.signer_email
+        st.error(f"エラー: スプレッドシート '{SPREADSHEET_NAME}' が見つかりません。クレデンシャルのメールアドレス ({email}) とスプレッドシートを共有してください。")
         st.stop()
     except gspread.exceptions.WorksheetNotFound:
         if create_if_not_found:
@@ -3604,8 +3605,9 @@ def main():
                 if client:
                     try:
                         ss = client.open(SPREADSHEET_NAME)
+                        email = client.auth.signer_email if hasattr(client, "auth") else client.http_client.auth.signer_email
                         st.caption(f"📄 Sheet ID: `{ss.id}`")
-                        st.caption(f"📧 Service Account: `{client.auth.signer_email}`")
+                        st.caption(f"📧 Service Account: `{email}`")
                     except:
                         st.caption("⚠️ 診断情報の取得に失敗しました。")
             st.markdown("---")

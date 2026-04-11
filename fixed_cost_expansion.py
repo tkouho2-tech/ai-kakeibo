@@ -36,9 +36,10 @@ def _get_year_month(ym_str):
     try:
         # 日本語が含まれる場合は置換してからパース
         s_clean = s.replace("年","/").replace("月","/").replace(".","/")
-        dt = pd.to_datetime(s_clean, errors='coerce')
-        if pd.notnull(dt) and dt.year > 1900:
-            return (dt.year, dt.month)
+        if re.search(r"\d{4}", s_clean):
+            dt = pd.to_datetime(s_clean, errors='coerce')
+            if pd.notnull(dt) and dt.year > 1900:
+                return (dt.year, dt.month)
     except:
         pass
 
@@ -232,7 +233,7 @@ def execute_expansion(username, mode="NEW", start_ym=None):
                     safe_gspread_call(ws_pay.update_acell, "F2", birth_clean[:8])
             
             # 2. 現在日時の設定 (yyyy-mm-dd hh:mm:ss)
-            now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            now_str = datetime.now(JST).strftime("%Y-%m-%d %H:%M:%S")
             safe_gspread_call(ws_pay.update_acell, "F4", now_str)
             
         except Exception as profile_err:
@@ -549,7 +550,7 @@ def show_fixed_cost_data_expansion():
     
     import datetime
     from dateutil.relativedelta import relativedelta
-    now = datetime.datetime.now()
+    now = datetime.datetime.now(JST)
     month_options = [f"{now.year}/{now.month:02d}（当月）"]
     for i in range(1, 6):
         dt = now + relativedelta(months=i)
