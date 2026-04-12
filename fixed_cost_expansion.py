@@ -883,9 +883,9 @@ def execute_variable_cost_update(username, start_ym=None, skip_backup=False):
                 # 遅い（20日以降）：利用月 ＝ 支払月（表示月） － 1ヶ月
                 # 【Ver 6.0.0】未定義だった is_pay_late を使用
                 if not is_pay_late:
-                    target_pay_date = base_date
+                    target_pay_date = base_date + relativedelta(months=1)
                 else:
-                    target_pay_date = base_date - relativedelta(months=1)
+                    target_pay_date = base_date
                 
                 from app import calculate_credit_card_periods
                 periods = calculate_credit_card_periods(target_pay_date, closing_str, pay_month_str, pay_date_str)
@@ -971,15 +971,15 @@ def execute_variable_cost_update(username, start_ym=None, skip_backup=False):
                         if off == 1 and is_late:
                             off = 0
                                 
-                            base_dt = datetime(y, m, 1) + relativedelta(months=off)
-                            due_dt = base_dt + relativedelta(day=p_day_val)
+                        base_dt = datetime(y, m, 1) + relativedelta(months=off)
+                        due_dt = base_dt + relativedelta(day=p_day_val)
+                        
+                        # 営業日チェックと翌営業日へのスライド
+                        while due_dt.weekday() >= 5 or jpholiday.is_holiday(due_dt.date()):
+                            due_dt += timedelta(days=1)
                             
-                            # 営業日チェックと翌営業日へのスライド
-                            while due_dt.weekday() >= 5 or jpholiday.is_holiday(due_dt.date()):
-                                due_dt += timedelta(days=1)
-                                
-                            if datetime.now(JST).date() >= due_dt.date():
-                                is_past_due = True
+                        if datetime.now(JST).date() >= due_dt.date():
+                            is_past_due = True
 
                     if has_valid_amount and is_past_due:
                         if 0 <= f_idx < len(row_arr):
@@ -1691,7 +1691,7 @@ def execute_variable_cost_update(username, start_ym=None, skip_backup=False):
         except: pass
 
         # --- 合計行・集計行の描画 ---
-        st.write("📊 集計エリアの書式設定（セル結合など）を開始...")
+        st.write("📊 クレジットカード内訳・収入データの自動連動および機能保守を実行中...")
         
         # 💡 [Ver 5.9.0] クレジットカード内訳（54-62行）の自動集計および収入項目の動的同期ロジック実装
         if 'existing_merges' in locals() and existing_merges:
