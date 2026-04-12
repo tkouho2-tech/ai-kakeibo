@@ -1,4 +1,4 @@
-import streamlit as st
+﻿import streamlit as st
 import jpholiday
 import pandas as pd
 import plotly.express as px
@@ -3617,7 +3617,7 @@ def main():
                 .block-container h5 { font-size: calc(1.00rem + 2pt) !important; }
                 </style>
             """, unsafe_allow_html=True)
-            st.subheader("マイニィ [Ver 6.2.10]")
+            st.subheader("マイニィ [Ver 6.2.11]")
             st.write(f"🔑 ユーザー: **{st.session_state['username']}**")
             # --- プロフェッショナル診断ツール (Ver 6.2.0) ---
             with st.sidebar.expander("🛠️ システム診断", expanded=False):
@@ -5018,9 +5018,40 @@ def main():
                     except Exception as e:
                         return f"--- {title} ---\nデータ取得エラー: {e}\n"
 
+                def fetch_payment_management_sheet_csv(username, title):
+                    try:
+                        client = get_gspread_client()
+                        if not client:
+                            return f"--- {title} ---\nAPIクライアント初期化エラー\n"
+                        sheet_name = f"{username}_支払管理"
+                        try:
+                            ss = client.open(sheet_name)
+                            ws = ss.worksheet("支払管理")
+                            values = safe_gspread_call(ws.get_all_values)
+                        except gspread.exceptions.SpreadsheetNotFound:
+                            return f"--- {title} ---\n支払管理シート未作成\n"
+                        except Exception as e:
+                            return f"--- {title} ---\n支払管理シートアクセスエラー: {e}\n"
+                        
+                        if not values or len(values) < 2:
+                            return f"--- {title} ---\nデータなし\n"
+                            
+                        # 支払管理シートは列構成がユーザーごとに異なる（年月列が動的）
+                        # そのまま全データをCSV化して返す
+                        headers = [h.strip() if h.strip() else f"empty_{i}" for i, h in enumerate(values[0])]
+                        df_all = pd.DataFrame(values[1:])
+                        if df_all.shape[1] > len(headers):
+                            headers += [f"extra_{i}" for i in range(len(headers), df_all.shape[1])]
+                        df_all.columns = headers[:df_all.shape[1]]
+                        
+                        return f"--- {title} ---\n{df_all.to_csv(index=False)}\n"
+                    except Exception as e:
+                        return f"--- {title} ---\nデータ取得エラー: {e}\n"
+
                 result_parts.append(fetch_sheet_csv(TRANSACTIONS_WORKSHEET_NAME, "支出データ"))
                 result_parts.append(fetch_sheet_csv(USER_MASTER_WORKSHEET_NAME, "ユーザープロフィール"))
                 result_parts.append(fetch_sheet_csv(PAYMENT_MASTER_WORKSHEET_NAME, "支払方法マスター"))
+                result_parts.append(fetch_payment_management_sheet_csv(username, "支払管理シートデータ"))
                 
                 return "\n".join(result_parts)
                 
@@ -5109,9 +5140,10 @@ MBTI: {mbti}
 
                             # システムプロンプトを都度構築（最新データを反映させるため）
                             system_prompt = f"""{profile_prompt}
-以下のCSVデータは、このユーザー（{st.session_state['username']}）個人の家計簿データです。
-このデータには「商品名」も含まれており、いつ、どこで、何を買ったかを詳細に把握できます。
-ユーザーからの「特定の商品の購入時期（例：鶏肉ナンコツはいつ買った？）」や「商品の価格推移」などの質問に対し、正確かつ親身に答えてください。
+以下のCSVデータは、このユーザー（{st.session_state['username']}）個人の家計簿データ（支出データ、支払管理シート等）です。
+支出データには「商品名」も含まれており、いつ、どこで、何を買ったかを詳細に把握できます。
+支払管理シートデータには、各クレジットカード支払いの確定額や次月以降の固定費・変動費の引落見込みなどが記載されています。
+ユーザーからの「特定の商品の購入時期（例：鶏肉ナンコツはいつ買った？）」や「来月の支払いはいくらになりそう？」といった質問に対し、各シートのデータを横断して正確かつ親身に答えてください。
 データに存在しない推測は避け、無駄遣いの指摘や節約のアドバイスなども積極的に行ってください。
 
 【ユーザーの家計簿データ】
@@ -5459,7 +5491,7 @@ Googleスプレッドシートと連携し、固定費シミュレーション�
                 st.markdown(text); render_speech_synthesis_button(text, "sp_dl_manual")
             
             st.markdown("---")
-            st.caption("マイニー [Ver 6.2.10] - 常に最新の技術であなたの家計管理をサポートします。")
+            st.caption("マイニー [Ver 6.2.11] - 常に最新の技術であなたの家計管理をサポートします。")
 
         elif menu_selection == "クレジットカード":
             show_credit_card_dashboard()
@@ -5489,7 +5521,7 @@ Googleスプレッドシートと連携し、固定費シミュレーション�
         elif menu_selection == "支払管理シートを確認":
             show_open_management_sheet()
             
-        st.caption("マイニー Ver 6.2.4 - ユーザー: %s" % st.session_state['username'])
+        st.caption("マイニー Ver 6.2.11 - ユーザー: %s" % st.session_state['username'])
             
     # 未ログインの状態 (ログイン・登録画面)
     else:
