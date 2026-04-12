@@ -1879,16 +1879,36 @@ def render_transaction_breakdown(df, key_prefix):
                     pm_filtered_disp = df_pm_disp[df_pm_disp[pm_col] == pm].copy()
                     
                     if store_col:
-                        # 2段階目：店舗
-                        store_grouped = pm_filtered_agg.groupby(store_col, as_index=False)["amount"].sum()
-                        store_grouped = store_grouped.sort_values(by="amount", ascending=False)
+                        # 2段階目：店舗 (日付ごとに分割して表示)
+                        has_date = "date" in pm_filtered_agg.columns
+                        if has_date:
+                            try:
+                                pm_filtered_agg["date_disp"] = pd.to_datetime(pm_filtered_agg["date"], errors='coerce').dt.strftime('%m/%d')
+                                pm_filtered_disp["date_disp"] = pd.to_datetime(pm_filtered_disp["date"], errors='coerce').dt.strftime('%m/%d')
+                                pm_filtered_agg["date_disp"] = pm_filtered_agg["date_disp"].fillna("")
+                                pm_filtered_disp["date_disp"] = pm_filtered_disp["date_disp"].fillna("")
+                            except:
+                                pm_filtered_agg["date_disp"] = ""
+                                pm_filtered_disp["date_disp"] = ""
+                                
+                            store_grouped = pm_filtered_agg.groupby(["date_disp", store_col], as_index=False)["amount"].sum()
+                            store_grouped = store_grouped.sort_values(by=["date_disp", "amount"], ascending=[False, False])
+                        else:
+                            store_grouped = pm_filtered_agg.groupby(store_col, as_index=False)["amount"].sum()
+                            store_grouped = store_grouped.sort_values(by="amount", ascending=False)
                         
                         for _, s_row in store_grouped.iterrows():
                             store_name = s_row[store_col]
                             s_amt_str = f"￥{int(s_row['amount']):,}"
                             
-                            with st.expander(f"  └ {store_name}：{s_amt_str}"):
-                                store_filtered_df = pm_filtered_disp[pm_filtered_disp[store_col] == store_name].copy()
+                            b_date = s_row.get('date_disp', '') if has_date else ''
+                            expander_title = f"  └ [{b_date}] {store_name}：{s_amt_str}" if b_date else f"  └ {store_name}：{s_amt_str}"
+                            
+                            with st.expander(expander_title):
+                                if b_date:
+                                    store_filtered_df = pm_filtered_disp[(pm_filtered_disp[store_col] == store_name) & (pm_filtered_disp["date_disp"] == b_date)].copy()
+                                else:
+                                    store_filtered_df = pm_filtered_disp[pm_filtered_disp[store_col] == store_name].copy()
                                 
                                 # 3段階目以降（大分類 -> 小分類 -> 商品）
                                 display_categories_as_html(store_filtered_df)
@@ -3597,7 +3617,7 @@ def main():
                 .block-container h5 { font-size: calc(1.00rem + 2pt) !important; }
                 </style>
             """, unsafe_allow_html=True)
-            st.subheader("マイニィ [Ver 6.2.3]")
+            st.subheader("マイニィ [Ver 6.2.4]")
             st.write(f"🔑 ユーザー: **{st.session_state['username']}**")
             # --- プロフェッショナル診断ツール (Ver 6.2.0) ---
             with st.sidebar.expander("🛠️ システム診断", expanded=False):
@@ -5439,7 +5459,7 @@ Googleスプレッドシートと連携し、固定費シミュレーション�
                 st.markdown(text); render_speech_synthesis_button(text, "sp_dl_manual")
             
             st.markdown("---")
-            st.caption("マイニー [Ver 6.2.3] - 常に最新の技術であなたの家計管理をサポートします。")
+            st.caption("マイニー [Ver 6.2.4] - 常に最新の技術であなたの家計管理をサポートします。")
 
         elif menu_selection == "クレジットカード":
             show_credit_card_dashboard()
@@ -5469,7 +5489,7 @@ Googleスプレッドシートと連携し、固定費シミュレーション�
         elif menu_selection == "支払管理シートを確認":
             show_open_management_sheet()
             
-        st.caption("マイニー Ver 6.2.3 - ユーザー: %s" % st.session_state['username'])
+        st.caption("マイニー Ver 6.2.4 - ユーザー: %s" % st.session_state['username'])
             
     # 未ログインの状態 (ログイン・登録画面)
     else:
