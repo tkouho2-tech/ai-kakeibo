@@ -1,4 +1,4 @@
-﻿import streamlit as st
+import streamlit as st
 import jpholiday
 import pandas as pd
 import plotly.express as px
@@ -3617,7 +3617,7 @@ def main():
                 .block-container h5 { font-size: calc(1.00rem + 2pt) !important; }
                 </style>
             """, unsafe_allow_html=True)
-            st.subheader("マイニィ [Ver 6.2.12]")
+            st.subheader("マイニィ [Ver 6.2.13]")
             st.write(f"🔑 ユーザー: **{st.session_state['username']}**")
             # --- プロフェッショナル診断ツール (Ver 6.2.0) ---
             with st.sidebar.expander("🛠️ システム診断", expanded=False):
@@ -5058,7 +5058,17 @@ def main():
                             headers += [f"extra_{i}" for i in range(len(headers), df_all.shape[1])]
                         df_all.columns = headers[:df_all.shape[1]]
                         
-                        return f"--- {title} ---\n{df_all.to_csv(index=False)}\n"
+                        # AIがCSVの大量のカンマで列を誤認するのを防ぐため、空白セルを排除したJSON形式に変換して渡す
+                        import json
+                        records = []
+                        for _, row in df_all.iterrows():
+                            # 値が存在する列のみ抽出
+                            row_dict = {str(k): str(v).strip() for k, v in row.items() if pd.notna(v) and str(v).strip() != ""}
+                            # IDのみ等、無意味な行は除外（最低2つ以上のキーがある場合のみ採用）
+                            if len(row_dict) > 1:
+                                records.append(row_dict)
+                                
+                        return f"--- {title} ---\n{json.dumps(records, ensure_ascii=False, indent=2)}\n"
                     except Exception as e:
                         return f"--- {title} ---\nデータ取得エラー: {e}\n"
 
@@ -5505,7 +5515,7 @@ Googleスプレッドシートと連携し、固定費シミュレーション�
                 st.markdown(text); render_speech_synthesis_button(text, "sp_dl_manual")
             
             st.markdown("---")
-            st.caption("マイニー [Ver 6.2.12] - 常に最新の技術であなたの家計管理をサポートします。")
+            st.caption("マイニー [Ver 6.2.13] - 常に最新の技術であなたの家計管理をサポートします。")
 
         elif menu_selection == "クレジットカード":
             show_credit_card_dashboard()
@@ -5535,7 +5545,7 @@ Googleスプレッドシートと連携し、固定費シミュレーション�
         elif menu_selection == "支払管理シートを確認":
             show_open_management_sheet()
             
-        st.caption("マイニー Ver 6.2.12 - ユーザー: %s" % st.session_state['username'])
+        st.caption("マイニー Ver 6.2.13 - ユーザー: %s" % st.session_state['username'])
             
     # 未ログインの状態 (ログイン・登録画面)
     else:
