@@ -2063,7 +2063,10 @@ def execute_variable_cost_update(username, start_ym=None, skip_backup=False):
                     r_raw = pay_fresh[idx]
                     # ターゲット行（内訳エリア）では G列(index 6) に ID が入っている
                     g_val = str(r_raw[6]).strip() if len(r_raw) > 6 else ""
+                    h_val = str(r_raw[7]).strip() if len(r_raw) > 7 else ""
                     
+
+                        
                     target_f_val = id_to_card_name.get(g_val, "")
                     if g_val and target_f_val:
                         # 書き込み先は F列(index 5)
@@ -2079,7 +2082,6 @@ def execute_variable_cost_update(username, start_ym=None, skip_backup=False):
                     # --- 3. H列の内容(変動費分/固定費分など)に基づく月次データの展開 ---
                     # F列の値（カード名）を取得（上記で確定した値、または現在のセル値）
                     f_val = target_f_val if (g_val and g_val in id_to_card_name) else (str(r_raw[5]).strip() if len(r_raw) > 5 else "")
-                    h_val = str(r_raw[7]).strip() if len(r_raw) > 7 else ""
                     
                     if f_val and h_val:
                         has_row_update = False
@@ -2089,6 +2091,10 @@ def execute_variable_cost_update(username, start_ym=None, skip_backup=False):
                         if "fc_payment_rows" in locals() and f_val in fc_payment_rows:
                             fc_rows = fc_payment_rows[f_val]
                         
+                        # --- 【ユーザー追加仕様】54行〜63行は「変動費分」のみI列以降を更新する（例外はスキップ） ---
+                        if 54 <= sheet_row <= 63 and "変動" not in h_val:
+                            continue
+                            
                         for c_idx in range(8, len(actual_headers)):
                             h_str = actual_headers[c_idx] if c_idx < len(actual_headers) else ""
                             clean_h = _normalize(_clean_val(str(h_str)))
