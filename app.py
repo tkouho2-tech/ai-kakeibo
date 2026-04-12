@@ -4781,6 +4781,13 @@ def main():
                                                 p_type, p_close, p_month, p_date = get_payment_details_for_transaction(st.session_state['username'], target_payment)
                                                 batch_updates = []
                                                 for r_idx in existing_indices:
+                                                    # 変更直前の安全チェック (フェールセーフ強化)
+                                                    current_row_values = sheet.row_values(r_idx)
+                                                    expected_item = st.session_state['edit_data'].get(r_idx) or st.session_state['edit_data'].get(str(r_idx), {})
+                                                    if len(current_row_values) < 4 or current_row_values[0].lower() != st.session_state['username'].lower() or str(current_row_values[3]).strip() != str(expected_item.get("name", "")).strip():
+                                                        st.error(f"🚨 エラー: 行 {r_idx} のデータが同期されていません。変更を中断しました。リロードしてください。")
+                                                        st.stop()
+                                                        
                                                     batch_updates.append({"range": f"B{r_idx}:C{r_idx}", "values": [[target_date_str, target_store]]})
                                                     # H (update) は変更せず、I (update2) から N (payment_date) までを更新
                                                     batch_updates.append({"range": f"I{r_idx}:N{r_idx}", "values": [[current_time, target_payment, str(p_type), str(p_close), str(p_month), str(p_date)]]})
@@ -4807,10 +4814,11 @@ def main():
                                                     
                                                     # 削除実行
                                                     for r_idx in sorted(existing_indices, reverse=True):
-                                                        # 削除直前の安全チェック
+                                                        # 削除直前の安全チェック (フェールセーフ強化)
                                                         current_row_values = sheet.row_values(r_idx)
-                                                        if len(current_row_values) < 1 or current_row_values[0].lower() != user_name.lower():
-                                                            st.error(f"🚨 エラー: 行 {r_idx} の削除中に不整合を検知しました。処理を中断します。リロードしてください。")
+                                                        expected_item = st.session_state['edit_data'].get(r_idx) or st.session_state['edit_data'].get(str(r_idx), {})
+                                                        if len(current_row_values) < 4 or current_row_values[0].lower() != user_name.lower() or str(current_row_values[3]).strip() != str(expected_item.get("name", "")).strip():
+                                                            st.error(f"🚨 エラー: 行 {r_idx} のデータが同期されていません。他の人がデータを変更した可能性があります。リロードしてやり直してください。")
                                                             st.stop()
                                                         sheet.delete_rows(r_idx)
                                                     st.success("✅ レシートを削除しました")
@@ -4877,12 +4885,11 @@ def main():
                                                             # 既存更新: 安全装置（行データの検証）
                                                             r_idx = int(current_editing_id)
                                                             
-                                                            # 書き込み直前に、その行が本当に正しいか確認する
-                                                            # (スプレッドシートの行がずれている可能性があるため)
+                                                            # 書き込み直前に、その行が本当に正しいか確認する (フェールセーフ強化)
                                                             current_row_values = sheet.row_values(r_idx)
-                                                            # ヘッダーを除いたデータ行(2行目以降)であることを確認しつつ、ユーザー名が一致するかチェック
-                                                            if len(current_row_values) < 1 or current_row_values[0].lower() != user_name.lower():
-                                                                st.error("🚨 エラー: スプレッドシートの行が同期されていません。一度画面をリロードしてやり直してください。")
+                                                            # ユーザー名と商品名がキャッシュの期待値と一致するかチェック
+                                                            if len(current_row_values) < 4 or current_row_values[0].lower() != user_name.lower() or str(current_row_values[3]).strip() != str(target_item.get("name", "")).strip():
+                                                                st.error("🚨 エラー: スプレッドシートの行が同期されていません。データが移動した可能性があります。一度画面をリロードしてやり直してください。")
                                                                 st.stop()
                                                             
                                                             # バッチ更新（1回のAPI呼び出しで範囲を更新）
@@ -4914,18 +4921,18 @@ def main():
                                                         user_name = st.session_state['username']
                                                         r_idx = int(current_editing_id)
                                                         
-                                                        # 削除直前の安全チェック
+                                                        # 削除直前の安全チェック (フェールセーフ強化)
                                                         current_row_values = sheet.row_values(r_idx)
-                                                        if len(current_row_values) < 1 or current_row_values[0].lower() != user_name.lower():
+                                                        if len(current_row_values) < 4 or current_row_values[0].lower() != user_name.lower() or str(current_row_values[3]).strip() != str(target_item.get("name", "")).strip():
                                                             st.error("🚨 エラー: 削除対象の行を特定できませんでした。データが移動している可能性があります。リロード後に再度お試しください。")
                                                             st.stop()
                                                         
                                                         sheet.delete_rows(r_idx)
                                                     
-                                                    del st.session_state['edit_data'][current_editing_id]
+                                                    # キャッシュ崩壊を完全に防ぐため、明細を削除した後は全体のキャッシュを破棄して強制再取得
+                                                    st.session_state['edit_data'] = None
                                                     st.success("🗑️ 明細を削除しました")
                                                     st.session_state['editing_gs_idx'] = None
-                                                    st.session_state['edit_data'] = None
                                                     st.session_state.item_list_version += 1
                                                     st.session_state.receipt_list_version += 1
                                                     time.sleep(1)
