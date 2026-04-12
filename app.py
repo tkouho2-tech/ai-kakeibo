@@ -3617,7 +3617,7 @@ def main():
                 .block-container h5 { font-size: calc(1.00rem + 2pt) !important; }
                 </style>
             """, unsafe_allow_html=True)
-            st.subheader("マイニィ [Ver 6.2.11]")
+            st.subheader("マイニィ [Ver 6.2.12]")
             st.write(f"🔑 ユーザー: **{st.session_state['username']}**")
             # --- プロフェッショナル診断ツール (Ver 6.2.0) ---
             with st.sidebar.expander("🛠️ システム診断", expanded=False):
@@ -5036,10 +5036,24 @@ def main():
                         if not values or len(values) < 2:
                             return f"--- {title} ---\nデータなし\n"
                             
-                        # 支払管理シートは列構成がユーザーごとに異なる（年月列が動的）
-                        # そのまま全データをCSV化して返す
-                        headers = [h.strip() if h.strip() else f"empty_{i}" for i, h in enumerate(values[0])]
-                        df_all = pd.DataFrame(values[1:])
+                        # 支払管理シートは、7行目（インデックス6）に正確な列名（年月など）が含まれている
+                        if len(values) > 6:
+                            raw_headers = values[6]
+                            headers = []
+                            for i, h in enumerate(raw_headers):
+                                h_clean = h.replace('\n', '').strip()
+                                if not h_clean:
+                                    h_clean = f"empty_{i}"
+                                # 「完了F」などは列名が重複するため、直前の列名（年月）を付ける
+                                if h_clean == "完了F" or "完了" in h_clean:
+                                    prev = headers[-1] if headers else f"col_{i}"
+                                    h_clean = f"{prev}_完了F"
+                                headers.append(h_clean)
+                            df_all = pd.DataFrame(values[7:])
+                        else:
+                            headers = [h.strip() if h.strip() else f"empty_{i}" for i, h in enumerate(values[0])]
+                            df_all = pd.DataFrame(values[1:])
+                            
                         if df_all.shape[1] > len(headers):
                             headers += [f"extra_{i}" for i in range(len(headers), df_all.shape[1])]
                         df_all.columns = headers[:df_all.shape[1]]
@@ -5491,7 +5505,7 @@ Googleスプレッドシートと連携し、固定費シミュレーション�
                 st.markdown(text); render_speech_synthesis_button(text, "sp_dl_manual")
             
             st.markdown("---")
-            st.caption("マイニー [Ver 6.2.11] - 常に最新の技術であなたの家計管理をサポートします。")
+            st.caption("マイニー [Ver 6.2.12] - 常に最新の技術であなたの家計管理をサポートします。")
 
         elif menu_selection == "クレジットカード":
             show_credit_card_dashboard()
@@ -5521,7 +5535,7 @@ Googleスプレッドシートと連携し、固定費シミュレーション�
         elif menu_selection == "支払管理シートを確認":
             show_open_management_sheet()
             
-        st.caption("マイニー Ver 6.2.11 - ユーザー: %s" % st.session_state['username'])
+        st.caption("マイニー Ver 6.2.12 - ユーザー: %s" % st.session_state['username'])
             
     # 未ログインの状態 (ログイン・登録画面)
     else:
