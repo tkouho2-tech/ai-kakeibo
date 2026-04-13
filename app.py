@@ -3700,7 +3700,7 @@ def main():
                 .block-container h5 { font-size: calc(1.00rem + 2pt) !important; }
                 </style>
             """, unsafe_allow_html=True)
-            st.subheader("マイニィ [Ver 6.2.14]")
+            st.subheader("マイニィ [Ver 6.2.15]")
             st.write(f"🔑 ユーザー: **{st.session_state['username']}**")
             # --- プロフェッショナル診断ツール (Ver 6.2.0) ---
             with st.sidebar.expander("🛠️ システム診断", expanded=False):
@@ -5604,7 +5604,7 @@ Googleスプレッドシートと連携し、固定費シミュレーション�
                 st.markdown(text); render_speech_synthesis_button(text, "sp_dl_manual")
             
             st.markdown("---")
-            st.caption("マイニー [Ver 6.2.14] - 常に最新の技術であなたの家計管理をサポートします。")
+            st.caption("マイニー [Ver 6.2.15] - 常に最新の技術であなたの家計管理をサポートします。")
 
         elif menu_selection == "クレジットカード":
             show_credit_card_dashboard()
@@ -5634,42 +5634,10 @@ Googleスプレッドシートと連携し、固定費シミュレーション�
         elif menu_selection == "支払管理シートを確認":
             show_open_management_sheet()
             
-        st.caption("マイニー Ver 6.2.14 - ユーザー: %s" % st.session_state['username'])
+        st.caption("マイニー Ver 6.2.15 - ユーザー: %s" % st.session_state['username'])
             
     # 未ログインの状態 (ログイン・登録画面)
     else:
-        # iPhoneのFace ID (パスワード自動入力) に対応するための属性付与スクリプト
-        st.components.v1.html(
-            """
-            <script>
-            function setAutocomplete() {
-                const doc = window.parent.document;
-                const inputs = doc.querySelectorAll('input');
-                inputs.forEach(input => {
-                    const labelText = input.getAttribute('aria-label') || input.placeholder || "";
-                    // ラベル要素の内容も確認
-                    const container = input.closest('div[data-testid="stTextInput"]');
-                    const labelWrap = container ? container.querySelector('label') : null;
-                    const finalLabel = labelText + (labelWrap ? labelWrap.innerText : "");
-
-                    if (finalLabel.includes('ユーザー名') || finalLabel.includes('ID')) {
-                        input.setAttribute('autocomplete', 'username');
-                        input.setAttribute('name', 'username');
-                        input.setAttribute('inputmode', 'text');
-                    } else if (finalLabel.includes('パスワード') || finalLabel.includes('password')) {
-                        input.setAttribute('autocomplete', 'current-password');
-                        input.setAttribute('name', 'password');
-                    }
-                });
-            }
-            // Streamlitのレンダリングに合わせて複数回実行
-            setTimeout(setAutocomplete, 300);
-            setTimeout(setAutocomplete, 1000);
-            setTimeout(setAutocomplete, 2500);
-            </script>
-            """,
-            height=0
-        )
         st.title("AI家計簿アプリ")
         
         tab1, tab2 = st.tabs(["ログイン", "新規ユーザー登録"])
