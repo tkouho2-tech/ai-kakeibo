@@ -31,6 +31,7 @@ PAYMENT_MASTER_WORKSHEET_NAME = "Payment_Master"
 BANK_MASTER_WORKSHEET_NAME = "Bank_Master"
 CATEGORY_MASTER_WORKSHEET_NAME = "Category_Master"
 FIXED_COST_MASTER_WORKSHEET_NAME = "Fixed_Cost_Master"
+SESSIONS_WORKSHEET_NAME = "sessions"
 
 # ---------- カテゴリ定義 ----------
 # AI判別やセレクトボックスで利用するための大分類・小分類の親子関係定義
@@ -187,8 +188,19 @@ if '_init_done' not in st.session_state:
         except:
             pass
             
-    # --- URLパラメータによる自動ログイン機能の復元 (開発者の意向によりリスクを承知で復元) ---
-    if "user" in params:
+    # --- クッキーによる自動ログイン ---
+    cookie_token = st.context.cookies.get("session_token")
+    if cookie_token and not st.session_state.get('logged_in'):
+        # ネットワーク遅延等を考慮し、バリデーションを行う
+        valid_username = validate_session(cookie_token)
+        if valid_username:
+            st.session_state['username'] = valid_username
+            st.session_state['logged_in'] = True
+            st.session_state['session_token'] = cookie_token
+            need_rerun = True
+
+    # --- URLパラメータによる自動ログイン機能の復元 (後方互換性のために維持) ---
+    if not st.session_state.get('logged_in') and "user" in params:
         u_val = params["user"]
         if isinstance(u_val, list): u_val = u_val[0]
         # セッション状態にユーザー名をセットし、ログイン済みとする
@@ -479,6 +491,77 @@ def init_bank_master_sheet(sheet):
                 safe_gspread_call(sheet.update_cell, 1, i + 1, expected_headers[i])
     except Exception as e:
         print(f"Init bank_master sheet error: {e}")
+
+def init_sessions_sheet(sheet):
+    """セッション管理シートの初期化"""
+    try:
+        headers = safe_gspread_call(sheet.row_values, 1)
+        if not headers or headers[0] != "session_token":
+            safe_gspread_call(sheet.insert_row, ["session_token", "username", "created_at", "last_accessed_at"], 1)
+    except Exception as e:
+        print(f"Init sessions sheet error: {e}")
+
+def create_session(username):
+    """セッションを生成しGoogle Sheetに保存する"""
+    import secrets
+    try:
+        sheet = get_sheet(SESSIONS_WORKSHEET_NAME, create_if_not_found=True)
+        init_sessions_sheet(sheet)
+        token = secrets.token_urlsafe(32)
+        safe_gspread_call(sheet.append_row, [token, username.lower(), datetime.now(JST).isoformat(), datetime.now(JST).isoformat()])
+        return token
+    except Exception as e:
+        print(f"Create session error: {e}")
+        return None
+
+def validate_session(token):
+    """トークンを検証し、対応するユーザー名を返す"""
+    try:
+        sheet = get_sheet(SESSIONS_WORKSHEET_NAME)
+        records = safe_gspread_call(sheet.get_all_records)
+        for i, row in enumerate(records):
+            if row.get("session_token") == token:
+                return row.get("username")
+        return None
+    except Exception:
+        return None
+
+def delete_session(token):
+    """セッションデータを削除する（ログアウト時用）"""
+    try:
+        sheet = get_sheet(SESSIONS_WORKSHEET_NAME)
+        records = safe_gspread_call(sheet.get_all_records)
+        for i, row in enumerate(records):
+            if row.get("session_token") == token:
+                safe_gspread_call(sheet.delete_rows, i + 2)
+                return True
+        return False
+    except Exception:
+        return False
+
+def set_session_cookie(token):
+    """ブラウザにセッションクッキーを保存するJavaScriptを出力"""
+    st.components.v1.html(
+        f"""
+        <script>
+        const date = new Date();
+        date.setTime(date.getTime() + (30*24*60*60*1000)); // 30日間有効
+        window.parent.document.cookie = "session_token={token}; expires=" + date.toUTCString() + "; path=/; SameSite=Lax";
+        </script>
+        """,
+        height=0
+    )
+
+def delete_session_cookie():
+    """セッションクッキーを削除するJavaScriptを出力"""
+    st.components.v1.html(
+        """
+        <script>
+        window.parent.document.cookie = "session_token=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/; SameSite=Lax";
+        </script>
+        """,
+        height=0
+    )
 
 def get_banks(username):
     try:
@@ -3617,7 +3700,7 @@ def main():
                 .block-container h5 { font-size: calc(1.00rem + 2pt) !important; }
                 </style>
             """, unsafe_allow_html=True)
-            st.subheader("マイニィ [Ver 6.2.13]")
+            st.subheader("マイニィ [Ver 6.2.14]")
             st.write(f"🔑 ユーザー: **{st.session_state['username']}**")
             # --- プロフェッショナル診断ツール (Ver 6.2.0) ---
             with st.sidebar.expander("🛠️ システム診断", expanded=False):
@@ -3709,6 +3792,12 @@ def main():
             
             st.markdown("---")
             if st.button("ログアウト", use_container_width=True):
+                # セッション情報をサーバー(GSheet)とクライアント(Cookie)の両方から削除
+                token = st.session_state.get('session_token')
+                if token:
+                    delete_session(token)
+                    delete_session_cookie()
+                
                 # ログアウト時にURLパラメータとセッション状態を完全にクリアする
                 st.query_params.clear()
                 st.session_state.clear()
@@ -5515,7 +5604,7 @@ Googleスプレッドシートと連携し、固定費シミュレーション�
                 st.markdown(text); render_speech_synthesis_button(text, "sp_dl_manual")
             
             st.markdown("---")
-            st.caption("マイニー [Ver 6.2.13] - 常に最新の技術であなたの家計管理をサポートします。")
+            st.caption("マイニー [Ver 6.2.14] - 常に最新の技術であなたの家計管理をサポートします。")
 
         elif menu_selection == "クレジットカード":
             show_credit_card_dashboard()
@@ -5545,7 +5634,7 @@ Googleスプレッドシートと連携し、固定費シミュレーション�
         elif menu_selection == "支払管理シートを確認":
             show_open_management_sheet()
             
-        st.caption("マイニー Ver 6.2.13 - ユーザー: %s" % st.session_state['username'])
+        st.caption("マイニー Ver 6.2.14 - ユーザー: %s" % st.session_state['username'])
             
     # 未ログインの状態 (ログイン・登録画面)
     else:
@@ -5557,18 +5646,26 @@ Googleスプレッドシートと連携し、固定費シミュレーション�
                 const doc = window.parent.document;
                 const inputs = doc.querySelectorAll('input');
                 inputs.forEach(input => {
-                    const label = input.getAttribute('aria-label') || "";
-                    if (label.includes('ユーザー名')) {
+                    const labelText = input.getAttribute('aria-label') || input.placeholder || "";
+                    // ラベル要素の内容も確認
+                    const container = input.closest('div[data-testid="stTextInput"]');
+                    const labelWrap = container ? container.querySelector('label') : null;
+                    const finalLabel = labelText + (labelWrap ? labelWrap.innerText : "");
+
+                    if (finalLabel.includes('ユーザー名') || finalLabel.includes('ID')) {
                         input.setAttribute('autocomplete', 'username');
-                    } else if (label.includes('パスワード')) {
+                        input.setAttribute('name', 'username');
+                        input.setAttribute('inputmode', 'text');
+                    } else if (finalLabel.includes('パスワード') || finalLabel.includes('password')) {
                         input.setAttribute('autocomplete', 'current-password');
+                        input.setAttribute('name', 'password');
                     }
                 });
             }
             // Streamlitのレンダリングに合わせて複数回実行
-            setTimeout(setAutocomplete, 500);
-            setTimeout(setAutocomplete, 1500);
-            setTimeout(setAutocomplete, 3000);
+            setTimeout(setAutocomplete, 300);
+            setTimeout(setAutocomplete, 1000);
+            setTimeout(setAutocomplete, 2500);
             </script>
             """,
             height=0
@@ -5595,6 +5692,12 @@ Googleスプレッドシートと連携し、固定費シミュレーション�
                             st.session_state['logged_in'] = True
                             st.session_state['username'] = login_username.strip().lower()
                             if remember_me:
+                                # セッションを発行してGoogle Sheetに保存し、クッキーにもセットする
+                                token = create_session(st.session_state['username'])
+                                if token:
+                                    set_session_cookie(token)
+                                    st.session_state['session_token'] = token
+                                # 後方互換性のためにURLパラメータも維持
                                 st.query_params['user'] = st.session_state['username']
                             st.rerun()
                         else:
