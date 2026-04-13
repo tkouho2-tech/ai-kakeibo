@@ -3700,7 +3700,7 @@ def main():
                 .block-container h5 { font-size: calc(1.00rem + 2pt) !important; }
                 </style>
             """, unsafe_allow_html=True)
-            st.subheader("マイニィ [Ver 6.2.15]")
+            st.subheader("マイニィ [Ver 6.2.16]")
             st.write(f"🔑 ユーザー: **{st.session_state['username']}**")
             # --- プロフェッショナル診断ツール (Ver 6.2.0) ---
             with st.sidebar.expander("🛠️ システム診断", expanded=False):
@@ -5604,7 +5604,7 @@ Googleスプレッドシートと連携し、固定費シミュレーション�
                 st.markdown(text); render_speech_synthesis_button(text, "sp_dl_manual")
             
             st.markdown("---")
-            st.caption("マイニー [Ver 6.2.15] - 常に最新の技術であなたの家計管理をサポートします。")
+            st.caption("マイニー [Ver 6.2.16] - 常に最新の技術であなたの家計管理をサポートします。")
 
         elif menu_selection == "クレジットカード":
             show_credit_card_dashboard()
@@ -5634,7 +5634,7 @@ Googleスプレッドシートと連携し、固定費シミュレーション�
         elif menu_selection == "支払管理シートを確認":
             show_open_management_sheet()
             
-        st.caption("マイニー Ver 6.2.15 - ユーザー: %s" % st.session_state['username'])
+        st.caption("マイニー Ver 6.2.16 - ユーザー: %s" % st.session_state['username'])
             
     # 未ログインの状態 (ログイン・登録画面)
     else:
@@ -5696,6 +5696,46 @@ Googleスプレッドシートと連携し、固定費シミュレーション�
                                 st.error(message)
                 else:
                     st.warning("すべてのフィールドを入力してください。")
+        
+        # iPhoneのFace ID (パスワード自動入力) に対応するための属性付与スクリプト (最下部に配置して安定化)
+        st.components.v1.html(
+            """
+            <script>
+            function setAutocomplete() {
+                try {
+                    const doc = window.parent.document;
+                    if (!doc) return;
+                    const inputs = doc.querySelectorAll('input');
+                    inputs.forEach(input => {
+                        try {
+                            const labelText = input.getAttribute('aria-label') || input.placeholder || "";
+                            const container = input.closest('div[data-testid="stTextInput"]');
+                            const labelWrap = container ? container.querySelector('label') : null;
+                            const finalLabel = labelText + (labelWrap ? labelWrap.innerText : "");
+
+                            if (finalLabel.includes('ユーザー名') || finalLabel.includes('ID')) {
+                                input.setAttribute('autocomplete', 'username');
+                                input.setAttribute('name', 'username');
+                            } else if (finalLabel.includes('パスワード') || finalLabel.includes('password')) {
+                                input.setAttribute('autocomplete', 'current-password');
+                                input.setAttribute('name', 'password');
+                            }
+                        } catch (e) {
+                            console.error("Input processing error:", e);
+                        }
+                    });
+                } catch (e) {
+                    console.error("Autocomplete script error:", e);
+                }
+            }
+            // Streamlitのレンダリングに合わせて複数回実行
+            setTimeout(setAutocomplete, 500);
+            setTimeout(setAutocomplete, 1500);
+            setTimeout(setAutocomplete, 3000);
+            </script>
+            """,
+            height=0
+        )
 
 if __name__ == "__main__":
     main()
