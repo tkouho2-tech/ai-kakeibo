@@ -345,6 +345,9 @@ def execute_expansion(username, mode="NEW", start_ym=None):
         meta_updates.append((det_idx, m_detail))
 
         for idx, val in meta_updates:
+            # 【追加仕様】1行目と77行目は更新不要
+            if (target_r_idx + 1) in [1, 77]:
+                continue
             current_val = pay_formatted[target_r_idx][idx] if idx < len(pay_formatted[target_r_idx]) else ""
             if str(current_val).strip() != val:
                 # Calculate column letter (A, B, ..., Z, AA, AB, ...)
@@ -444,6 +447,9 @@ def execute_expansion(username, mode="NEW", start_ym=None):
             
             # 条件不一致月も明示的にクリア（"" をセット）するための判定
             if str(val_to_set) != normalized_current:
+                # 【追加仕様】1行目と77行目は更新不要
+                if (target_r_idx + 1) in [1, 77]:
+                    continue
                 col_letter = chr(ord("A") + c_idx) if c_idx < 26 else chr(ord("A") + c_idx//26 - 1) + chr(ord("A") + c_idx%26)
                 cell_name = f"{col_letter}{target_r_idx + 1}"
                 
@@ -487,6 +493,9 @@ def execute_expansion(username, mode="NEW", start_ym=None):
             normalized_current = str(current_val).replace(",", "").strip()
             
             if str(val_to_set) != normalized_current:
+                # 【追加仕様】1行目と77行目は更新不要
+                if (target_r_idx + 1) in [1, 77]:
+                    continue
                 col_letter = chr(ord("A") + c_idx) if c_idx < 26 else chr(ord("A") + c_idx//26 - 1) + chr(ord("A") + c_idx%26)
                 cell_name = f"{col_letter}{target_r_idx + 1}"
                 
@@ -1341,6 +1350,11 @@ def execute_variable_cost_update(username, start_ym=None, skip_backup=False):
             if target_r_idx < len(pay_raw):
                 raw_row = pay_raw[target_r_idx]
                 
+                # 【追加仕様】1行目と77行目は更新不要
+                if sheet_row_num in [1, 77]:
+                    cc_rows_array[i] = raw_row
+                    continue
+
                 if sheet_row_num in [50, 51, 52]:
                     if len(raw_row) > 4 and len(r) > 4:
                         r[4] = raw_row[4]
@@ -1421,7 +1435,9 @@ def execute_variable_cost_update(username, start_ym=None, skip_backup=False):
                 for i in range(len(actual_headers)):
                     if i < len(row_vals) and i < len(original_row): row_vals[i] = original_row[i]
 
-                update_data.append({'range': f"A{row_num}", 'values': [row_vals]})
+                # 【追加仕様】1行目と77行目は更新不要
+                if row_num not in [1, 77]:
+                    update_data.append({'range': f"A{row_num}", 'values': [row_vals]})
 
             # 2. グランド合計（固定費合計）行の更新 (Ver 5.0.1 循環参照回避ロジック)
             if grand_total_row_num != -1 and not (54 <= grand_total_row_num <= 63):
@@ -1452,7 +1468,6 @@ def execute_variable_cost_update(username, start_ym=None, skip_backup=False):
                 for i in range(len(actual_headers)):
                     if i < len(row_vals) and i < len(original_row): row_vals[i] = original_row[i]
                 
-                # ラベル補正 (Ver 4.28.2: B列以降)
                 for j in range(7):
                     if j < len(row_vals) and ("【合計】" in str(row_vals[j]) or "固定費合計" in str(row_vals[j]) or "_支払残_" in str(row_vals[j])):
                         row_vals[j] = "固定費_支払残_合計額"
@@ -1460,7 +1475,9 @@ def execute_variable_cost_update(username, start_ym=None, skip_backup=False):
                         row_vals[0] = ""
                         break
 
-                update_data.append({'range': f"A{grand_total_row_num}", 'values': [row_vals]})
+                # 【追加仕様】1行目と77行目は更新不要
+                if grand_total_row_num not in [1, 77]:
+                    update_data.append({'range': f"A{grand_total_row_num}", 'values': [row_vals]})
 
             # --- 追加: 固定費エリアも含めた全シートの自動フラグ更新 ---
             scan_update_data = []
@@ -1627,10 +1644,12 @@ def execute_variable_cost_update(username, start_ym=None, skip_backup=False):
                             except: pass
                         
                         if row_changed:
-                            scan_update_data.append({
-                                'range': f"B{r_idx + 1}",
-                                'values': [row_to_update[1:]] # A列以外を書き込む
-                            })
+                            # 【追加仕様】1行目と77行目は更新不要
+                            if (r_idx + 1) not in [1, 77]:
+                                scan_update_data.append({
+                                    'range': f"B{r_idx + 1}",
+                                    'values': [row_to_update[1:]] # A列以外を書き込む
+                                })
             except Exception as e:
                 print(f"Error in full sheet scan: {e}")
 
