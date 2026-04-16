@@ -2439,9 +2439,19 @@ def show_credit_card_dashboard():
     # ① カード選択機能
     # ---------------------------------------------------------
     card_names = [cc.get("name", "名称未設定") for cc in credit_cards]
-    selected_card_name = st.selectbox("確認するクレジットカードを選択してください", options=card_names)
+    selected_card_name = st.selectbox(
+        "確認するクレジットカードを選択してください", 
+        options=card_names,
+        key="cc_dashboard_selected_card_v3"
+    )
     
-    selected_cc = next((cc for cc in credit_cards if cc.get("name") == selected_card_name), credit_cards[0])
+    # マッチングロジックの強化: 明示的に一致するものだけを探す
+    matching_cc = [cc for cc in credit_cards if cc.get("name") == selected_card_name]
+    if not matching_cc:
+        st.error(f"選択されたカード「{selected_card_name}」の情報が見つかりません。")
+        st.stop()
+        
+    selected_cc = matching_cc[0]
     
     closing_str = selected_cc.get("closing_date", "")
     pay_m_str = selected_cc.get("payment_month", "")
@@ -2524,10 +2534,16 @@ def show_credit_card_dashboard():
         # ③ 明細表示の切り替え (3つの期間から選択)
         # ---------------------------------------------------------
         view_options = [p["label"] for p in periods]
-        view_mode = st.radio("表示する明細を選択", view_options, horizontal=True)
+        view_mode = st.radio(
+            "表示する明細を選択", 
+            view_options, 
+            horizontal=True,
+            key="cc_dashboard_view_mode_v2"
+        )
         
         # 選択された期間のデータを特定
         selected_period = next(p for p in periods if p["label"] == view_mode)
+
         target_df = selected_period["df"]
         period_total = selected_period["total"]
         st.markdown(f"##### {view_mode} 内訳　小計：¥{int(period_total):,}")
@@ -3700,7 +3716,7 @@ def main():
                 .block-container h5 { font-size: calc(1.00rem + 2pt) !important; }
                 </style>
             """, unsafe_allow_html=True)
-            st.subheader("マイニィ [Ver 6.2.16]")
+            st.subheader("マイニィ [Ver 6.2.17]")
             st.write(f"🔑 ユーザー: **{st.session_state['username']}**")
             # --- プロフェッショナル診断ツール (Ver 6.2.0) ---
             with st.sidebar.expander("🛠️ システム診断", expanded=False):
@@ -5604,7 +5620,7 @@ Googleスプレッドシートと連携し、固定費シミュレーション�
                 st.markdown(text); render_speech_synthesis_button(text, "sp_dl_manual")
             
             st.markdown("---")
-            st.caption("マイニー [Ver 6.2.16] - 常に最新の技術であなたの家計管理をサポートします。")
+            st.caption("マイニー [Ver 6.2.17] - 常に最新の技術であなたの家計管理をサポートします。")
 
         elif menu_selection == "クレジットカード":
             show_credit_card_dashboard()
@@ -5634,7 +5650,7 @@ Googleスプレッドシートと連携し、固定費シミュレーション�
         elif menu_selection == "支払管理シートを確認":
             show_open_management_sheet()
             
-        st.caption("マイニー Ver 6.2.16 - ユーザー: %s" % st.session_state['username'])
+        st.caption("マイニー Ver 6.2.17 - ユーザー: %s" % st.session_state['username'])
             
     # 未ログインの状態 (ログイン・登録画面)
     else:
