@@ -163,75 +163,7 @@ if api_key:
 
 st.set_page_config(page_title="AI家計簿アプリ - ダッシュボード", page_icon="📊", layout="wide")
 
-# ---------- セッション状態の初期化 ----------
-if '_init_done' not in st.session_state:
-    params = st.query_params
-    need_rerun = False
-    
-    if "date" in params:
-        try:
-            d_val = params["date"]
-            if isinstance(d_val, list): d_val = d_val[0]
-            dt_obj = datetime.strptime(d_val, "%Y-%m-%d")
-            st.session_state['current_month'] = dt_obj.replace(day=1)
-            
-            # 月切り替えナビゲーションの場合は1日が渡されるため、カレンダーの自動フォーカスを優先する
-            if dt_obj.day != 1:
-                st.session_state['selected_date'] = d_val
-            elif 'selected_date' in st.session_state:
-                # 1日の場合（他月への遷移）は選択日をリセットして自動計算させる
-                del st.session_state['selected_date']
-                
-            if 'date_range' in st.session_state:
-                del st.session_state['date_range']
-            need_rerun = True
-        except:
-            pass
-            
-    # --- クッキーによる自動ログイン ---
-    cookie_token = st.context.cookies.get("session_token")
-    if cookie_token and not st.session_state.get('logged_in'):
-        # ネットワーク遅延等を考慮し、バリデーションを行う
-        valid_username = validate_session(cookie_token)
-        if valid_username:
-            st.session_state['username'] = valid_username
-            st.session_state['logged_in'] = True
-            st.session_state['session_token'] = cookie_token
-            need_rerun = True
 
-    # --- URLパラメータによる自動ログイン機能の復元 (後方互換性のために維持) ---
-    if not st.session_state.get('logged_in') and "user" in params:
-        u_val = params["user"]
-        if isinstance(u_val, list): u_val = u_val[0]
-        # セッション状態にユーザー名をセットし、ログイン済みとする
-        st.session_state['username'] = u_val.strip().lower()
-        st.session_state['logged_in'] = True
-        need_rerun = True
-    # --------------------------------------------------------------------------
-        
-    if "menu" in params:
-        m_val = params["menu"]
-        if isinstance(m_val, list): m_val = m_val[0]
-        st.session_state['menu_selection'] = m_val
-        need_rerun = True
-
-    st.session_state['_init_done'] = True
-    
-    if need_rerun:
-        st.query_params.clear()
-        # ログイン状態が保持されている場合はURLにユーザー名を残す（スマホブラウザの再読込対策）
-        if st.session_state.get('logged_in') and st.session_state.get('username'):
-            st.query_params['user'] = st.session_state['username']
-        st.rerun()
-
-if 'logged_in' not in st.session_state:
-    st.session_state['logged_in'] = False
-if 'username' not in st.session_state:
-    st.session_state['username'] = None
-if 'remember_me' not in st.session_state:
-    st.session_state['remember_me'] = False
-if 'current_month' not in st.session_state:
-    st.session_state['current_month'] = datetime.today().replace(day=1)
 
 # ---------- Google Sheets 接続 ----------
 @st.cache_resource
@@ -3664,11 +3596,69 @@ def _render_fixed_cost_form(action_type, username, target_data=None):
     return False
 
 def main():
-    # --- 初期化 ---
+    # ---------- セッション・パラメータの初期化 ----------
+    if '_init_done' not in st.session_state:
+        params = st.query_params
+        need_rerun = False
+        
+        if "date" in params:
+            try:
+                d_val = params["date"]
+                if isinstance(d_val, list): d_val = d_val[0]
+                dt_obj = datetime.strptime(d_val, "%Y-%m-%d")
+                st.session_state['current_month'] = dt_obj.replace(day=1)
+                
+                if dt_obj.day != 1:
+                    st.session_state['selected_date'] = d_val
+                elif 'selected_date' in st.session_state:
+                    del st.session_state['selected_date']
+                    
+                if 'date_range' in st.session_state:
+                    del st.session_state['date_range']
+                need_rerun = True
+            except:
+                pass
+                
+        cookie_token = st.context.cookies.get("session_token")
+        if cookie_token and not st.session_state.get('logged_in'):
+            valid_username = validate_session(cookie_token)
+            if valid_username:
+                st.session_state['username'] = valid_username
+                st.session_state['logged_in'] = True
+                st.session_state['session_token'] = cookie_token
+                need_rerun = True
+
+        if not st.session_state.get('logged_in') and "user" in params:
+            u_val = params["user"]
+            if isinstance(u_val, list): u_val = u_val[0]
+            st.session_state['username'] = u_val.strip().lower()
+            st.session_state['logged_in'] = True
+            need_rerun = True
+            
+        if "menu" in params:
+            m_val = params["menu"]
+            if isinstance(m_val, list): m_val = m_val[0]
+            st.session_state['menu_selection'] = m_val
+            need_rerun = True
+
+        st.session_state['_init_done'] = True
+        
+        if need_rerun:
+            st.query_params.clear()
+            if st.session_state.get('logged_in') and st.session_state.get('username'):
+                st.query_params['user'] = st.session_state['username']
+            st.rerun()
+
     if 'logged_in' not in st.session_state:
         st.session_state['logged_in'] = False
-        
-    # 生体認証関連の残骸変数を徹底的にクリア
+    if 'username' not in st.session_state:
+        st.session_state['username'] = None
+    if 'remember_me' not in st.session_state:
+        st.session_state['remember_me'] = False
+    if 'current_month' not in st.session_state:
+        st.session_state['current_month'] = datetime.today().replace(day=1)
+
+    # --- セキュリティ・不要変数のクリア ---
     biometric_keys = [
         'webauthn_reg_comp', 'biometric_auth_status', 'auth_status', 
         'webauthn_auth_data', 'biometric_user', 'passkey_status'
