@@ -1384,16 +1384,20 @@ def execute_variable_cost_update(username, start_ym=None, skip_backup=False):
                         r[6] = raw_row[6]
                 
                 if 54 <= sheet_row_num <= 62:
-                    if len(raw_row) > 7 and len(r) > 7:
-                        r[7] = raw_row[7]
+                    # G列 (index 6, Sno) を元の値から復元（マッピングのキーとして使用するため、全行で復元）
+                    if len(raw_row) > 6 and len(r) > 6:
+                        r[6] = raw_row[6]
                     
                     # --- 追加仕様: G列の値に基づいて50-52行のF列の値を設定 ---
                     if len(r) > 6:
-                        # 54, 57, 60行目はG列が raw_row から復元されているため、それを優先的に参照
                         current_g = str(r[6]).strip()
                         if current_g in g_to_f_map:
                             if len(r) > 5:
                                 r[5] = g_to_f_map[current_g]
+
+                    # H列 (index 7, 科目明細) は既存の値を維持
+                    if len(raw_row) > 7 and len(r) > 7:
+                        r[7] = raw_row[7]
                     
                     # --- 【追加仕様】クレジットカード内訳集計ロジック ---
                     # H列に含まれる「固定費」または「変動費」キーワードを特定
