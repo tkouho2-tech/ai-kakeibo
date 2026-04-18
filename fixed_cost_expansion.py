@@ -2128,14 +2128,22 @@ def execute_variable_cost_update(username, start_ym=None, skip_backup=False):
 
         # --- 【追加仕様】クレジットカード内訳：カード名の自動同期（54行〜63行） ---
         try:
-            # 1. 内部データ (cc_methods) から ID とカード名のマップを生成
-            # シートの再読み込みを避け、実行時に確定しているマスター情報（cc_methods）を直接使用する
-            id_to_card_name = {str(i + 1): cc.get("name", "") for i, cc in enumerate(cc_methods)}
-            
             # ターゲット範囲の探索用シートデータ（最新版を取得）
             pay_fresh = safe_gspread_call(ws_pay.get_all_values, value_render_option='FORMULA')
             ws_title = ws_pay.title
 
+            # 1. 50-52行目のG列(index 6)とF列(index 5)の最新対応マップを生成
+            # マスター名ではなく、50-52行目の現在の表示名（空白含む）を同期させる (Ver 6.2.25)
+            g_to_f_map_fresh = {}
+            for r_idx_map in [49, 50, 51]: # 50, 51, 52行目 (0-indexed)
+                if r_idx_map < len(pay_fresh):
+                    row_map = pay_fresh[r_idx_map]
+                    if len(row_map) > 6:
+                        g_v = str(row_map[6]).strip()
+                        f_v = str(row_map[5]).strip()
+                        if g_v:
+                            g_to_f_map_fresh[g_v] = f_v
+            
             # 2. ターゲット範囲（54行〜63行目）をマッピング
             f_requests = []
             for sheet_row in range(54, 64): # 54行目〜63行目 (1-indexed)
@@ -2146,10 +2154,10 @@ def execute_variable_cost_update(username, start_ym=None, skip_backup=False):
                     g_val = str(r_raw[6]).strip() if len(r_raw) > 6 else ""
                     h_val = str(r_raw[7]).strip() if len(r_raw) > 7 else ""
                     
-
-                        
-                    target_f_val = id_to_card_name.get(g_val, "")
-                    if g_val and target_f_val:
+                    # 50-52行目から取得した最新のマップを使用
+                    target_f_val = g_to_f_map_fresh.get(g_val, None)
+                    
+                    if g_val and target_f_val is not None:
                         # 書き込み先は F列(index 5)
                         current_f_val = str(r_raw[5]).strip() if len(r_raw) > 5 else ""
                         
@@ -2162,7 +2170,7 @@ def execute_variable_cost_update(username, start_ym=None, skip_backup=False):
                             
                     # --- 3. H列の内容(変動費分/固定費分など)に基づく月次データの展開 ---
                     # F列の値（カード名）を取得（上記で確定した値、または現在のセル値）
-                    f_val = target_f_val if (g_val and g_val in id_to_card_name) else (str(r_raw[5]).strip() if len(r_raw) > 5 else "")
+                    f_val = target_f_val if (g_val and g_val in g_to_f_map_fresh) else (str(r_raw[5]).strip() if len(r_raw) > 5 else "")
                     
                     if f_val and h_val:
                         has_row_update = False
