@@ -3703,7 +3703,7 @@ def main():
                 .block-container h5 { font-size: calc(1.00rem + 2pt) !important; }
                 </style>
             """, unsafe_allow_html=True)
-            st.subheader("マイニィ [Ver 6.2.20]")
+            st.subheader("マイニィ [Ver 6.2.21]")
             st.write(f"🔑 ユーザー: **{st.session_state['username']}**")
             # --- プロフェッショナル診断ツール (Ver 6.2.0) ---
             with st.sidebar.expander("🛠️ システム診断", expanded=False):
@@ -5624,7 +5624,7 @@ Googleスプレッドシートと連携し、固定費シミュレーション�
                 st.markdown(text); render_speech_synthesis_button(text, "sp_dl_manual")
             
             st.markdown("---")
-            st.caption("マイニー [Ver 6.2.20] - 常に最新の技術であなたの家計管理をサポートします。")
+            st.caption("マイニー [Ver 6.2.21] - 常に最新の技術であなたの家計管理をサポートします。")
 
         elif menu_selection == "クレジットカード":
             show_credit_card_dashboard()
@@ -5654,7 +5654,7 @@ Googleスプレッドシートと連携し、固定費シミュレーション�
         elif menu_selection == "支払管理シートを確認":
             show_open_management_sheet()
             
-        st.caption("マイニー Ver 6.2.20 - ユーザー: %s" % st.session_state['username'])
+        st.caption("マイニー Ver 6.2.21 - ユーザー: %s" % st.session_state['username'])
             
     # 未ログインの状態 (ログイン・登録画面)
     else:
