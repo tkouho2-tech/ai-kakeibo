@@ -345,8 +345,10 @@ def execute_expansion(username, mode="NEW", start_ym=None):
         meta_updates.append((det_idx, m_detail))
 
         for idx, val in meta_updates:
-            # 【追加仕様】1, 54, 57, 60, 77行目は更新不要
-            if (target_r_idx + 1) in [1, 54, 57, 60, 77]:
+            # 【追加仕様】1, 77行目は更新不要。54, 57, 60行目はG列(index 6)以降は更新不要
+            if (target_r_idx + 1) in [1, 77]:
+                continue
+            if (target_r_idx + 1) in [54, 57, 60] and idx >= 6:
                 continue
             current_val = pay_formatted[target_r_idx][idx] if idx < len(pay_formatted[target_r_idx]) else ""
             if str(current_val).strip() != val:
@@ -447,8 +449,10 @@ def execute_expansion(username, mode="NEW", start_ym=None):
             
             # 条件不一致月も明示的にクリア（"" をセット）するための判定
             if str(val_to_set) != normalized_current:
-                # 【追加仕様】1, 54, 57, 60, 77行目は更新不要
-                if (target_r_idx + 1) in [1, 54, 57, 60, 77]:
+                # 【追加仕様】1, 77行目は更新不要。54, 57, 60行目はG列(index 6)以降は更新不要
+                if (target_r_idx + 1) in [1, 77]:
+                    continue
+                if (target_r_idx + 1) in [54, 57, 60] and c_idx >= 6:
                     continue
                 col_letter = chr(ord("A") + c_idx) if c_idx < 26 else chr(ord("A") + c_idx//26 - 1) + chr(ord("A") + c_idx%26)
                 cell_name = f"{col_letter}{target_r_idx + 1}"
@@ -493,8 +497,10 @@ def execute_expansion(username, mode="NEW", start_ym=None):
             normalized_current = str(current_val).replace(",", "").strip()
             
             if str(val_to_set) != normalized_current:
-                # 【追加仕様】1, 54, 57, 60, 77行目は更新不要
-                if (target_r_idx + 1) in [1, 54, 57, 60, 77]:
+                # 【追加仕様】1, 77行目は更新不要。54, 57, 60行目はG列(index 6)以降は更新不要
+                if (target_r_idx + 1) in [1, 77]:
+                    continue
+                if (target_r_idx + 1) in [54, 57, 60] and c_idx >= 6:
                     continue
                 col_letter = chr(ord("A") + c_idx) if c_idx < 26 else chr(ord("A") + c_idx//26 - 1) + chr(ord("A") + c_idx%26)
                 cell_name = f"{col_letter}{target_r_idx + 1}"
@@ -1350,10 +1356,15 @@ def execute_variable_cost_update(username, start_ym=None, skip_backup=False):
             if target_r_idx < len(pay_raw):
                 raw_row = pay_raw[target_r_idx]
                 
-                # 【追加仕様】1, 54, 57, 60, 77行目は更新不要
-                if sheet_row_num in [1, 54, 57, 60, 77]:
+                # 【追加仕様】1, 77行目は更新不要。54, 57, 60行目はG列(index 6)以降は更新不要
+                if sheet_row_num in [1, 77]:
                     cc_rows_array[i] = raw_row
                     continue
+                if sheet_row_num in [54, 57, 60]:
+                    # G列(index 6)以降を元の値で復元（更新させない）
+                    for col_idx in range(6, len(r)):
+                        if col_idx < len(raw_row):
+                            r[col_idx] = raw_row[col_idx]
 
                 if sheet_row_num in [50, 51, 52]:
                     if len(raw_row) > 4 and len(r) > 4:
@@ -1435,8 +1446,16 @@ def execute_variable_cost_update(username, start_ym=None, skip_backup=False):
                 for i in range(len(actual_headers)):
                     if i < len(row_vals) and i < len(original_row): row_vals[i] = original_row[i]
 
-                # 【追加仕様】1, 54, 57, 60, 77行目は更新不要
-                if row_num not in [1, 54, 57, 60, 77]:
+                # 【追加仕様】1, 77行目は更新不要。54, 57, 60行目はG列(index 6)以降は更新不要
+                if row_num in [1, 77]:
+                    continue
+                if row_num in [54, 57, 60]:
+                    # 月次データのカラム(c_idx >= 6)を構築する際に元の値を維持する必要があるが、
+                    # ここでは formula を生成しているので、もし row_num が 54, 57, 60 なら
+                    # c_idx >= 6 の更新を個別にスキップする。
+                    pass 
+                
+                if row_num not in [1, 77]:
                     update_data.append({'range': f"A{row_num}", 'values': [row_vals]})
 
             # 2. グランド合計（固定費合計）行の更新 (Ver 5.0.1 循環参照回避ロジック)
@@ -1459,9 +1478,14 @@ def execute_variable_cost_update(username, start_ym=None, skip_backup=False):
                         col_letter = chr(ord('A') + c_idx) if c_idx < 26 else chr(ord('A') + c_idx//26 - 1) + chr(ord('A') + c_idx%26)
                         flag_letter = chr(ord('A') + f_idx) if f_idx < 26 else chr(ord('A') + f_idx//26 - 1) + chr(ord('A') + f_idx%26)
                         if subtotal_row_nums:
-                            inner_cells = [f"IF({flag_letter}{r}=\"\", {col_letter}{r}, 0)" for r in subtotal_row_nums]
                             formula = f"=SUM({','.join(inner_cells)})"
-                            if 0 <= c_idx < len(row_vals): row_vals[c_idx] = formula
+                            if 0 <= c_idx < len(row_vals):
+                                # 54, 57, 60行目のG列以降は更新しない
+                                if row_num in [54, 57, 60] and c_idx >= 6:
+                                    if c_idx < len(original_row):
+                                        row_vals[c_idx] = original_row[c_idx]
+                                else:
+                                    row_vals[c_idx] = formula
 
                 # メタデータ保持
                 original_row = pay_raw[grand_total_row_num - 1]
@@ -1475,8 +1499,9 @@ def execute_variable_cost_update(username, start_ym=None, skip_backup=False):
                         row_vals[0] = ""
                         break
 
-                # 【追加仕様】1, 54, 57, 60, 77行目は更新不要
-                if grand_total_row_num not in [1, 54, 57, 60, 77]:
+                # 【追加仕様】1, 77行目は更新不要。54, 57, 60行目はG列(index 6)以降は更新不要
+                if grand_total_row_num not in [1, 77]:
+                    # grand_total_row_num が 54, 57, 60 の場合の個別制御は上記ループ内(c_idx)で実施
                     update_data.append({'range': f"A{grand_total_row_num}", 'values': [row_vals]})
 
             # --- 追加: 固定費エリアも含めた全シートの自動フラグ更新 ---
@@ -1645,12 +1670,25 @@ def execute_variable_cost_update(username, start_ym=None, skip_backup=False):
                             except: pass
                         
                         if row_changed:
-                            # 【追加仕様】1, 54, 57, 60, 77行目は更新不要
-                            if (r_idx + 1) not in [1, 54, 57, 60, 77]:
-                                scan_update_data.append({
-                                    'range': f"B{r_idx + 1}",
-                                    'values': [row_to_update[1:]] # A列以外を書き込む
-                                })
+                            # 【追加仕様】1, 77行目は更新不要。54, 57, 60行目はG列(index 6)以降は更新不要
+                            if (r_idx + 1) in [1, 77]:
+                                continue
+                            
+                            # フラグ更新対象がG列以降(f_idx >= 6)かつ対象行ならスキップ
+                            # ただしここでは row_to_update 全体を書き込んでいるので、
+                            # 対象行の場合はG列以降を元の値に戻す。
+                            if (r_idx + 1) in [54, 57, 60]:
+                                # pay_raw から元の値(G列以降)を復元
+                                if r_idx < len(pay_raw):
+                                    orig_row = pay_raw[r_idx]
+                                    for col_idx in range(6, len(row_to_update)):
+                                        if col_idx < len(orig_row):
+                                            row_to_update[col_idx] = orig_row[col_idx]
+                            
+                            scan_update_data.append({
+                                'range': f"B{r_idx + 1}",
+                                'values': [row_to_update[1:]] # A列以外を書き込む
+                            })
             except Exception as e:
                 print(f"Error in full sheet scan: {e}")
 
