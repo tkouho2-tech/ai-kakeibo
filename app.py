@@ -3332,9 +3332,6 @@ def handle_menu_change():
     """サイドバーでのメニュー変更時にURLパラメータをクリアし、必要に応じてダッシュボード表示を月次にリセットする"""
     if "date" in st.query_params:
         del st.query_params["date"]
-    if "menu" in st.query_params:
-        del st.query_params["menu"]
-    
     # セッション内のメニュー選択を確認（on_change時点で st.session_state.menu_selection は更新されている）
     target_menu = st.session_state.get("menu_selection")
     # 仕様：カレンダー、レシート取込、レシート修正を選択した際、ダッシュボード選択状態をリセット
@@ -3346,7 +3343,7 @@ def handle_menu_change():
         with st.spinner("スプレッドシートのフィルターを解除中..."):
             clear_worksheet_filter(TRANSACTIONS_WORKSHEET_NAME)
         
-    if target_menu == "👁AI相談":
+    if target_menu == "AI相談":
         st.session_state["refresh_ai_data_flag"] = True
     
     # サイドバーを閉じるフラグ
@@ -3706,7 +3703,7 @@ def main():
                 .block-container h5 { font-size: calc(1.00rem + 2pt) !important; }
                 </style>
             """, unsafe_allow_html=True)
-            st.subheader("マイニィ [Ver 6.2.18]")
+            st.subheader("マイニィ [Ver 6.2.19]")
             st.write(f"🔑 ユーザー: **{st.session_state['username']}**")
             # --- プロフェッショナル診断ツール (Ver 6.2.0) ---
             with st.sidebar.expander("🛠️ システム診断", expanded=False):
@@ -4738,7 +4735,6 @@ def main():
                                 if "item_list_version" not in st.session_state:
                                     st.session_state.item_list_version = 0
                                 st.session_state.item_list_version += 1
-                            
                             for idx, row in details.iterrows():
                                 row_index_gs = row["_row_index"]
                                 if row_index_gs not in st.session_state['edit_data']:
@@ -5105,9 +5101,9 @@ def main():
                         if df_user.empty:
                             return f"--- {title} ---\nデータなし\n"
                             
-                        # 不要なパスワードハッシュ等が含まれている場合は念のため除外（User_Master等には通常ないが念の為）
-                        if "password_hash" in df_user.columns:
-                            df_user = df_user.drop(columns=["password_hash"])
+                        # 直近のデータのみ抽出（例：直近1000件）
+                        if len(df_user) > 1000:
+                            df_user = df_user.tail(1000)
                             
                         return f"--- {title} ---\n{df_user.to_csv(index=False)}\n"
                     except Exception as e:
@@ -5153,17 +5149,30 @@ def main():
                             headers += [f"extra_{i}" for i in range(len(headers), df_all.shape[1])]
                         df_all.columns = headers[:df_all.shape[1]]
                         
-                        # AIがCSVの大量のカンマで列を誤認するのを防ぐため、空白セルを排除したJSON形式に変換して渡す
-                        import json
-                        records = []
-                        for _, row in df_all.iterrows():
-                            # 値が存在する列のみ抽出
-                            row_dict = {str(k): str(v).strip() for k, v in row.items() if pd.notna(v) and str(v).strip() != ""}
-                            # IDのみ等、無意味な行は除外（最低2つ以上のキーがある場合のみ採用）
-                            if len(row_dict) > 1:
-                                records.append(row_dict)
-                                
-                        return f"--- {title} ---\n{json.dumps(records, ensure_ascii=False, indent=2)}\n"
+                        # --- AI送信データの最適化：表示月を基準に前後18ヶ月分の列のみに絞り込む ---
+                        curr = st.session_state.get('current_month', datetime.today())
+                        target_months = []
+                        for i in range(-6, 13):
+                            m = curr + relativedelta(months=i)
+                            # 2024年1月 と 2024年01月 の両方の可能性を考慮
+                            target_months.append(m.strftime('%Y年%m月'))
+                            target_months.append(m.strftime('%Y年%#m月'))
+                        
+                        keeping_cols = []
+                        # IDや項目名などの基本列は常に保持
+                        base_cols = ["ID", "項目名", "固定・変動", "予算額", "決済1", "決済2", "備考"]
+                        for col in df_all.columns:
+                            col_str = str(col)
+                            if any(base in col_str for base in base_cols):
+                                keeping_cols.append(col)
+                            elif any(m_str in col_str for m_str in target_months):
+                                keeping_cols.append(col)
+                        
+                        if keeping_cols:
+                            df_all = df_all[keeping_cols]
+                        
+                        # CSV形式で出力（JSONより軽量）
+                        return f"--- {title} ---\n{df_all.to_csv(index=False)}\n"
                     except Exception as e:
                         return f"--- {title} ---\nデータ取得エラー: {e}\n"
 
@@ -5195,7 +5204,7 @@ def main():
             if not st.session_state.ai_consult_messages:
                 st.session_state.ai_consult_messages.append({
                     "role": "assistant", 
-                    "content": f"こんにちは、{st.session_state['username']}さん！あなたの専属FPです。全期間のデータを読み込みました。何でも相談してくださいね。"
+                    "content": f"こんにちは、{st.session_state['username']}さん！あなたの専属FPです。個別の支出データや支払管理シートの最新情報を踏まえてアドバイスいたします。何でも相談してくださいね。"
                 })
 
             # 履歴の表示
@@ -5259,13 +5268,14 @@ MBTI: {mbti}
 
                             # システムプロンプトを都度構築（最新データを反映させるため）
                             system_prompt = f"""{profile_prompt}
-以下のCSVデータは、このユーザー（{st.session_state['username']}）個人の家計簿データ（支出データ、支払管理シート等）です。
-支出データには「商品名」も含まれており、いつ、どこで、何を買ったかを詳細に把握できます。
-支払管理シートデータには、各クレジットカード支払いの確定額や次月以降の固定費・変動費の引落見込みなどが記載されています。
-ユーザーからの「特定の商品の購入時期（例：鶏肉ナンコツはいつ買った？）」や「来月の支払いはいくらになりそう？」といった質問に対し、各シートのデータを横断して正確かつ親身に答えてください。
+以下のCSVデータは、このユーザー（{st.session_state['username']}）個人の最新の家計簿データ（直近の支出データ、当月前後の支払管理シート等）です。
+支出データには直近1000件程度の履歴が含まれており、「いつ、どこで、何を買ったか」を詳細に把握できます。
+支払管理シートデータには、当月を基準に前後約1.5年分（概ね過去6ヶ月〜将来12ヶ月分）のクレジットカード支払確定額や引落見込みなどが記載されています。
+ユーザーからの「特定の商品の購入時期」や「来月の支払いはいくらになりそう？」といった質問に対し、提供されたデータの範囲で正確かつ親身に答えてください。
+回答に必要なデータが含まれていない場合は、その旨を正直に伝え、一般的なアドバイスに留めてください。
 データに存在しない推測は避け、無駄遣いの指摘や節約のアドバイスなども積極的に行ってください。
 
-【ユーザーの家計簿データ】
+【ユーザーの家計簿データ（CSV形式）】
 {csv_data_string}
 """
                             
@@ -5295,13 +5305,17 @@ MBTI: {mbti}
                                 st.session_state.ai_consult_chat_history = chat.get_history()
                                 
                             except Exception as e:
-                                err_msg = str(e)
-                                if "429" in err_msg or "RESOURCE_EXHAUSTED" in err_msg:
-                                    friendly_err = "現在AIの通信が混み合っています。数十秒待ってから再度送信してください。"
-                                    st.warning(friendly_err)
+                                error_msg = f"分析中にエラーが発生しました。\n原因: {e}\n\n"
+                                if "429" in str(e) or "RESOURCE_EXHAUSTED" in str(e):
+                                    error_msg += "現在AIが混み合っています。少し時間をおいてから再度お試しください。"
+                                elif "limit" in str(e).lower() or "context" in str(e).lower():
+                                    error_msg += "提供されたデータ量が多すぎる可能性があります。一度「カレンダー」など他のメニューに移動して戻る（データ再取得）か、質問内容を短くしてみてください。"
                                 else:
-                                    st.error(f"エラーが発生しました: {e}")
-
+                                    error_msg += "接続状態を確認して、もう一度入力してみてください。"
+                                
+                                message_placeholder.error(error_msg)
+                                st.session_state.ai_consult_messages.append({"role": "assistant", "content": error_msg})
+                                
                         except Exception as e:
                             st.error(f"予期せぬエラーが発生しました: {e}")
 
@@ -5610,7 +5624,7 @@ Googleスプレッドシートと連携し、固定費シミュレーション�
                 st.markdown(text); render_speech_synthesis_button(text, "sp_dl_manual")
             
             st.markdown("---")
-            st.caption("マイニー [Ver 6.2.18] - 常に最新の技術であなたの家計管理をサポートします。")
+            st.caption("マイニー [Ver 6.2.19] - 常に最新の技術であなたの家計管理をサポートします。")
 
         elif menu_selection == "クレジットカード":
             show_credit_card_dashboard()
@@ -5640,7 +5654,7 @@ Googleスプレッドシートと連携し、固定費シミュレーション�
         elif menu_selection == "支払管理シートを確認":
             show_open_management_sheet()
             
-        st.caption("マイニー Ver 6.2.18 - ユーザー: %s" % st.session_state['username'])
+        st.caption("マイニー Ver 6.2.19 - ユーザー: %s" % st.session_state['username'])
             
     # 未ログインの状態 (ログイン・登録画面)
     else:
