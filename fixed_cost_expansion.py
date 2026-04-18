@@ -1400,6 +1400,10 @@ def execute_variable_cost_update(username, start_ym=None, skip_backup=False):
                         r[7] = raw_row[7]
                     
                     # --- 【追加仕様】クレジットカード内訳集計ロジック ---
+                    # ユーザー指定により、54, 57, 60行目は月次集計（G列以降）の更新を行わない
+                    if sheet_row_num in [54, 57, 60]:
+                        continue
+                    
                     # H列に含まれる「固定費」または「変動費」キーワードを特定
                     h_val = str(r[7]).strip()
                     cost_type_keyword = ""
@@ -2180,7 +2184,9 @@ def execute_variable_cost_update(username, start_ym=None, skip_backup=False):
                         if "fc_payment_rows" in locals() and f_val in fc_payment_rows:
                             fc_rows = fc_payment_rows[f_val]
                         
-                        # --- 【ユーザー追加仕様】54行〜63行は「変動費分」のみI列以降を更新する（例外はスキップ） ---
+                        # --- 【ユーザー追加仕様】54, 57, 60行目は月次更新対象外。他は「変動費分」のみI列以降を更新する ---
+                        if sheet_row in [54, 57, 60]:
+                            continue
                         if 54 <= sheet_row <= 63 and "変動" not in h_val:
                             continue
                             
