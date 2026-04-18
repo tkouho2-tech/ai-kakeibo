@@ -1347,6 +1347,17 @@ def execute_variable_cost_update(username, start_ym=None, skip_backup=False):
             
         # 新しい変動費データを書き込み
         st.write("💾 変動費集計結果をシートに書き込み中...")
+
+        # --- 追加仕様: 50-52行のG列(index 6)とF列(index 5)の対応マップ作成 ---
+        g_to_f_map = {}
+        for r_idx_map in [49, 50, 51]: # 50, 51, 52行目 (0-indexed)
+            if r_idx_map < len(pay_raw):
+                row_map = pay_raw[r_idx_map]
+                if len(row_map) > 6:
+                    g_val = str(row_map[6]).strip() # G列
+                    f_val = str(row_map[5]).strip() # F列
+                    if g_val:
+                        g_to_f_map[g_val] = f_val
         
         # 50行から52行のE列(インデックス4)とG列(インデックス6)への値の設定をしないように既存の値を復元
         # 54行から63行のH列(インデックス7)への値の設定をしないように既存の値を復元
@@ -1375,6 +1386,14 @@ def execute_variable_cost_update(username, start_ym=None, skip_backup=False):
                 if 54 <= sheet_row_num <= 62:
                     if len(raw_row) > 7 and len(r) > 7:
                         r[7] = raw_row[7]
+                    
+                    # --- 追加仕様: G列の値に基づいて50-52行のF列の値を設定 ---
+                    if len(r) > 6:
+                        # 54, 57, 60行目はG列が raw_row から復元されているため、それを優先的に参照
+                        current_g = str(r[6]).strip()
+                        if current_g in g_to_f_map:
+                            if len(r) > 5:
+                                r[5] = g_to_f_map[current_g]
                     
                     # --- 【追加仕様】クレジットカード内訳集計ロジック ---
                     # H列に含まれる「固定費」または「変動費」キーワードを特定
