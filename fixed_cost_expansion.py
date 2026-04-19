@@ -656,549 +656,371 @@ def execute_variable_cost_update(username, start_ym=None, skip_backup=False):
     except Exception as e:
         return False, f"支払管理シート({sheet_name})が見つかりません。先に「支払管理シート新規作成」を実行してください。"
         
-    # --- B. 変動費データ更新 単独実行時のバックアップ作成 ---
-    if not skip_backup:
-        createBackup(ss)
-
-    # 数式を維持するために FORMULA レンダリングオプションで取得
-    pay_raw = safe_gspread_call(ws_pay.get_all_values, value_render_option='FORMULA')
-    if len(pay_raw) < 7:
-        return False, "「支払管理」のフォーマットが正しくありません。"
-        
-    # ヘッダー行を「ID」が含まれる行として動的に特定 (Ver 4.26.2)
-    h_row_idx = -1
-    ozukai_row = -1
-    for i_r, r_v in enumerate(pay_raw):
-        if h_row_idx == -1 and r_v and str(r_v[0]).strip().lower() in ["id", "key"]:
-            h_row_idx = i_r
-        search_str = "".join([str(c) for c in r_v[:2]]) if r_v else ""
-        if "小遣い" in search_str:
-            ozukai_row = i_r + 1
-            break
-            
-    if h_row_idx == -1: h_row_idx = 6 # フォールバック
-    boundary_row = ozukai_row if ozukai_row != -1 else 70
-    st.write("🔍 変動費更新のためのヘッダー解析中...")
-    pay_formatted = safe_gspread_call(ws_pay.get_all_values, value_render_option='FORMATTED_VALUE')
-    actual_headers = pay_formatted[h_row_idx] if len(pay_formatted) > h_row_idx else []
-    pay_headers = pay_raw[h_row_idx]
-    
-    header_len = max(len(pay_headers), len(actual_headers))
-    actual_h_ids = []
-    y_row = pay_formatted[4] if len(pay_formatted) > 4 else []
-    m_row = pay_formatted[5] if len(pay_formatted) > 5 else []
-    
-    for i in range(header_len):
-        h_formula = _clean_val(pay_headers[i]) if i < len(pay_headers) else ""
-        h_formatted = _clean_val(actual_headers[i]) if i < len(actual_headers) else ""
-        
-        # 検知ロジック
-        y_m = _get_year_month(h_formatted)
-        if y_m == (9999, 12): y_m = _get_year_month(h_formula)
-        
-        detected_ym_str = ""
-        if y_m == (9999, 12):
-            y_v = str(y_row[i]).strip() if i < len(y_row) else ""
-            m_v = str(m_row[i]).strip() if i < len(m_row) else ""
-            yy = re.search(r"(\d{4})", y_v)
-            mm_f = re.search(r"(\d{1,2})", m_v)
-            if yy and mm_f:
-                detected_ym_str = f"{yy.group(1)}.{mm_f.group(1)}月"
-        
-        if h_formatted: norm_v = _normalize(h_formatted)
-        elif h_formula: norm_v = _normalize(h_formula)
-        elif detected_ym_str: norm_v = _normalize(detected_ym_str)
-        else: norm_v = ""
-        actual_h_ids.append(norm_v)
-    
-    # 科目１列のインデックスを探す
-    k1_idx = -1
-    for i, h in enumerate(actual_h_ids):
-        if "科目1" in h or "科目１" in h or "固定支払1" in h or "固定支払１" in h:
-            k1_idx = i
-            break
-            
-    if k1_idx == -1:
-        return False, "ヘッダーから「科目１」列が見つかりません。"
-        
-    # 行をスキャンして「固定費合計」または「【合計】」を探す (大分類～科目詳細のどこにあっても見つける)
-    total_row_idx = -1
-    for i, row in enumerate(pay_raw):
-        if i <= h_row_idx: continue
-        row_str = "".join([str(c) for c in row[:7]]) # 最初の数列を結合して検索
-        if "固定費合計" in row_str or "【合計】" in row_str:
-            total_row_idx = i
-            break
-            
-    # 見つからない場合のフォールバック：上から順に SUM(IF... 数式がある最初の行を探す (ラベルが消えている場合への対策)
-    if total_row_idx == -1:
-        for i in range(h_row_idx + 1, len(pay_raw)):
-            row = pay_raw[i]
-            # 月カラム（通常はインデックス 7 以降）のどこかにグランド合計用の数式が入っているかチェック
-            row_content = "".join([str(c) for c in row])
-            if "=SUM(IF(" in row_content or "=SUMIFS(" in row_content:
-                # 明細行のサブ計ではなく、複数の SUM かつ IF( が含まれるグランド合計っぽいもの
-                if row_content.count("SUM(") >= 1 and row_content.count("IF(") > 1:
-                    total_row_idx = i
-                    break
-
-    if total_row_idx == -1:
-        return False, "「固定費合計」または「【合計】」行が見つかりません。先に「固定費データ展開」を実行してください。"
-        
-    # 既存の固定費エリアのサブ合計行とグランド合計行を区別して収集 (Ver 5.0.0 循環参照防止)
-    fixed_subtotals = []
-    subtotal_row_nums = []
-    grand_total_row_num = -1
-    group_start = h_row_idx + 2
-    for i, row in enumerate(pay_raw[:total_row_idx + 1]):
-        if i <= h_row_idx: continue
-        r_k1 = str(row[k1_idx]).strip() if k1_idx < len(row) else ""
-        if ("【" in r_k1 and "計】" in r_k1):
-            fixed_subtotals.append((i + 1, group_start, i))
-            subtotal_row_nums.append(i + 1)
-            group_start = i + 2
-        elif "【合計】" in r_k1 or "固定費合計" in r_k1:
-            grand_total_row_num = i + 1
-            
-    from fixed_cost_expansion import _generate_target_months
-    # 対象月カラムの抽出
-    month_cols = _generate_target_months()
-    
-    # 新しい挿入開始行 (スプレッドシートの行番号は 1-based)
-    # Ver 4.27.4: 固定費合計の次から開始 (+2)
-    start_row_num = total_row_idx + 2
-    
     try:
-        methods = safe_gspread_call(get_payment_methods, username)
-        cc_methods = [m for m in methods if m.get("is_credit_card", False) or m.get("type") == "クレジットカード"]
-    except Exception as e:
-        return False, f"支払方法マスターの取得に失敗しました: {e}"
+        # --- B. 変動費データ更新 単独実行時のバックアップ作成 ---
+        if not skip_backup:
+            createBackup(ss)
+
+        # 数式を維持するために FORMULA レンダリングオプションで取得
+        pay_raw = safe_gspread_call(ws_pay.get_all_values, value_render_option='FORMULA')
+        if len(pay_raw) < 7:
+            return False, "「支払管理」のフォーマットが正しくありません。"
+            
+        # ヘッダー行を「ID」が含まれる行として動的に特定 (Ver 4.26.2)
+        h_row_idx = -1
+        ozukai_row = -1
+        for i_r, r_v in enumerate(pay_raw):
+            if h_row_idx == -1 and r_v and str(r_v[0]).strip().lower() in ["id", "key"]:
+                h_row_idx = i_r
+            search_str = "".join([str(c) for c in r_v[:2]]) if r_v else ""
+            if "小遣い" in search_str:
+                ozukai_row = i_r + 1
+                break
+                
+        if h_row_idx == -1: h_row_idx = 6 # フォールバック
+        boundary_row = ozukai_row if ozukai_row != -1 else 70
+        st.write("🔍 変動費更新のためのヘッダー解析中...")
+        pay_formatted = safe_gspread_call(ws_pay.get_all_values, value_render_option='FORMATTED_VALUE')
+        actual_headers = pay_formatted[h_row_idx] if len(pay_formatted) > h_row_idx else []
+        pay_headers = pay_raw[h_row_idx]
         
-    if not cc_methods:
-        return True, "クレジットカードが登録されていないため、変動費の集計をスキップしました。"
+        header_len = max(len(pay_headers), len(actual_headers))
+        actual_h_ids = []
+        y_row = pay_formatted[4] if len(pay_formatted) > 4 else []
+        m_row = pay_formatted[5] if len(pay_formatted) > 5 else []
         
-    st.write("📊 取引履歴を取得し、各月の支払額を集計中...")
-    try:
-        tx_sheet = get_sheet(TRANSACTIONS_WORKSHEET_NAME)
-        all_txs = safe_gspread_call(tx_sheet.get_all_records)
-        user_txs = [tx for tx in all_txs if str(tx.get("username", "")).lower() == username.lower()]
-        if not user_txs:
-            return True, "対象となる取引データがないため、変動費の更新をスキップしました。"
-    except Exception as e:
-        return False, f"取引履歴の取得に失敗しました: {e}"
-        
-    def _dict_to_row(d):
-        r = []
         for i in range(header_len):
-            h = actual_headers[i] if i < len(actual_headers) else ""
+            h_formula = _clean_val(pay_headers[i]) if i < len(pay_headers) else ""
+            h_formatted = _clean_val(actual_headers[i]) if i < len(actual_headers) else ""
             
-            ach = actual_h_ids[i]
-            if "科目1" in ach or "科目１" in ach or "固定支払1" in ach or "固定支払１" in ach: val = d.get("科目１", "")
-            elif "科目2" in ach or "科目２" in ach or "固定支払2" in ach or "固定支払２" in ach: val = d.get("科目２", "")
-            elif "変動" in ach or ("固定" in ach and "支払" not in ach): val = d.get("変動or固定", "")
-            elif "有限" in ach or "無限" in ach: val = d.get("有限or無限", "")
-            elif "Sno" in ach or "seq" in ach.lower(): val = d.get("Sno", "")
-            elif "詳細" in ach or "明細" in ach: val = d.get("科目詳細", "")
-            elif "大分類" in ach: val = d.get("大分類", "")
-            elif ach in month_cols:
-                val = d.get(ach, "")
-            elif (ach + "月") in month_cols:
-                val = d.get(ach + "月", "")
-            elif ach.replace("月", "") in [m.replace("月", "") for m in month_cols]:
-                match_m = next((m for m in month_cols if m.replace("月", "") == ach.replace("月", "")), None)
-                val = d.get(match_m, "")
-            else:
-                # 完了フラグ等のフォールバック
-                val = d.get(ach, d.get(_clean_val(h).strip(), ""))
-            r.append(val)
-        return r
-
-    st.write("📊 クレジットカード支払情報を集計中...")
-    cc_rows_array = []
-    current_row_num = start_row_num
-    var_start = current_row_num
-    var_sno = 1
-    
-    # 事前準備：pay_raw内から各クレジットカードごとの固定費行(行番号, 1-based)を抽出
-    # ヘッダーより下（7行目以降）から合計行まで
-    fc_payment_rows = {cc.get("name", ""): [] for cc in cc_methods}
-    # 他の支払情報 (口座引落, 銀行振込) の行を抽出
-    other_pay_rows = []
-    
-    for i, row in enumerate(pay_raw[:total_row_idx]):
-        if i <= h_row_idx: continue
-        try:
-            # ヘッダー検索も表示値ベースのインデックスを使用
-            k1_h_idx = -1
-            k2_h_idx = -1
-            for h_i, h_val in enumerate(actual_headers):
-                h_clean = _clean_val(h_val).strip()
-                if h_clean == "科目１": k1_h_idx = h_i
-                if h_clean == "科目２": k2_h_idx = h_i
+            # 検知ロジック
+            y_m = _get_year_month(h_formatted)
+            if y_m == (9999, 12): y_m = _get_year_month(h_formula)
             
-            if k1_h_idx != -1 and k2_h_idx != -1:
-                r_k1 = _clean_val(row[k1_h_idx]).strip()
-                r_k2 = _clean_val(row[k2_h_idx]).strip()
-                if r_k1 == "クレジットカード" and r_k2 in fc_payment_rows:
-                    fc_payment_rows[r_k2].append(i + 1)
-                elif r_k1 in ["口座引落", "銀行振込"]:
-                    if r_k2:
-                        other_pay_rows.append(i + 1)
-        except: pass
+            detected_ym_str = ""
+            if y_m == (9999, 12):
+                y_v = str(y_row[i]).strip() if i < len(y_row) else ""
+                m_v = str(m_row[i]).strip() if i < len(m_row) else ""
+                yy = re.search(r"(\d{4})", y_v)
+                mm_f = re.search(r"(\d{1,2})", m_v)
+                if yy and mm_f:
+                    detected_ym_str = f"{yy.group(1)}.{mm_f.group(1)}月"
+            
+            if h_formatted: norm_v = _normalize(h_formatted)
+            elif h_formula: norm_v = _normalize(h_formula)
+            elif detected_ym_str: norm_v = _normalize(detected_ym_str)
+            else: norm_v = ""
+            actual_h_ids.append(norm_v)
         
-    var_cost_rows = {}
-    cc_monthly_amounts = {}
-    
-    for cc in cc_methods:
-        cc_name = cc.get("name", "")
-        closing_str = str(cc.get("closing_date", ""))
-        pay_month_str = str(cc.get("payment_month", ""))
-        pay_date_str = str(cc.get("payment_date", ""))
-        
-        # 支払日の数値抽出と文言（翌月/当月）の判定
-        try:
-            p_day_match = re.search(r"\d+", str(pay_date_str))
-            p_day_val = int(p_day_match.group()) if p_day_match else 27
-        except: p_day_val = 27
-        timing_label = "翌月" if p_day_val < 20 else "当月"
-        # 【Ver 6.0.0】is_pay_late をこのスコープで正しく定義
-        is_pay_late = (p_day_val >= 20 or "末日" in str(pay_date_str) or "月末" in str(pay_date_str))
-        payment_desc = f"支払日は{timing_label}の{pay_date_str}となります。"
+        # 科目１列のインデックスを探す
+        k1_idx = -1
+        for i, h in enumerate(actual_h_ids):
+            if "科目1" in h or "科目１" in h or "固定支払1" in h or "固定支払１" in h:
+                k1_idx = i
+                break
+                
+        if k1_idx == -1:
+            return False, "ヘッダーから「科目１」列が見つかりません。"
+            
+        # 行をスキャンして「固定費合計」または「【合計】」を探す (大分類～科目詳細のどこにあっても見つける)
+        total_row_idx = -1
+        for i, row in enumerate(pay_raw):
+            if i <= h_row_idx: continue
+            row_str = "".join([str(c) for c in row[:7]]) # 最初の数列を結合して検索
+            if "固定費合計" in row_str or "【合計】" in row_str:
+                total_row_idx = i
+                break
+                
+        # 見つからない場合のフォールバック：上から順に SUM(IF... 数式がある最初の行を探す (ラベルが消えている場合への対策)
+        if total_row_idx == -1:
+            for i in range(h_row_idx + 1, len(pay_raw)):
+                row = pay_raw[i]
+                # 月カラム（通常はインデックス 7 以降）のどこかにグランド合計用の数式が入っているかチェック
+                row_content = "".join([str(c) for c in row])
+                if "=SUM(IF(" in row_content or "=SUMIFS(" in row_content:
+                    # 明細行のサブ計ではなく、複数の SUM かつ IF( が含まれるグランド合計っぽいもの
+                    if row_content.count("SUM(") >= 1 and row_content.count("IF(") > 1:
+                        total_row_idx = i
+                        break
 
-        cc_row_dict = {
-            "大分類": "変動費",
-            "変動or固定": "",
-            "有限or無限": "",
-            "科目１": "クレジットカード",
-            "科目２": cc_name,
-            "科目詳細": payment_desc,
-            "Sno": str(var_sno)
-        }
-        var_sno += 1
+        if total_row_idx == -1:
+            return False, "「固定費合計」または「【合計】」行が見つかりません。先に「固定費データ展開」を実行してください。"
+            
+        # 既存の固定費エリアのサブ合計行とグランド合計行を区別して収集 (Ver 5.0.0 循環参照防止)
+        fixed_subtotals = []
+        subtotal_row_nums = []
+        grand_total_row_num = -1
+        group_start = h_row_idx + 2
+        for i, row in enumerate(pay_raw[:total_row_idx + 1]):
+            if i <= h_row_idx: continue
+            r_k1 = str(row[k1_idx]).strip() if k1_idx < len(row) else ""
+            if ("【" in r_k1 and "計】" in r_k1):
+                fixed_subtotals.append((i + 1, group_start, i))
+                subtotal_row_nums.append(i + 1)
+                group_start = i + 2
+            elif "【合計】" in r_k1 or "固定費合計" in r_k1:
+                grand_total_row_num = i + 1
+                
+        from fixed_cost_expansion import _generate_target_months
+        # 対象月カラムの抽出
+        month_cols = _generate_target_months()
         
-        for mc in month_cols:
-            try:
-                # 【Ver 6.0.0】堅牢な解析への切り替え (点やスラッシュの違いに左右されない)
-                my, mm = _get_year_month(_clean_val(mc).strip())
-                if my == 9999:
-                    continue
-                base_date = datetime(my, mm, 1)
+        # 新しい挿入開始行 (スプレッドシートの行番号は 1-based)
+        # Ver 4.27.4: 固定費合計の次から開始 (+2)
+        start_row_num = total_row_idx + 2
+        
+        try:
+            methods = safe_gspread_call(get_payment_methods, username)
+            cc_methods = [m for m in methods if m.get("is_credit_card", False) or m.get("type") == "クレジットカード"]
+        except Exception as e:
+            return False, f"支払方法マスターの取得に失敗しました: {e}"
+            
+        if not cc_methods:
+            return True, "クレジットカードが登録されていないため、変動費の集計をスキップしました。"
+            
+        st.write("📊 取引履歴を取得し、各月の支払額を集計中...")
+        try:
+            tx_sheet = get_sheet(TRANSACTIONS_WORKSHEET_NAME)
+            all_txs = safe_gspread_call(tx_sheet.get_all_records)
+            user_txs = [tx for tx in all_txs if str(tx.get("username", "")).lower() == username.lower()]
+            if not user_txs:
+                return True, "対象となる取引データがないため、変動費の更新をスキップしました。"
+        except Exception as e:
+            return False, f"取引履歴の取得に失敗しました: {e}"
+            
+        def _dict_to_row(d):
+            r = []
+            for i in range(header_len):
+                h = actual_headers[i] if i < len(actual_headers) else ""
                 
-                # 表示ルールの適用: 20日基準で表示年月をシフト
-                # 20日未満なら：支払月（表示月） ＝ 利用月
-                # 20日以降なら：支払月（表示月） ＝ 利用月 ＋ 1ヶ月  （利用月 ＝ 表示月 － 1ヶ月）
-                try:
-                    p_day_m = re.search(r"\d+", str(pay_date_str))
-                    p_day = int(p_day_m.group()) if p_day_m else 0
-                except:
-                    p_day = 0
-                
-                # 改訂ルール#8：
-                # 通常：利用月 ＝ 支払月（表示月）
-                # 遅い（20日以降）：利用月 ＝ 支払月（表示月） － 1ヶ月
-                # 【Ver 6.0.0】未定義だった is_pay_late を使用
-                if not is_pay_late:
-                    target_pay_date = base_date + relativedelta(months=1)
+                ach = actual_h_ids[i]
+                if "科目1" in ach or "科目１" in ach or "固定支払1" in ach or "固定支払１" in ach: val = d.get("科目１", "")
+                elif "科目2" in ach or "科目２" in ach or "固定支払2" in ach or "固定支払２" in ach: val = d.get("科目２", "")
+                elif "変動" in ach or ("固定" in ach and "支払" not in ach): val = d.get("変動or固定", "")
+                elif "有限" in ach or "無限" in ach: val = d.get("有限or無限", "")
+                elif "Sno" in ach or "seq" in ach.lower(): val = d.get("Sno", "")
+                elif "詳細" in ach or "明細" in ach: val = d.get("科目詳細", "")
+                elif "大分類" in ach: val = d.get("大分類", "")
+                elif ach in month_cols:
+                    val = d.get(ach, "")
+                elif (ach + "月") in month_cols:
+                    val = d.get(ach + "月", "")
+                elif ach.replace("月", "") in [m.replace("月", "") for m in month_cols]:
+                    match_m = next((m for m in month_cols if m.replace("月", "") == ach.replace("月", "")), None)
+                    val = d.get(match_m, "")
                 else:
-                    target_pay_date = base_date
+                    # 完了フラグ等のフォールバック
+                    val = d.get(ach, d.get(_clean_val(h).strip(), ""))
+                r.append(val)
+            return r
+
+        st.write("📊 クレジットカード支払情報を集計中...")
+        cc_rows_array = []
+        current_row_num = start_row_num
+        var_start = current_row_num
+        var_sno = 1
+        
+        # 事前準備：pay_raw内から各クレジットカードごとの固定費行(行番号, 1-based)を抽出
+        # ヘッダーより下（7行目以降）から合計行まで
+        fc_payment_rows = {cc.get("name", ""): [] for cc in cc_methods}
+        # 他の支払情報 (口座引落, 銀行振込) の行を抽出
+        other_pay_rows = []
+        
+        for i, row in enumerate(pay_raw[:total_row_idx]):
+            if i <= h_row_idx: continue
+            try:
+                # ヘッダー検索も表示値ベースのインデックスを使用
+                k1_h_idx = -1
+                k2_h_idx = -1
+                for h_i, h_val in enumerate(actual_headers):
+                    h_clean = _clean_val(h_val).strip()
+                    if h_clean == "科目１": k1_h_idx = h_i
+                    if h_clean == "科目２": k2_h_idx = h_i
                 
-                from app import calculate_credit_card_periods
-                periods = calculate_credit_card_periods(target_pay_date, closing_str, pay_month_str, pay_date_str)
-                
-                if periods and len(periods) > 0:
-                    s_date = periods[0]["start"]
-                    e_date = periods[0]["end"]
+                if k1_h_idx != -1 and k2_h_idx != -1:
+                    r_k1 = _clean_val(row[k1_h_idx]).strip()
+                    r_k2 = _clean_val(row[k2_h_idx]).strip()
+                    if r_k1 == "クレジットカード" and r_k2 in fc_payment_rows:
+                        fc_payment_rows[r_k2].append(i + 1)
+                    elif r_k1 in ["口座引落", "銀行振込"]:
+                        if r_k2:
+                            other_pay_rows.append(i + 1)
+            except: pass
+            
+        var_cost_rows = {}
+        cc_monthly_amounts = {}
+        
+        for cc in cc_methods:
+            cc_name = cc.get("name", "")
+            closing_str = str(cc.get("closing_date", ""))
+            pay_month_str = str(cc.get("payment_month", ""))
+            pay_date_str = str(cc.get("payment_date", ""))
+            
+            # 支払日の数値抽出と文言（翌月/当月）の判定
+            try:
+                p_day_match = re.search(r"\d+", str(pay_date_str))
+                p_day_val = int(p_day_match.group()) if p_day_match else 27
+            except: p_day_val = 27
+            timing_label = "翌月" if p_day_val < 20 else "当月"
+            # 【Ver 6.0.0】is_pay_late をこのスコープで正しく定義
+            is_pay_late = (p_day_val >= 20 or "末日" in str(pay_date_str) or "月末" in str(pay_date_str))
+            payment_desc = f"支払日は{timing_label}の{pay_date_str}となります。"
+
+            cc_row_dict = {
+                "大分類": "変動費",
+                "変動or固定": "",
+                "有限or無限": "",
+                "科目１": "クレジットカード",
+                "科目２": cc_name,
+                "科目詳細": payment_desc,
+                "Sno": str(var_sno)
+            }
+            var_sno += 1
+            
+            for mc in month_cols:
+                try:
+                    # 【Ver 6.0.0】堅牢な解析への切り替え (点やスラッシュの違いに左右されない)
+                    my, mm = _get_year_month(_clean_val(mc).strip())
+                    if my == 9999:
+                        continue
+                    base_date = datetime(my, mm, 1)
                     
-                    month_sum = 0
-                    norm_cc_name = _normalize(_clean_val(cc_name))
-                    for tx in user_txs:
-                        tx_pm = _normalize(_clean_val(tx.get("payment_method", "")))
-                        if tx_pm == norm_cc_name:
-                            # 内税は集計に含まない
-                            if tx.get("category") == "消費税（内税）":
-                                continue
-                            tx_date_str = str(tx.get("date", ""))
-                            if tx_date_str:
-                                try:
-                                    tx_date = datetime.strptime(tx_date_str, "%Y-%m-%d").date()
-                                    if s_date <= tx_date <= e_date:
-                                        amt = str(tx.get("amount", "0")).replace(",", "").replace("¥", "").replace("￥", "")
-                                        if amt is not None and str(amt).strip() != "":
-                                            month_sum += safe_money_int_cast(amt)
-                                except:
-                                    pass
-                    cc_row_dict[mc] = month_sum if month_sum > 0 else ""
-                else:
-                    cc_row_dict[mc] = ""
-            except Exception as e:
-                cc_row_dict[mc] = ""
-
-        var_cost_rows[cc_name] = current_row_num
-        cc_monthly_amounts[cc_name] = { mc: cc_row_dict.get(mc, "") for mc in month_cols }
-        row_arr = _dict_to_row(cc_row_dict)
-        
-        # 月次データとフラグの転記
-        for mc in month_cols:
-            try:
-                # actual_headers を使ってインデックスを取得
-                c_idx = -1
-                for i_h, h_v in enumerate(actual_headers):
-                    if _normalize(_clean_val(h_v)) == mc:
-                        c_idx = i_h
-                        break
-                if c_idx == -1:
-                    # '月'なしでも試行
-                    alt_m = mc.replace("月", "")
-                    for i_h, h_v in enumerate(actual_headers):
-                        if _normalize(_clean_val(h_v)).replace("月", "") == alt_m:
-                            c_idx = i_h
-                            break
-                
-                if c_idx == -1: continue # 見つからない場合はスキップ
-                f_idx = c_idx + 1
-                
-                # 金額設定 - 正しいインデックスを使用 (Ver 4.27.4: -1を削除)
-                amt = cc_row_dict.get(mc, "")
-                if 0 <= c_idx < len(row_arr):
-                    row_arr[c_idx] = amt
-                
-                # 支払日の判定と自動フラグ設定 (変動費・カード個別行)
-                try:
-                    amt_val = str(amt).strip().replace(",", "").replace("¥", "").replace("￥", "")
-                    has_valid_amount = False
-                    if amt_val and amt_val != "-":
-                        try:
-                            if float(amt_val) > 0:
-                                has_valid_amount = True
-                        except: pass
-
-                    is_past_due = False
-                    y, m = _get_year_month(mc)
-                    if y != 9999 and has_valid_amount:
-                        off = 1
-                        if "当月" in str(pay_month_str): off = 0
-                        elif "翌々月" in str(pay_month_str): off = 2
-                        
-                        # 【例外ルール】変動費カード(50-52行)で「翌月20日以降払」の場合は当月(0)とみなす
-                        d_m_check = re.search(r"\d+", str(pay_date_str))
-                        p_day_val = int(d_m_check.group()) if d_m_check else 0
-                        is_late = (p_day_val >= 20 or "末日" in str(pay_date_str) or "月末" in str(pay_date_str))
-                        if off == 1 and is_late:
-                            off = 0
-                                
-                        base_dt = datetime(y, m, 1) + relativedelta(months=off)
-                        due_dt = base_dt + relativedelta(day=p_day_val)
-                        
-                        # 営業日チェックと翌営業日へのスライド
-                        while due_dt.weekday() >= 5 or jpholiday.is_holiday(due_dt.date()):
-                            due_dt += timedelta(days=1)
-                            
-                        if datetime.now(JST).date() >= due_dt.date():
-                            is_past_due = True
-
-                    if has_valid_amount and is_past_due:
-                        if 0 <= f_idx < len(row_arr):
-                            row_arr[f_idx] = "1"
-                    else:
-                        if 0 <= f_idx < len(row_arr):
-                            row_arr[f_idx] = ""
-                except Exception as ex: 
-                    print(f"Error in var flag: {ex}")
-            except: pass
-            
-        cc_rows_array.append(row_arr)
-        current_row_num += 1
-        
-    # 変動費合計行を追加 (ピンク)
-    # Ver 4.28.2: 表示内容を「変動費_支払残_合計額」に変更
-    var_total_row = [""] * header_len
-    try:
-        if 0 < len(var_total_row):
-            var_total_row[1] = "変動費_支払残_合計額" # B列位置
-        # A列(ID列)は空欄（画像2に合わせる）
-        if 0 < len(var_total_row):
-            var_total_row[0] = ""
-    except: pass
-    
-    for mc in month_cols:
-        try:
-            # actual_headers を使ってインデックスを取得
-            c_idx = -1
-            for i_h, h_v in enumerate(actual_headers):
-                if _normalize(_clean_val(h_v)) == mc:
-                    c_idx = i_h
-                    break
-            if c_idx == -1:
-                alt_m = mc.replace("月", "")
-                for i_h, h_v in enumerate(actual_headers):
-                    if _normalize(_clean_val(h_v)).replace("月", "") == alt_m:
-                        c_idx = i_h
-                        break
-            if c_idx == -1: continue
-            
-            f_idx = c_idx + 1
-            col_letter = chr(ord('A') + c_idx) if c_idx < 26 else chr(ord('A') + c_idx//26 - 1) + chr(ord('A') + c_idx%26)
-            flag_letter = chr(ord('A') + f_idx) if f_idx < 26 else chr(ord('A') + f_idx//26 - 1) + chr(ord('A') + f_idx%26)
-            if var_start <= current_row_num - 1:
-                # 完了Fが空の行のみを合計
-                formula = f"=SUMIFS({col_letter}{var_start}:{col_letter}{current_row_num - 1}, {flag_letter}{var_start}:{flag_letter}{current_row_num - 1}, \"\")"
-                # 正しいインデックスを使用 (Ver 4.27.4: -1を削除)
-                if 0 <= c_idx < len(var_total_row):
-                    var_total_row[c_idx] = formula
-        except: pass
-        
-    # pass # FIXED_FORMAT_MAINTENANCE: Do not append dynamic var_total_row
-    # cc_rows_array.append(var_total_row)
-    # current_row_num += 1
-    
-    # === クレジットカード総合計ブロック ===
-    summary_start_row = current_row_num
-    card_total_rows = []
-    
-    summary_data_start = current_row_num
-    
-    # 最初の行にだけ「クレジットカード合計」を表示。他は空にする。
-    is_first_summary_row = True
-    
-    for cc in cc_methods:
-        cc_name = cc.get("name", "")
-        pay_month_str = str(cc.get("payment_month", ""))
-        pay_date_str = str(cc.get("payment_date", ""))
-        closing_str = str(cc.get("closing_date", ""))
-        
-        # 1. 固定費分 (Ver 4.28.1: B-E列は後で結合されるため、ラベルを「クレジットカード 支払残額」に統一)
-        fc_dict = {
-            "大分類": "クレジットカード 支払残額", 
-            "科目１": "クレジットカード 支払残額", 
-            "科目２": cc_name, 
-            "科目詳細": "固定費分"
-        }
-        r_fc = _dict_to_row(fc_dict)
-        for mc in month_cols:
-            try:
-                # actual_headers を使ってインデックスを取得
-                c_idx = -1
-                for i_h, h_v in enumerate(actual_headers):
-                    if _normalize(_clean_val(h_v)) == mc:
-                        c_idx = i_h
-                        break
-                if c_idx == -1:
-                    alt_m = mc.replace("月", "")
-                    for i_h, h_v in enumerate(actual_headers):
-                        if _normalize(_clean_val(h_v)).replace("月", "") == alt_m:
-                            c_idx = i_h
-                            break
-                if c_idx == -1: continue
-                
-                f_idx = c_idx + 1
-                col_letter = chr(ord('A') + c_idx) if c_idx < 26 else chr(ord('A') + c_idx//26 - 1) + chr(ord('A') + c_idx%26)
-                flag_letter = chr(ord('A') + f_idx) if f_idx < 26 else chr(ord('A') + f_idx//26 - 1) + chr(ord('A') + f_idx%26)
-                if fc_payment_rows.get(cc_name):
-                    cells = [f"IF({flag_letter}{r}=\"\", {col_letter}{r}, 0)" for r in fc_payment_rows[cc_name]]
-                    # B列開始なのでインデックスを調整し、境界チェックを追加
-                    if 0 <= c_idx < len(r_fc):
-                        r_fc[c_idx] = f"=SUM({','.join(cells)})"
-                else:
-                    if 0 <= c_idx < len(r_fc):
-                        r_fc[c_idx] = 0
-                
-                # 支払日の判定と自動フラグ設定 (固定費分)
-                try:
-                    y, m = _get_year_month(mc)
-                    if y != 9999:
+                    # 表示ルールの適用: 20日基準で表示年月をシフト
+                    # 20日未満なら：支払月（表示月） ＝ 利用月
+                    # 20日以降なら：支払月（表示月） ＝ 利用月 ＋ 1ヶ月  （利用月 ＝ 表示月 － 1ヶ月）
+                    try:
                         p_day_m = re.search(r"\d+", str(pay_date_str))
-                        p_day = int(p_day_m.group()) if p_day_m else 27
+                        p_day = int(p_day_m.group()) if p_day_m else 0
+                    except:
+                        p_day = 0
+                    
+                    # 改訂ルール#8：
+                    # 通常：利用月 ＝ 支払月（表示月）
+                    # 遅い（20日以降）：利用月 ＝ 支払月（表示月） － 1ヶ月
+                    # 【Ver 6.0.0】未定義だった is_pay_late を使用
+                    if not is_pay_late:
+                        target_pay_date = base_date + relativedelta(months=1)
+                    else:
+                        target_pay_date = base_date
+                    
+                    from app import calculate_credit_card_periods
+                    periods = calculate_credit_card_periods(target_pay_date, closing_str, pay_month_str, pay_date_str)
+                    
+                    if periods and len(periods) > 0:
+                        s_date = periods[0]["start"]
+                        e_date = periods[0]["end"]
                         
-                        base_date_dt = datetime(y, m, 1)
-                        if p_day < 20:
-                            target_pay_dt = base_date_dt + relativedelta(months=1)
-                        else:
-                            target_pay_dt = base_date_dt
-                            
-                        from app import calculate_credit_card_periods
-                        t_periods = calculate_credit_card_periods(target_pay_dt, closing_str, pay_month_str, pay_date_str)
-                        if t_periods:
-                            actual_due_date = t_periods[0]["pay_date"]
-                            if datetime.now(JST).date() >= actual_due_date:
-                                # B列開始なのでインデックスを調整し、境界チェックを追加
-                                if 0 <= f_idx < len(r_fc):
-                                    r_fc[f_idx] = 1
-                except: pass
-            except: pass
-        # pass # FIXED_FORMAT_MAINTENANCE: Do not append dynamic r_fc
-        # cc_rows_array.append(r_fc)
-        # current_row_num += 1
-        
-        # 2. 変動費分 (Ver 4.28.1: ラベル更新)
-        vc_row_idx = var_cost_rows.get(cc_name)
-        vc_dict = {
-            "大分類": "クレジットカード 支払残額", 
-            "科目１": "クレジットカード 支払残額", 
-            "科目２": cc_name, 
-            "科目詳細": "変動費分"
-        }
-        r_vc = _dict_to_row(vc_dict)
-        for mc in month_cols:
-            try:
-                # actual_headers を使ってインデックスを取得
-                c_idx = -1
-                for i_h, h_v in enumerate(actual_headers):
-                    if _normalize(_clean_val(h_v)) == mc:
-                        c_idx = i_h
-                        break
-                if c_idx == -1:
-                    alt_m = mc.replace("月", "")
-                    for i_h, h_v in enumerate(actual_headers):
-                        if _normalize(_clean_val(h_v)).replace("月", "") == alt_m:
-                            c_idx = i_h
-                            break
-                if c_idx == -1: continue
-                
-                f_idx = c_idx + 1
-                col_letter = chr(ord('A') + c_idx) if c_idx < 26 else chr(ord('A') + c_idx//26 - 1) + chr(ord('A') + c_idx%26)
-                flag_letter = chr(ord('A') + f_idx) if f_idx < 26 else chr(ord('A') + f_idx//26 - 1) + chr(ord('A') + f_idx%26)
-                if vc_row_idx:
-                    # 詳細行の完了Fが空の場合のみ表示
-                    # B列開始なのでインデックスを調整し、境界チェックを追加
-                    if 0 <= c_idx < len(r_vc):
-                        r_vc[c_idx] = f"=IF({flag_letter}{vc_row_idx}=\"\", {col_letter}{vc_row_idx}, 0)"
-                else:
-                    if 0 <= c_idx < len(r_vc):
-                        r_vc[c_idx] = 0
+                        month_sum = 0
+                        norm_cc_name = _normalize(_clean_val(cc_name))
+                        for tx in user_txs:
+                            tx_pm = _normalize(_clean_val(tx.get("payment_method", "")))
+                            if tx_pm == norm_cc_name:
+                                # 内税は集計に含まない
+                                if tx.get("category") == "消費税（内税）":
+                                    continue
+                                tx_date_str = str(tx.get("date", ""))
+                                if tx_date_str:
+                                    try:
+                                        tx_date = datetime.strptime(tx_date_str, "%Y-%m-%d").date()
+                                        if s_date <= tx_date <= e_date:
+                                            amt = str(tx.get("amount", "0")).replace(",", "").replace("¥", "").replace("￥", "")
+                                            if amt is not None and str(amt).strip() != "":
+                                                month_sum += safe_money_int_cast(amt)
+                                    except:
+                                        pass
+                        cc_row_dict[mc] = month_sum if month_sum > 0 else ""
+                    else:
+                        cc_row_dict[mc] = ""
+                except Exception as e:
+                    cc_row_dict[mc] = ""
 
-                # 支払日の判定と自動フラグ設定 (変動費分)
+            var_cost_rows[cc_name] = current_row_num
+            cc_monthly_amounts[cc_name] = { mc: cc_row_dict.get(mc, "") for mc in month_cols }
+            row_arr = _dict_to_row(cc_row_dict)
+            
+            # 月次データとフラグの転記
+            for mc in month_cols:
                 try:
-                    y, m = _get_year_month(mc)
-                    if y != 9999:
-                        month_offset = 1 
-                        if "当月" in str(pay_month_str): month_offset = 0
-                        elif "翌々月" in str(pay_month_str): month_offset = 2
-                        target_base_date = datetime(y, m, 1) + relativedelta(months=month_offset)
-                        day_match = re.search(r"\d+", str(pay_date_str))
-                        if day_match:
-                            day_val = int(day_match.group())
-                            actual_due_date = target_base_date + relativedelta(day=day_val)
-                            if datetime.now(JST).date() >= actual_due_date.date():
-                                # B列開始なのでインデックスを調整し、境界チェックを追加
-                                if 0 <= f_idx < len(r_vc):
-                                    r_vc[f_idx] = 1
-                except: pass
-            except: pass
-        # pass # FIXED_FORMAT_MAINTENANCE: Do not append dynamic r_vc
-        # cc_rows_array.append(r_vc)
-        # current_row_num += 1
-        
-        # 3. 合計 (固定費分+変動費分)
-        # 支払日の文言判定
-        try:
-            p_day_sum_m = re.search(r"\d+", str(pay_date_str))
-            p_day_sum_v = int(p_day_sum_m.group()) if p_day_sum_m else 27
-        except: p_day_sum_v = 27
-        timing_sum_label = "翌月" if p_day_sum_v < 20 else "当月"
-        payment_sum_desc = f"支払日は{timing_sum_label}の{pay_date_str}となります。"
+                    # actual_headers を使ってインデックスを取得
+                    c_idx = -1
+                    for i_h, h_v in enumerate(actual_headers):
+                        if _normalize(_clean_val(h_v)) == mc:
+                            c_idx = i_h
+                            break
+                    if c_idx == -1:
+                        # '月'なしでも試行
+                        alt_m = mc.replace("月", "")
+                        for i_h, h_v in enumerate(actual_headers):
+                            if _normalize(_clean_val(h_v)).replace("月", "") == alt_m:
+                                c_idx = i_h
+                                break
+                    
+                    if c_idx == -1: continue # 見つからない場合はスキップ
+                    f_idx = c_idx + 1
+                    
+                    # 金額設定 - 正しいインデックスを使用 (Ver 4.27.4: -1を削除)
+                    amt = cc_row_dict.get(mc, "")
+                    if 0 <= c_idx < len(row_arr):
+                        row_arr[c_idx] = amt
+                    
+                    # 支払日の判定と自動フラグ設定 (変動費・カード個別行)
+                    try:
+                        amt_val = str(amt).strip().replace(",", "").replace("¥", "").replace("￥", "")
+                        has_valid_amount = False
+                        if amt_val and amt_val != "-":
+                            try:
+                                if float(amt_val) > 0:
+                                    has_valid_amount = True
+                            except: pass
 
-        sum_dict = {"大分類": "クレジットカード 支払残額", "科目１": "クレジットカード 支払残額", "科目２": cc_name, "科目詳細": payment_sum_desc}
-        r_sum = _dict_to_row(sum_dict)
+                        is_past_due = False
+                        y, m = _get_year_month(mc)
+                        if y != 9999 and has_valid_amount:
+                            off = 1
+                            if "当月" in str(pay_month_str): off = 0
+                            elif "翌々月" in str(pay_month_str): off = 2
+                            
+                            # 【例外ルール】変動費カード(50-52行)で「翌月20日以降払」の場合は当月(0)とみなす
+                            d_m_check = re.search(r"\d+", str(pay_date_str))
+                            p_day_val = int(d_m_check.group()) if d_m_check else 0
+                            is_late = (p_day_val >= 20 or "末日" in str(pay_date_str) or "月末" in str(pay_date_str))
+                            if off == 1 and is_late:
+                                off = 0
+                                    
+                            base_dt = datetime(y, m, 1) + relativedelta(months=off)
+                            due_dt = base_dt + relativedelta(day=p_day_val)
+                            
+                            # 営業日チェックと翌営業日へのスライド
+                            while due_dt.weekday() >= 5 or jpholiday.is_holiday(due_dt.date()):
+                                due_dt += timedelta(days=1)
+                                
+                            if datetime.now(JST).date() >= due_dt.date():
+                                is_past_due = True
+
+                        if has_valid_amount and is_past_due:
+                            if 0 <= f_idx < len(row_arr):
+                                row_arr[f_idx] = "1"
+                        else:
+                            if 0 <= f_idx < len(row_arr):
+                                row_arr[f_idx] = ""
+                    except Exception as ex: 
+                        print(f"Error in var flag: {ex}")
+                except: pass
+                
+            cc_rows_array.append(row_arr)
+            current_row_num += 1
+            
+        # 変動費合計行を追加 (ピンク)
+        # Ver 4.28.2: 表示内容を「変動費_支払残_合計額」に変更
+        var_total_row = [""] * header_len
+        try:
+            if 0 < len(var_total_row):
+                var_total_row[1] = "変動費_支払残_合計額" # B列位置
+            # A列(ID列)は空欄（画像2に合わせる）
+            if 0 < len(var_total_row):
+                var_total_row[0] = ""
+        except: pass
+        
         for mc in month_cols:
             try:
                 # actual_headers を使ってインデックスを取得
@@ -1218,115 +1040,297 @@ def execute_variable_cost_update(username, start_ym=None, skip_backup=False):
                 f_idx = c_idx + 1
                 col_letter = chr(ord('A') + c_idx) if c_idx < 26 else chr(ord('A') + c_idx//26 - 1) + chr(ord('A') + c_idx%26)
                 flag_letter = chr(ord('A') + f_idx) if f_idx < 26 else chr(ord('A') + f_idx//26 - 1) + chr(ord('A') + f_idx%26)
-                
-                fc_row = current_row_num - 2
-                vc_row = current_row_num - 1
-                # 各内訳行（固定費分、変動費分）の完了Fをチェックして合計する形式
-                formula = f"SUMIFS({col_letter}{fc_row}:{col_letter}{vc_row}, {flag_letter}{fc_row}:{flag_letter}{vc_row}, \"\")"
-                # 正しいインデックスを使用 (Ver 4.27.4: -1を削除)
-                if 0 <= c_idx < len(r_sum):
-                    r_sum[c_idx] = "=" + formula
+                if var_start <= current_row_num - 1:
+                    # 完了Fが空の行のみを合計
+                    formula = f"=SUMIFS({col_letter}{var_start}:{col_letter}{current_row_num - 1}, {flag_letter}{var_start}:{flag_letter}{current_row_num - 1}, \"\")"
+                    # 正しいインデックスを使用 (Ver 4.27.4: -1を削除)
+                    if 0 <= c_idx < len(var_total_row):
+                        var_total_row[c_idx] = formula
             except: pass
-        # pass # FIXED_FORMAT_MAINTENANCE: Do not append dynamic r_sum
-        # cc_rows_array.append(r_sum)
-        # card_total_rows.append(current_row_num)
-        current_row_num += 1
+            
+        # pass # FIXED_FORMAT_MAINTENANCE: Do not append dynamic var_total_row
+        # cc_rows_array.append(var_total_row)
+        # current_row_num += 1
         
-    # クレジットカード支払残_合計額 (Orange)
-    # Ver 4.28.2: B列以降に配備
-    grand_dict = {
-        "大分類": "クレジットカード支払残_合計額", 
-        "科目１": "クレジットカード支払残_合計額"
-    }
-    r_grand = _dict_to_row(grand_dict)
-    # A列(ID列)は空欄
-    r_grand[0] = ""
-    for mc in month_cols:
-        try:
-            # actual_headers を使ってインデックスを取得
-            c_idx = -1
-            for i_h, h_v in enumerate(actual_headers):
-                if _normalize(_clean_val(h_v)) == mc:
-                    c_idx = i_h
-                    break
-            if c_idx == -1:
-                alt_m = mc.replace("月", "")
-                for i_h, h_v in enumerate(actual_headers):
-                    if _normalize(_clean_val(h_v)).replace("月", "") == alt_m:
-                        c_idx = i_h
-                        break
-            if c_idx == -1: continue
+        # === クレジットカード総合計ブロック ===
+        summary_start_row = current_row_num
+        card_total_rows = []
+        
+        summary_data_start = current_row_num
+        
+        # 最初の行にだけ「クレジットカード合計」を表示。他は空にする。
+        is_first_summary_row = True
+        
+        for cc in cc_methods:
+            cc_name = cc.get("name", "")
+            pay_month_str = str(cc.get("payment_month", ""))
+            pay_date_str = str(cc.get("payment_date", ""))
+            closing_str = str(cc.get("closing_date", ""))
             
-            f_idx = c_idx + 1
-            col_letter = chr(ord('A') + c_idx) if c_idx < 26 else chr(ord('A') + c_idx//26 - 1) + chr(ord('A') + c_idx%26)
-            flag_letter = chr(ord('A') + f_idx) if f_idx < 26 else chr(ord('A') + f_idx//26 - 1) + chr(ord('A') + f_idx%26)
-            if card_total_rows:
-                cells = [f"IF({flag_letter}{r}=\"\", {col_letter}{r}, 0)" for r in card_total_rows]
-                # 正しいインデックスを使用 (Ver 4.27.4: -1を削除)
-                if 0 <= c_idx < len(r_grand):
-                    r_grand[c_idx] = f"=SUM({','.join(cells)})"
-            else:
-                if 0 <= c_idx < len(r_grand):
-                    r_grand[c_idx] = 0
-        except: pass
-    # pass # FIXED_FORMAT_MAINTENANCE: Do not append dynamic r_grand
-    # cc_rows_array.append(r_grand)
-    # current_row_num += 1
-    
-    # === 支払合計 (Ver 4.28.2: B列以降) ===
-    pay_total_dict = {"大分類": "固定費＆変動費_支払残_合計額", "科目１": "固定費＆変動費_支払残_合計額"}
-    r_pay_total = _dict_to_row(pay_total_dict)
-    # A列(ID列)は空欄
-    r_pay_total[0] = ""
-    
-    for mc in month_cols:
-        try:
-            # actual_headers を使ってインデックスを取得
-            c_idx = -1
-            for i_h, h_v in enumerate(actual_headers):
-                if _normalize(_clean_val(h_v)) == mc:
-                    c_idx = i_h
-                    break
-            if c_idx == -1:
-                alt_m = mc.replace("月", "")
-                for i_h, h_v in enumerate(actual_headers):
-                    if _normalize(_clean_val(h_v)).replace("月", "") == alt_m:
-                        c_idx = i_h
-                        break
-            if c_idx == -1: continue
+            # 1. 固定費分 (Ver 4.28.1: B-E列は後で結合されるため、ラベルを「クレジットカード 支払残額」に統一)
+            fc_dict = {
+                "大分類": "クレジットカード 支払残額", 
+                "科目１": "クレジットカード 支払残額", 
+                "科目２": cc_name, 
+                "科目詳細": "固定費分"
+            }
+            r_fc = _dict_to_row(fc_dict)
+            for mc in month_cols:
+                try:
+                    # actual_headers を使ってインデックスを取得
+                    c_idx = -1
+                    for i_h, h_v in enumerate(actual_headers):
+                        if _normalize(_clean_val(h_v)) == mc:
+                            c_idx = i_h
+                            break
+                    if c_idx == -1:
+                        alt_m = mc.replace("月", "")
+                        for i_h, h_v in enumerate(actual_headers):
+                            if _normalize(_clean_val(h_v)).replace("月", "") == alt_m:
+                                c_idx = i_h
+                                break
+                    if c_idx == -1: continue
+                    
+                    f_idx = c_idx + 1
+                    col_letter = chr(ord('A') + c_idx) if c_idx < 26 else chr(ord('A') + c_idx//26 - 1) + chr(ord('A') + c_idx%26)
+                    flag_letter = chr(ord('A') + f_idx) if f_idx < 26 else chr(ord('A') + f_idx//26 - 1) + chr(ord('A') + f_idx%26)
+                    if fc_payment_rows.get(cc_name):
+                        cells = [f"IF({flag_letter}{r}=\"\", {col_letter}{r}, 0)" for r in fc_payment_rows[cc_name]]
+                        # B列開始なのでインデックスを調整し、境界チェックを追加
+                        if 0 <= c_idx < len(r_fc):
+                            r_fc[c_idx] = f"=SUM({','.join(cells)})"
+                    else:
+                        if 0 <= c_idx < len(r_fc):
+                            r_fc[c_idx] = 0
+                    
+                    # 支払日の判定と自動フラグ設定 (固定費分)
+                    try:
+                        y, m = _get_year_month(mc)
+                        if y != 9999:
+                            p_day_m = re.search(r"\d+", str(pay_date_str))
+                            p_day = int(p_day_m.group()) if p_day_m else 27
+                            
+                            base_date_dt = datetime(y, m, 1)
+                            if p_day < 20:
+                                target_pay_dt = base_date_dt + relativedelta(months=1)
+                            else:
+                                target_pay_dt = base_date_dt
+                                
+                            from app import calculate_credit_card_periods
+                            t_periods = calculate_credit_card_periods(target_pay_dt, closing_str, pay_month_str, pay_date_str)
+                            if t_periods:
+                                actual_due_date = t_periods[0]["pay_date"]
+                                if datetime.now(JST).date() >= actual_due_date:
+                                    # B列開始なのでインデックスを調整し、境界チェックを追加
+                                    if 0 <= f_idx < len(r_fc):
+                                        r_fc[f_idx] = 1
+                    except: pass
+                except: pass
+            # pass # FIXED_FORMAT_MAINTENANCE: Do not append dynamic r_fc
+            # cc_rows_array.append(r_fc)
+            # current_row_num += 1
+            
+            # 2. 変動費分 (Ver 4.28.1: ラベル更新)
+            vc_row_idx = var_cost_rows.get(cc_name)
+            vc_dict = {
+                "大分類": "クレジットカード 支払残額", 
+                "科目１": "クレジットカード 支払残額", 
+                "科目２": cc_name, 
+                "科目詳細": "変動費分"
+            }
+            r_vc = _dict_to_row(vc_dict)
+            for mc in month_cols:
+                try:
+                    # actual_headers を使ってインデックスを取得
+                    c_idx = -1
+                    for i_h, h_v in enumerate(actual_headers):
+                        if _normalize(_clean_val(h_v)) == mc:
+                            c_idx = i_h
+                            break
+                    if c_idx == -1:
+                        alt_m = mc.replace("月", "")
+                        for i_h, h_v in enumerate(actual_headers):
+                            if _normalize(_clean_val(h_v)).replace("月", "") == alt_m:
+                                c_idx = i_h
+                                break
+                    if c_idx == -1: continue
+                    
+                    f_idx = c_idx + 1
+                    col_letter = chr(ord('A') + c_idx) if c_idx < 26 else chr(ord('A') + c_idx//26 - 1) + chr(ord('A') + c_idx%26)
+                    flag_letter = chr(ord('A') + f_idx) if f_idx < 26 else chr(ord('A') + f_idx//26 - 1) + chr(ord('A') + f_idx%26)
+                    if vc_row_idx:
+                        # 詳細行の完了Fが空の場合のみ表示
+                        # B列開始なのでインデックスを調整し、境界チェックを追加
+                        if 0 <= c_idx < len(r_vc):
+                            r_vc[c_idx] = f"=IF({flag_letter}{vc_row_idx}=\"\", {col_letter}{vc_row_idx}, 0)"
+                    else:
+                        if 0 <= c_idx < len(r_vc):
+                            r_vc[c_idx] = 0
 
-            f_idx = c_idx + 1 # 完了Fのインデックス (通常は月の右隣)
-            col_letter = chr(ord('A') + c_idx) if c_idx < 26 else chr(ord('A') + c_idx//26 - 1) + chr(ord('A') + c_idx%26)
-            flag_letter = chr(ord('A') + f_idx) if f_idx < 26 else chr(ord('A') + f_idx//26 - 1) + chr(ord('A') + f_idx%26)
+                    # 支払日の判定と自動フラグ設定 (変動費分)
+                    try:
+                        y, m = _get_year_month(mc)
+                        if y != 9999:
+                            month_offset = 1 
+                            if "当月" in str(pay_month_str): month_offset = 0
+                            elif "翌々月" in str(pay_month_str): month_offset = 2
+                            target_base_date = datetime(y, m, 1) + relativedelta(months=month_offset)
+                            day_match = re.search(r"\d+", str(pay_date_str))
+                            if day_match:
+                                day_val = int(day_match.group())
+                                actual_due_date = target_base_date + relativedelta(day=day_val)
+                                if datetime.now(JST).date() >= actual_due_date.date():
+                                    # B列開始なのでインデックスを調整し、境界チェックを追加
+                                    if 0 <= f_idx < len(r_vc):
+                                        r_vc[f_idx] = 1
+                    except: pass
+                except: pass
+            # pass # FIXED_FORMAT_MAINTENANCE: Do not append dynamic r_vc
+            # cc_rows_array.append(r_vc)
+            # current_row_num += 1
             
-            formula_parts = []
+            # 3. 合計 (固定費分+変動費分)
+            # 支払日の文言判定
+            try:
+                p_day_sum_m = re.search(r"\d+", str(pay_date_str))
+                p_day_sum_v = int(p_day_sum_m.group()) if p_day_sum_m else 27
+            except: p_day_sum_v = 27
+            timing_sum_label = "翌月" if p_day_sum_v < 20 else "当月"
+            payment_sum_desc = f"支払日は{timing_sum_label}の{pay_date_str}となります。"
+
+            sum_dict = {"大分類": "クレジットカード 支払残額", "科目１": "クレジットカード 支払残額", "科目２": cc_name, "科目詳細": payment_sum_desc}
+            r_sum = _dict_to_row(sum_dict)
+            for mc in month_cols:
+                try:
+                    # actual_headers を使ってインデックスを取得
+                    c_idx = -1
+                    for i_h, h_v in enumerate(actual_headers):
+                        if _normalize(_clean_val(h_v)) == mc:
+                            c_idx = i_h
+                            break
+                    if c_idx == -1:
+                        alt_m = mc.replace("月", "")
+                        for i_h, h_v in enumerate(actual_headers):
+                            if _normalize(_clean_val(h_v)).replace("月", "") == alt_m:
+                                c_idx = i_h
+                                break
+                    if c_idx == -1: continue
+                    
+                    f_idx = c_idx + 1
+                    col_letter = chr(ord('A') + c_idx) if c_idx < 26 else chr(ord('A') + c_idx//26 - 1) + chr(ord('A') + c_idx%26)
+                    flag_letter = chr(ord('A') + f_idx) if f_idx < 26 else chr(ord('A') + f_idx//26 - 1) + chr(ord('A') + f_idx%26)
+                    
+                    fc_row = current_row_num - 2
+                    vc_row = current_row_num - 1
+                    # 各内訳行（固定費分、変動費分）の完了Fをチェックして合計する形式
+                    formula = f"SUMIFS({col_letter}{fc_row}:{col_letter}{vc_row}, {flag_letter}{fc_row}:{flag_letter}{vc_row}, \"\")"
+                    # 正しいインデックスを使用 (Ver 4.27.4: -1を削除)
+                    if 0 <= c_idx < len(r_sum):
+                        r_sum[c_idx] = "=" + formula
+                except: pass
+            # pass # FIXED_FORMAT_MAINTENANCE: Do not append dynamic r_sum
+            # cc_rows_array.append(r_sum)
+            # card_total_rows.append(current_row_num)
+            current_row_num += 1
             
-            # 1. 口座引落・銀行振込
-            if other_pay_rows:
-                cells = [f"IF({flag_letter}{r}=\"\", {col_letter}{r}, 0)" for r in other_pay_rows]
-                formula_parts.append(f"SUM({','.join(cells)})")
+        # クレジットカード支払残_合計額 (Orange)
+        # Ver 4.28.2: B列以降に配備
+        grand_dict = {
+            "大分類": "クレジットカード支払残_合計額", 
+            "科目１": "クレジットカード支払残_合計額"
+        }
+        r_grand = _dict_to_row(grand_dict)
+        # A列(ID列)は空欄
+        r_grand[0] = ""
+        for mc in month_cols:
+            try:
+                # actual_headers を使ってインデックスを取得
+                c_idx = -1
+                for i_h, h_v in enumerate(actual_headers):
+                    if _normalize(_clean_val(h_v)) == mc:
+                        c_idx = i_h
+                        break
+                if c_idx == -1:
+                    alt_m = mc.replace("月", "")
+                    for i_h, h_v in enumerate(actual_headers):
+                        if _normalize(_clean_val(h_v)).replace("月", "") == alt_m:
+                            c_idx = i_h
+                            break
+                if c_idx == -1: continue
                 
-            # 2. クレジットカード合計行
-            if card_total_rows:
-                cells = [f"IF({flag_letter}{r}=\"\", {col_letter}{r}, 0)" for r in card_total_rows]
-                formula_parts.append(f"SUM({','.join(cells)})")
-            
-            if formula_parts:
-                # 正しいインデックスを使用 (Ver 4.27.4: -1を削除)
-                if 0 <= c_idx < len(r_pay_total):
-                    r_pay_total[c_idx] = "=" + "+".join(formula_parts)
-            else:
-                if 0 <= c_idx < len(r_pay_total):
-                    r_pay_total[c_idx] = 0
-        except: pass
-    # pass # FIXED_FORMAT_MAINTENANCE: Do not append dynamic r_pay_total
-    # cc_rows_array.append(r_pay_total)
-    # current_row_num += 1
-    
-    summary_end_row = current_row_num - 1
-    
-    header_len = len(actual_headers)
-    
+                f_idx = c_idx + 1
+                col_letter = chr(ord('A') + c_idx) if c_idx < 26 else chr(ord('A') + c_idx//26 - 1) + chr(ord('A') + c_idx%26)
+                flag_letter = chr(ord('A') + f_idx) if f_idx < 26 else chr(ord('A') + f_idx//26 - 1) + chr(ord('A') + f_idx%26)
+                if card_total_rows:
+                    cells = [f"IF({flag_letter}{r}=\"\", {col_letter}{r}, 0)" for r in card_total_rows]
+                    # 正しいインデックスを使用 (Ver 4.27.4: -1を削除)
+                    if 0 <= c_idx < len(r_grand):
+                        r_grand[c_idx] = f"=SUM({','.join(cells)})"
+                else:
+                    if 0 <= c_idx < len(r_grand):
+                        r_grand[c_idx] = 0
+            except: pass
+        # pass # FIXED_FORMAT_MAINTENANCE: Do not append dynamic r_grand
+        # cc_rows_array.append(r_grand)
+        # current_row_num += 1
+        
+        # === 支払合計 (Ver 4.28.2: B列以降) ===
+        pay_total_dict = {"大分類": "固定費＆変動費_支払残_合計額", "科目１": "固定費＆変動費_支払残_合計額"}
+        r_pay_total = _dict_to_row(pay_total_dict)
+        # A列(ID列)は空欄
+        r_pay_total[0] = ""
+        
+        for mc in month_cols:
+            try:
+                # actual_headers を使ってインデックスを取得
+                c_idx = -1
+                for i_h, h_v in enumerate(actual_headers):
+                    if _normalize(_clean_val(h_v)) == mc:
+                        c_idx = i_h
+                        break
+                if c_idx == -1:
+                    alt_m = mc.replace("月", "")
+                    for i_h, h_v in enumerate(actual_headers):
+                        if _normalize(_clean_val(h_v)).replace("月", "") == alt_m:
+                            c_idx = i_h
+                            break
+                if c_idx == -1: continue
+
+                f_idx = c_idx + 1 # 完了Fのインデックス (通常は月の右隣)
+                col_letter = chr(ord('A') + c_idx) if c_idx < 26 else chr(ord('A') + c_idx//26 - 1) + chr(ord('A') + c_idx%26)
+                flag_letter = chr(ord('A') + f_idx) if f_idx < 26 else chr(ord('A') + f_idx//26 - 1) + chr(ord('A') + f_idx%26)
+                
+                formula_parts = []
+                
+                # 1. 口座引落・銀行振込
+                if other_pay_rows:
+                    cells = [f"IF({flag_letter}{r}=\"\", {col_letter}{r}, 0)" for r in other_pay_rows]
+                    formula_parts.append(f"SUM({','.join(cells)})")
+                    
+                # 2. クレジットカード合計行
+                if card_total_rows:
+                    cells = [f"IF({flag_letter}{r}=\"\", {col_letter}{r}, 0)" for r in card_total_rows]
+                    formula_parts.append(f"SUM({','.join(cells)})")
+                
+                if formula_parts:
+                    # 正しいインデックスを使用 (Ver 4.27.4: -1を削除)
+                    if 0 <= c_idx < len(r_pay_total):
+                        r_pay_total[c_idx] = "=" + "+".join(formula_parts)
+                else:
+                    if 0 <= c_idx < len(r_pay_total):
+                        r_pay_total[c_idx] = 0
+            except: pass
+        # pass # FIXED_FORMAT_MAINTENANCE: Do not append dynamic r_pay_total
+        # cc_rows_array.append(r_pay_total)
+        # current_row_num += 1
+        
+        summary_end_row = current_row_num - 1
+        
+        header_len = len(actual_headers)
+        
+    except Exception as e:
+        return False, f"データ処理中にエラーが発生しました: {str(e)}"
+
     # Append the variable cost area array
     try:
         # 古い変動費（合計より下、小遣いより上）の値をクリア（書式は維持）
@@ -2024,32 +2028,77 @@ def execute_variable_cost_update(username, start_ym=None, skip_backup=False):
                         is_cc = m.get("is_credit_card", False)
                         norm_pm = _normalize(_clean_val(pm_name))
                         
-                        row_data = [""] * grid_width
-                        row_data[0] = pm_name # H列にセット
+                        # 既存の _dict_to_row を活用して、検出済みの年月ID (actual_h_ids) ベースで1行データを生成
+                        # 支払い方法マスターの各項目を辞書形式で準備
+                        pm_row_dict = {
+                            "大分類": "利用額", # A-E列は結合されている可能性があるが、一応セット
+                            "科目１": pm_type,
+                            "科目２": pm_name,
+                            "科目詳細": pm_name,
+                            "Sno": "" # 任意
+                        }
                         
+                        # 月次データの集計値を辞書にセット
                         for mc in month_cols:
-                            # actual_headers上での対象月インデックスを検索
-                            c_idx = -1
-                            for i_h, h_v in enumerate(actual_headers):
-                                if _normalize(_clean_val(h_v)) == mc:
-                                    c_idx = i_h
-                                    break
-                            if c_idx == -1:
-                                alt_m = mc.replace("月", "")
-                                for i_h, h_v in enumerate(actual_headers):
-                                    if _normalize(_clean_val(h_v)).replace("月", "") == alt_m:
+                            # 1. 変動費（レシート実績）の集計
+                            vc_amt = 0
+                            if is_cc or pm_type == "クレジットカード":
+                                # クレジットカードの場合は既存の cc_monthly_amounts (締日考慮済み) を使用
+                                # ※ cc_monthly_amounts は int または ""
+                                val = cc_monthly_amounts.get(pm_name, {}).get(mc, "")
+                                vc_amt = safe_money_int_cast(val)
+                            else:
+                                # その他（現金・電子マネー等）は、単純な利用月ベースの tx_monthly_amounts を使用
+                                vc_amt = tx_monthly_amounts.get(norm_pm, {}).get(mc, 0)
+                            
+                            # 2. 固定費（シート上の8行目以降の入力値）の集計
+                            fc_amt = 0
+                            try:
+                                # 対象月のカラムインデックスを特定
+                                c_idx = -1
+                                for i_h, h_id in enumerate(actual_h_ids):
+                                    if h_id == mc:
                                         c_idx = i_h
                                         break
-                                        
-                            if c_idx >= 7 and (c_idx - 7) < grid_width:
-                                val = ""
-                                if is_cc or pm_type == "クレジットカード":
-                                    val = cc_monthly_amounts.get(pm_name, {}).get(mc, "")
-                                else:
-                                    sum_amt = tx_monthly_amounts.get(norm_pm, {}).get(mc, 0)
-                                    if sum_amt != 0: val = sum_amt
-                                row_data[c_idx - 7] = val
                                 
+                                if c_idx != -1:
+                                    # 8行目から合計行の手前までをスキャン
+                                    for r_idx in range(7, total_row_idx):
+                                        if r_idx < len(pay_raw):
+                                            row = pay_raw[r_idx]
+                                            # F列 (index 5) の支払い方法名を確認
+                                            if len(row) > 5:
+                                                row_pm = _normalize(_clean_val(row[5]))
+                                                if row_pm == norm_pm:
+                                                    # 完了フラグ(月の右隣)が空の場合のみ加算
+                                                    f_idx = c_idx + 1
+                                                    is_done = False
+                                                    if f_idx < len(row):
+                                                        if str(row[f_idx]).strip() == "1":
+                                                            is_done = True
+                                                    
+                                                    if not is_done:
+                                                        amt_val = str(row[c_idx]).replace(",", "").strip() if c_idx < len(row) else "0"
+                                                        fc_amt += safe_money_int_cast(amt_val)
+                            except: pass
+                            
+                            total_amt = vc_amt + fc_amt
+                            pm_row_dict[mc] = total_amt if total_amt != 0 else ""
+                        
+                        # 共通の _dict_to_row を通すことで、年月判定ロジックの不一致を解消
+                        full_row = _dict_to_row(pm_row_dict)
+                        
+                        # H列(index 7)以降のみを抽出して grid に追加
+                        row_data = full_row[7:] if len(full_row) > 7 else [""] * grid_width
+                        # 念のためカラム幅を grid_width に調整
+                        if len(row_data) < grid_width:
+                            row_data.extend([""] * (grid_width - len(row_data)))
+                        elif len(row_data) > grid_width:
+                            row_data = row_data[:grid_width]
+                            
+                        # 1列目（H列相当）には表示名を強制セット（もし _dict_to_row でズレた場合の保険）
+                        row_data[0] = pm_name
+                        
                         update_grid.append(row_data)
                         
                     if update_grid:
