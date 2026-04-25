@@ -2053,34 +2053,35 @@ def execute_variable_cost_update(username, start_ym=None, skip_backup=False):
                             
                             # 2. 固定費（シート上の8行目以降の入力値）の集計
                             fc_amt = 0
-                            try:
-                                # 対象月のカラムインデックスを特定
-                                c_idx = -1
-                                for i_h, h_id in enumerate(actual_h_ids):
-                                    if h_id == mc:
-                                        c_idx = i_h
-                                        break
-                                
-                                if c_idx != -1:
-                                    # 8行目から合計行の手前までをスキャン
-                                    for r_idx in range(7, total_row_idx):
-                                        if r_idx < len(pay_raw):
-                                            row = pay_raw[r_idx]
-                                            # F列 (index 5) の支払い方法名を確認
-                                            if len(row) > 5:
-                                                row_pm = _normalize(_clean_val(row[5]))
-                                                if row_pm == norm_pm:
-                                                    # 完了フラグ(月の右隣)が空の場合のみ加算
-                                                    f_idx = c_idx + 1
-                                                    is_done = False
-                                                    if f_idx < len(row):
-                                                        if str(row[f_idx]).strip() == "1":
-                                                            is_done = True
-                                                    
-                                                    if not is_done:
-                                                        amt_val = str(row[c_idx]).replace(",", "").strip() if c_idx < len(row) else "0"
-                                                        fc_amt += safe_money_int_cast(amt_val)
-                            except: pass
+                            if not (is_cc or pm_type == "クレジットカード"):
+                                try:
+                                    # 対象月のカラムインデックスを特定
+                                    c_idx = -1
+                                    for i_h, h_id in enumerate(actual_h_ids):
+                                        if h_id == mc:
+                                            c_idx = i_h
+                                            break
+                                    
+                                    if c_idx != -1:
+                                        # 8行目から合計行の手前までをスキャン
+                                        for r_idx in range(7, total_row_idx):
+                                            if r_idx < len(pay_raw):
+                                                row = pay_raw[r_idx]
+                                                # F列 (index 5) の支払い方法名を確認
+                                                if len(row) > 5:
+                                                    row_pm = _normalize(_clean_val(row[5]))
+                                                    if row_pm == norm_pm:
+                                                        # 完了フラグ(月の右隣)が空の場合のみ加算
+                                                        f_idx = c_idx + 1
+                                                        is_done = False
+                                                        if f_idx < len(row):
+                                                            if str(row[f_idx]).strip() == "1":
+                                                                is_done = True
+                                                        
+                                                        if not is_done:
+                                                            amt_val = str(row[c_idx]).replace(",", "").strip() if c_idx < len(row) else "0"
+                                                            fc_amt += safe_money_int_cast(amt_val)
+                                except: pass
                             
                             total_amt = vc_amt + fc_amt
                             pm_row_dict[mc] = total_amt if total_amt != 0 else ""
