@@ -1900,37 +1900,53 @@ def render_transaction_breakdown(df, key_prefix):
                         sub_grouped = cat_df.groupby(sub_col, as_index=False)["amount"].sum()
                         sub_grouped = sub_grouped.sort_values(by="amount", ascending=False)
                         
+                        html_str = ""
                         for _, sub_row in sub_grouped.iterrows():
                             sub_name = sub_row[sub_col]
                             sub_amt_str = f"￥{int(sub_row['amount']):,}"
                             
-                            with st.expander(f"  └ {sub_name}：{sub_amt_str}"):
-                                item_df = cat_df[cat_df[sub_col] == sub_name].copy()
-                                item_col = "item_name" if "item_name" in item_df.columns else "item" if "item" in item_df.columns else None
-                                
-                                if item_col:
-                                    item_grouped = item_df.groupby(item_col, as_index=False)["amount"].sum()
-                                    item_grouped = item_grouped.sort_values(by="amount", ascending=False)
-                                    item_grouped["amount"] = item_grouped["amount"].apply(lambda x: f"￥{int(x):,}")
-                                    item_grouped.columns = ["商品名", "金額"]
-                                    safe_dataframe(item_grouped, hide_index=True, use_container_width=True)
-                                else:
-                                    detail_df = item_df[["date", "amount"]].copy() if "date" in item_df.columns else item_df[["amount"]].copy()
-                                    detail_df = detail_df.sort_values(by="amount", ascending=False)
-                                    if "date" in detail_df.columns:
-                                        detail_df["date"] = detail_df["date"].dt.strftime('%m/%d')
-                                    detail_df["amount"] = detail_df["amount"].apply(lambda x: f"￥{int(x):,}")
-                                    safe_dataframe(detail_df, hide_index=True, use_container_width=True)
+                            html_str += f'<details style="margin: 2px 0;">'
+                            html_str += f'<summary style="background-color: #f9fafb; padding: 3px 8px; margin: 0; border-left: 3px solid #007bff; font-size: 0.9rem; line-height: 1.2; list-style: none; cursor: pointer;">'
+                            html_str += f'L {sub_name}：{sub_amt_str}</summary>'
+                            html_str += f'<div style="padding-left: 10px; margin-top: 2px;">'
+                            
+                            item_df = cat_df[cat_df[sub_col] == sub_name].copy()
+                            item_col = "item_name" if "item_name" in item_df.columns else "item" if "item" in item_df.columns else None
+                            
+                            if item_col:
+                                item_grouped = item_df.groupby(item_col, as_index=False)["amount"].sum()
+                                item_grouped = item_grouped.sort_values(by="amount", ascending=False)
+                                for _, i_row in item_grouped.iterrows():
+                                    i_name = i_row[item_col]
+                                    i_amt = f"￥{int(i_row['amount']):,}"
+                                    html_str += f'<div style="padding-left: 10px; font-size: 0.85rem; line-height: 1.2; margin: 2px 0; color: #555;">└ {i_name}：{i_amt}</div>'
+                            else:
+                                for _, i_row in item_df.iterrows():
+                                    i_amt = f"￥{int(i_row['amount']):,}"
+                                    html_str += f'<div style="padding-left: 10px; font-size: 0.85rem; line-height: 1.2; margin: 2px 0; color: #555;">└ {i_amt}</div>'
+                            
+                            html_str += "</div></details>"
+                        
+                        st.markdown(html_str, unsafe_allow_html=True)
                     else:
                         display_df = cat_df.copy()
                         cols_to_keep = [c for c in ["date", "store_name", "store", "item_name", "item", "amount"] if c in display_df.columns]
                         display_df = display_df[cols_to_keep]
                         if "amount" in display_df.columns:
                             display_df = display_df.sort_values(by="amount", ascending=False)
-                        if "date" in display_df.columns:
-                            display_df["date"] = display_df["date"].dt.strftime('%m/%d')
-                        display_df["amount"] = display_df["amount"].apply(lambda x: f"￥{int(x):,}")
-                        safe_dataframe(display_df, hide_index=True, use_container_width=True)
+                        
+                        html_str = ""
+                        item_col = "item_name" if "item_name" in display_df.columns else "item" if "item" in display_df.columns else None
+                        if item_col:
+                            for _, i_row in display_df.iterrows():
+                                i_name = i_row[item_col]
+                                i_amt = f"￥{int(i_row['amount']):,}"
+                                html_str += f'<div style="padding-left: 10px; font-size: 0.85rem; line-height: 1.2; margin: 2px 0; color: #555;">└ {i_name}：{i_amt}</div>'
+                        else:
+                            for _, i_row in display_df.iterrows():
+                                i_amt = f"￥{int(i_row['amount']):,}"
+                                html_str += f'<div style="padding-left: 10px; font-size: 0.85rem; line-height: 1.2; margin: 2px 0; color: #555;">└ {i_amt}</div>'
+                        st.markdown(html_str, unsafe_allow_html=True)
         else:
             st.warning("カテゴリ情報がありません。")
 
