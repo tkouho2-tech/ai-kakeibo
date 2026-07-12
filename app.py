@@ -163,7 +163,23 @@ if api_key:
 
 st.set_page_config(page_title="AI家計簿アプリ - ダッシュボード", page_icon="📊", layout="wide")
 
-
+# ---------- Plotly 描画のセーフティラッパー (Segmentation fault 回避) ----------
+def safe_plotly_chart(fig, height=450):
+    """
+    Linux (Streamlit Cloud) 環境での st.plotly_chart による Segmentation fault 回避策。
+    Linux環境では HTML にシリアライズして st.components.v1.html で描画する。
+    Windows環境 (ローカル) などのそれ以外では通常の st.plotly_chart を使用する。
+    """
+    import platform
+    if platform.system() == "Linux":
+        try:
+            # CDN経由でplotly.jsを読み込み、純粋なHTMLフラグメントとして出力
+            html_content = fig.to_html(include_plotlyjs='cdn', full_html=False)
+            st.components.v1.html(html_content, height=height)
+        except Exception as e:
+            st.error(f"グラフの描画に失敗しました: {e}")
+    else:
+        st.plotly_chart(fig, use_container_width=True)
 
 # ---------- Google Sheets 接続 ----------
 @st.cache_resource
@@ -2274,7 +2290,7 @@ def show_dashboard():
                 textposition='inside', 
                 textinfo='percent+label'
             )
-            st.plotly_chart(fig, use_container_width=True)
+            safe_plotly_chart(fig)
             
             total_amount = df_agg["amount"].sum() if not df_agg.empty else 0
             st.metric("当月総支出額", f"￥{int(total_amount):,}")
@@ -2339,7 +2355,7 @@ def show_dashboard():
                     trace.marker.color = ['#FFFF00' if v is not None and (isinstance(v, (int, float)) and v < 0) else orig_color for v in trace.y]
 
             fig.update_yaxes(zerolinewidth=2, zerolinecolor='black')
-            st.plotly_chart(fig, use_container_width=True)
+            safe_plotly_chart(fig)
             
             # 当月の合計金額はそのまま表示（内税除外）
             current_month_total = df_agg['amount'].sum() if not df_agg.empty else 0
@@ -3226,7 +3242,7 @@ def show_yearly_dashboard():
                 trace.marker.color = ['#FFFF00' if v is not None and (isinstance(v, (int, float)) and v < 0) else orig_color for v in trace.y]
 
         fig.update_yaxes(zerolinewidth=2, zerolinecolor='black')
-        st.plotly_chart(fig, use_container_width=True)
+        safe_plotly_chart(fig)
 
     elif graph_type == "棒グラフ":
         # 当年の月別推移 (積上げ棒グラフ)
@@ -3284,7 +3300,7 @@ def show_yearly_dashboard():
                     trace.marker.color = ['#FFFF00' if v is not None and (isinstance(v, (int, float)) and v < 0) else orig_color for v in trace.y]
 
             fig.update_yaxes(zerolinewidth=2, zerolinecolor='black')
-            st.plotly_chart(fig, use_container_width=True)
+            safe_plotly_chart(fig)
                 
             # 年間合計は内税除外
             year_total = df_agg["amount"].sum()
@@ -3317,7 +3333,7 @@ def show_yearly_dashboard():
                 textposition='inside', 
                 textinfo='percent+label'
             )
-            st.plotly_chart(fig_pie, use_container_width=True)
+            safe_plotly_chart(fig_pie)
             
             year_total = df_agg["amount"].sum()
             st.metric(f"{selected_year}年 総支出額", f"￥{int(year_total):,}")
