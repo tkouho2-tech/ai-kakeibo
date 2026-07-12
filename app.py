@@ -1113,7 +1113,11 @@ def get_clean_df(records, username):
     if "username" in df.columns:
         # 値自体の余白も削除して比較
         df["username"] = df["username"].astype(str).str.strip().str.lower()
-        df = df[df["username"] == username.lower()]
+        if isinstance(username, (list, tuple, set)):
+            usernames_lower = [u.lower() for u in username]
+            df = df[df["username"].isin(usernames_lower)]
+        else:
+            df = df[df["username"] == username.lower()]
     else:
         return pd.DataFrame()
         
@@ -1135,7 +1139,7 @@ def get_clean_df(records, username):
     return df
 
 # ---------- データ取得機能 ----------
-def load_transactions_data(target_date, mode="monthly"):
+def load_transactions_data(target_date, mode="monthly", usernames=None):
     """
     指定した月または年の、ログインユーザーのデータを取得する
     mode: "monthly" (月次) または "yearly" (年次)
@@ -1161,8 +1165,9 @@ def load_transactions_data(target_date, mode="monthly"):
     records = records_df.to_dict('records')
     
     # 共通ヘルパーでクレンジングとフィルタリング
-    curr_user = st.session_state.get('username', "")
-    df = get_clean_df(records, curr_user)
+    if usernames is None:
+        usernames = st.session_state.get('username', "")
+    df = get_clean_df(records, usernames)
     
     if df.empty:
          return pd.DataFrame()
@@ -1355,7 +1360,7 @@ def render_year_navigation():
     
     st.markdown("---")
 
-def render_month_navigation():
+def render_month_navigation(usernames=None):
     """全機能共通の月選択ナビゲーションと月間合計を表示する"""
     # 現在の月を取得
     if 'current_month' not in st.session_state:
@@ -1512,7 +1517,7 @@ def render_month_navigation():
 
     # データの読み込み
     with st.spinner("データを読み込み中..."):
-        df = load_transactions_data(curr)
+        df = load_transactions_data(curr, usernames=usernames)
     
     # 合計金額の算出 (消費税（内税）は二重計上防止のため除外)
     monthly_total = 0
@@ -2250,10 +2255,27 @@ def render_voice_input_button(key_prefix):
 def show_dashboard():
     # ヘッダーを表示するためのプレースホルダー（コンテナ）を先に準備
     header_placeholder = st.empty()
+    range_placeholder = st.empty()
+
+    # アカウントが tkouho の場合のみ、「集計範囲」を選択できるようにする
+    current_user = st.session_state.get("username", "")
+    usernames = current_user
+    if current_user.lower() == "tkouho":
+        with range_placeholder:
+            target_range = st.selectbox(
+                "集計範囲",
+                ["tkouho", "世帯計"],
+                index=0,
+                key="monthly_aggregate_range"
+            )
+            if target_range == "世帯計":
+                usernames = ["tkouho", "yemiko"]
+            else:
+                usernames = "tkouho"
 
     # 共通ナビゲーションの適用
     # モードを明示的に指定（月次）
-    df = render_month_navigation()
+    df = render_month_navigation(usernames=usernames)
 
     # 月の切り替え操作が行われた「後」の最新の状態でヘッダーを更新する
     header_placeholder.markdown("#### 📊 ダッシュボード (月別集計)")
@@ -3180,22 +3202,39 @@ def show_payment_master():
 def show_yearly_dashboard():
     # ヘッダーを表示するためのプレースホルダー
     header_placeholder = st.empty()
+    range_placeholder = st.empty()
     
     # 年次ナビゲーションを表示
     render_year_navigation()
     
     # メインタイトル表示
     header_placeholder.markdown("#### 📊 ダッシュボード (年次集計)")
+
+    # アカウントが tkouho の場合のみ、「集計範囲」を選択できるようにする
+    current_user = st.session_state.get("username", "")
+    usernames = current_user
+    if current_user.lower() == "tkouho":
+        with range_placeholder:
+            target_range = st.selectbox(
+                "集計範囲",
+                ["tkouho", "世帯計"],
+                index=0,
+                key="yearly_aggregate_range"
+            )
+            if target_range == "世帯計":
+                usernames = ["tkouho", "yemiko"]
+            else:
+                usernames = "tkouho"
     
     selected_year = st.session_state['current_month'].year
     target_date = datetime(selected_year, 1, 1)
     
     with st.spinner(f"{selected_year}年のデータを集計中..."):
         # 年次モードでデータを取得
-        df = load_transactions_data(target_date, mode="yearly")
+        df = load_transactions_data(target_date, mode="yearly", usernames=usernames)
         # 前年比較用に前年データも取得
         prev_year_date = target_date - relativedelta(years=1)
-        df_prev = load_transactions_data(prev_year_date, mode="yearly")
+        df_prev = load_transactions_data(prev_year_date, mode="yearly", usernames=usernames)
 
     if df.empty:
         st.info(f"※{selected_year}年のデータはまだありません。")
@@ -3783,9 +3822,9 @@ def main():
                 .block-container h5 { font-size: calc(1.00rem + 2pt) !important; }
                 </style>
             """, unsafe_allow_html=True)
-            st.subheader("マイニー [Ver 6.2.33]")
+            st.subheader("マイニー [Ver 6.3.00]")
             st.write(f"🔑 ユーザー: **{st.session_state['username']}**")
-            # --- プロフェッショナル診断ツール (Ver 6.2.33) ---
+            # --- プロフェッショナル診断ツール (Ver 6.3.00) ---
             with st.sidebar.expander("🛠️ システム診断", expanded=False):
                 client = get_gspread_client()
                 if client:
@@ -5704,7 +5743,7 @@ Googleスプレッドシートと連携し、固定費シミュレーション�
                 st.markdown(text); render_speech_synthesis_button(text, "sp_dl_manual")
             
             st.markdown("---")
-            st.caption("マイニー [Ver 6.2.33] - 常に最新の技術であなたの家計管理をサポートします。")
+            st.caption("マイニー [Ver 6.3.00] - 常に最新の技術であなたの家計管理をサポートします。")
 
         elif menu_selection == "クレジットカード":
             show_credit_card_dashboard()
@@ -5734,7 +5773,7 @@ Googleスプレッドシートと連携し、固定費シミュレーション�
         elif menu_selection == "支払管理シートを確認":
             show_open_management_sheet()
             
-        st.caption("マイニー Ver 6.2.33 - ユーザー: %s" % st.session_state['username'])
+        st.caption("マイニー Ver 6.3.00 - ユーザー: %s" % st.session_state['username'])
             
     # 未ログインの状態 (ログイン・登録画面)
     else:
