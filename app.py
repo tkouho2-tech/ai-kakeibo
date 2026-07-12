@@ -178,8 +178,57 @@ def safe_plotly_chart(fig, height=450):
             st.components.v1.html(html_content, height=height)
         except Exception as e:
             st.error(f"グラフの描画に失敗しました: {e}")
-    else:
         st.plotly_chart(fig, use_container_width=True)
+
+# ---------- DataFrame 描画のセーフティラッパー (Segmentation fault 回避) ----------
+def safe_dataframe(df, hide_index=True, use_container_width=True):
+    """
+    Linux (Streamlit Cloud) 環境での st.dataframe による Segmentation fault 回避策。
+    Linux環境では HTML に変換して st.markdown(..., unsafe_allow_html=True) で表示する。
+    Windows環境 (ローカル) では通常の st.dataframe を使用する。
+    """
+    import platform
+    if platform.system() == "Linux":
+        if df.empty:
+            st.info("データがありません。")
+            return
+        try:
+            # HTMLテーブルに変換
+            html_table = df.to_html(index=not hide_index, classes='table table-striped', border=0)
+            # Streamlitのテーマに合うよう簡易スタイリングを適用
+            styled_html = f"""
+            <style>
+                .styled-table {{
+                    width: 100%;
+                    border-collapse: collapse;
+                    margin: 10px 0;
+                    font-size: 14px;
+                    text-align: left;
+                }}
+                .styled-table th {{
+                    background-color: #f0f2f6;
+                    color: #31333f;
+                    font-weight: bold;
+                    padding: 8px;
+                    border-bottom: 2px solid #ddd;
+                }}
+                .styled-table td {{
+                    padding: 8px;
+                    border-bottom: 1px solid #eee;
+                }}
+                .styled-table tr:hover {{
+                    background-color: #f8f9fa;
+                }}
+            </style>
+            <div style="overflow-x:auto;">
+                {html_table.replace('class="dataframe table table-striped"', 'class="styled-table"')}
+            </div>
+            """
+            st.markdown(styled_html, unsafe_allow_html=True)
+        except Exception as e:
+            st.error(f"テーブルの表示に失敗しました: {e}")
+    else:
+        st.dataframe(df, hide_index=hide_index, use_container_width=use_container_width)
 
 # ---------- Google Sheets 接続 ----------
 @st.cache_resource
@@ -1865,14 +1914,14 @@ def render_transaction_breakdown(df, key_prefix):
                                     item_grouped = item_grouped.sort_values(by="amount", ascending=False)
                                     item_grouped["amount"] = item_grouped["amount"].apply(lambda x: f"￥{int(x):,}")
                                     item_grouped.columns = ["商品名", "金額"]
-                                    st.dataframe(item_grouped, use_container_width=True, hide_index=True)
+                                    safe_dataframe(item_grouped, hide_index=True, use_container_width=True)
                                 else:
                                     detail_df = item_df[["date", "amount"]].copy() if "date" in item_df.columns else item_df[["amount"]].copy()
                                     detail_df = detail_df.sort_values(by="amount", ascending=False)
                                     if "date" in detail_df.columns:
                                         detail_df["date"] = detail_df["date"].dt.strftime('%m/%d')
-                                    detail_df["amount"] = detail_df["amount"].apply(lambda x: f"￥{int(x):,}")
-                                    st.dataframe(detail_df, use_container_width=True, hide_index=True)
+                                     detail_df["amount"] = detail_df["amount"].apply(lambda x: f"￥{int(x):,}")
+                                    safe_dataframe(detail_df, hide_index=True, use_container_width=True)
                     else:
                         display_df = cat_df.copy()
                         cols_to_keep = [c for c in ["date", "store_name", "store", "item_name", "item", "amount"] if c in display_df.columns]
@@ -1882,7 +1931,7 @@ def render_transaction_breakdown(df, key_prefix):
                         if "date" in display_df.columns:
                             display_df["date"] = display_df["date"].dt.strftime('%m/%d')
                         display_df["amount"] = display_df["amount"].apply(lambda x: f"￥{int(x):,}")
-                        st.dataframe(display_df, use_container_width=True, hide_index=True)
+                        safe_dataframe(display_df, hide_index=True, use_container_width=True)
         else:
             st.warning("カテゴリ情報がありません。")
 
@@ -2906,7 +2955,7 @@ def show_fixed_cost_master_settings():
             {"項目名": "完済月", "説明": "「有限」の場合のみ、支払が終わる月を設定します。", "入力例・補足": "2029年8月（無限の場合は空欄）"},
         ]
         df = pd.DataFrame(data)
-        st.dataframe(df, hide_index=True, use_container_width=True)
+        safe_dataframe(df, hide_index=True, use_container_width=True)
         
     except gspread.exceptions.SpreadsheetNotFound:
         st.warning(f"現在、あなた（{username}）専用の固定費管理シートは作成されていません。")
@@ -4262,7 +4311,7 @@ def main():
                     cat_df = pd.DataFrame([
                         {"大分類": k, "金額": f"￥{v:,}"} for k, v in category_totals.items()
                     ])
-                    st.dataframe(cat_df, hide_index=True, use_container_width=True)
+                    safe_dataframe(cat_df, hide_index=True, use_container_width=True)
                     
                     st.markdown("##### 📂 明細の詳細（ブラインド形式）")
                     # 解析結果をブラインド（アコーディオン）形式で表示するために整形
