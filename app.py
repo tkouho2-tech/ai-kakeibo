@@ -178,6 +178,7 @@ def safe_plotly_chart(fig, height=450):
             st.components.v1.html(html_content, height=height)
         except Exception as e:
             st.error(f"グラフの描画に失敗しました: {e}")
+    else:
         st.plotly_chart(fig, use_container_width=True)
 
 # ---------- DataFrame 描画のセーフティラッパー (Segmentation fault 回避) ----------
@@ -1920,7 +1921,7 @@ def render_transaction_breakdown(df, key_prefix):
                                     detail_df = detail_df.sort_values(by="amount", ascending=False)
                                     if "date" in detail_df.columns:
                                         detail_df["date"] = detail_df["date"].dt.strftime('%m/%d')
-                                     detail_df["amount"] = detail_df["amount"].apply(lambda x: f"￥{int(x):,}")
+                                    detail_df["amount"] = detail_df["amount"].apply(lambda x: f"￥{int(x):,}")
                                     safe_dataframe(detail_df, hide_index=True, use_container_width=True)
                     else:
                         display_df = cat_df.copy()
