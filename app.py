@@ -197,34 +197,32 @@ def safe_dataframe(df, hide_index=True, use_container_width=True):
             # HTMLテーブルに変換
             html_table = df.to_html(index=not hide_index, classes='table table-striped', border=0)
             # Streamlitのテーマに合うよう簡易スタイリングを適用
-            styled_html = f"""
-            <style>
-                .styled-table {{
-                    width: 100%;
-                    border-collapse: collapse;
-                    margin: 10px 0;
-                    font-size: 14px;
-                    text-align: left;
-                }}
-                .styled-table th {{
-                    background-color: #f0f2f6;
-                    color: #31333f;
-                    font-weight: bold;
-                    padding: 8px;
-                    border-bottom: 2px solid #ddd;
-                }}
-                .styled-table td {{
-                    padding: 8px;
-                    border-bottom: 1px solid #eee;
-                }}
-                .styled-table tr:hover {{
-                    background-color: #f8f9fa;
-                }}
-            </style>
-            <div style="overflow-x:auto;">
-                {html_table.replace('class="dataframe table table-striped"', 'class="styled-table"')}
-            </div>
-            """
+            styled_html = f"""<style>
+.styled-table {{
+    width: 100%;
+    border-collapse: collapse;
+    margin: 10px 0;
+    font-size: 14px;
+    text-align: left;
+}}
+.styled-table th {{
+    background-color: #f0f2f6;
+    color: #31333f;
+    font-weight: bold;
+    padding: 8px;
+    border-bottom: 2px solid #ddd;
+}}
+.styled-table td {{
+    padding: 8px;
+    border-bottom: 1px solid #eee;
+}}
+.styled-table tr:hover {{
+    background-color: #f8f9fa;
+}}
+</style>
+<div style="overflow-x:auto;">
+    {html_table.replace('class="dataframe table table-striped"', 'class="styled-table"')}
+</div>"""
             st.markdown(styled_html, unsafe_allow_html=True)
         except Exception as e:
             st.error(f"テーブルの表示に失敗しました: {e}")
