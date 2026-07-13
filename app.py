@@ -1815,8 +1815,18 @@ def render_transaction_breakdown(df, key_prefix):
     if "category" in df_agg.columns:
         df_agg.loc[df_agg["category"] == "消費税（内税）", "amount"] = 0
 
+    # 世帯計かどうかの判定 (usernameにtkouhoとyemikoの両方が含まれるか)
+    is_household = False
+    if "username" in df.columns:
+        unique_users = set(df["username"].str.lower().unique())
+        if "tkouho" in unique_users and "yemiko" in unique_users:
+            is_household = True
+
     # 表示パターンの選択（小分類別を削除）
-    view_pattern = st.radio("表示パターン", ["店舗別", "大分類別", "支払い方法別"], horizontal=True, key=f"{key_prefix}_view_pattern")
+    patterns = ["店舗別", "大分類別", "支払い方法別"]
+    if is_household:
+        patterns = ["店舗別", "大分類別", "大分類アカウント別", "支払い方法別"]
+    view_pattern = st.radio("表示パターン", patterns, horizontal=True, key=f"{key_prefix}_view_pattern")
     
     if view_pattern == "店舗別":
         store_col = "store_name" if "store_name" in df.columns else "store" if "store" in df.columns else None
@@ -1880,6 +1890,92 @@ def render_transaction_breakdown(df, key_prefix):
                         display_categories_as_html(store_df_disp)
         else:
             st.info("店舗情報がありません。")
+
+    elif view_pattern == "大分類アカウント別":
+        if "category" in df.columns:
+            # 大分類の集計は内税を含めて表示する
+            grouped_df = df.groupby("category", as_index=False)["amount"].sum()
+            grouped_df = grouped_df.sort_values(by="amount", ascending=False)
+            
+            for _, row in grouped_df.iterrows():
+                cat = row['category']
+                cat_df = df[df["category"] == cat].copy()
+                
+                # アカウントごとの金額算出
+                tkouho_df = cat_df[cat_df["username"].str.lower() == "tkouho"]
+                yemiko_df = cat_df[cat_df["username"].str.lower() == "yemiko"]
+                
+                tkouho_amt = tkouho_df["amount"].sum()
+                yemiko_amt = yemiko_df["amount"].sum()
+                total_amt = row['amount']
+                
+                expander_title = f"{cat}：計 ￥{int(total_amt):,} (t: ￥{int(tkouho_amt):,} / y: ￥{int(yemiko_amt):,})"
+                
+                with st.expander(expander_title):
+                    for user_label, user_df in [("tkouho", tkouho_df), ("yemiko", yemiko_df)]:
+                        if not user_df.empty:
+                            user_total = user_df["amount"].sum()
+                            st.markdown(f"**👤 {user_label} の内訳 (￥{int(user_total):,})**")
+                            
+                            sub_col = None
+                            for col_name in ["subcategory", "sub_category", "小分類"]:
+                                if col_name in user_df.columns:
+                                    sub_col = col_name
+                                    break
+                            
+                            if sub_col:
+                                sub_grouped = user_df.groupby(sub_col, as_index=False)["amount"].sum()
+                                sub_grouped = sub_grouped.sort_values(by="amount", ascending=False)
+                                
+                                html_str = ""
+                                for _, sub_row in sub_grouped.iterrows():
+                                    sub_name = sub_row[sub_col]
+                                    sub_amt_str = f"￥{int(sub_row['amount']):,}"
+                                    
+                                    html_str += f'<details style="margin: 2px 0;">'
+                                    html_str += f'<summary style="background-color: #f9fafb; padding: 3px 8px; margin: 0; border-left: 3px solid #007bff; font-size: 0.9rem; line-height: 1.2; list-style: none; cursor: pointer;">'
+                                    html_str += f'L {sub_name}：{sub_amt_str}</summary>'
+                                    html_str += f'<div style="padding-left: 10px; margin-top: 2px;">'
+                                    
+                                    item_df = user_df[user_df[sub_col] == sub_name].copy()
+                                    item_col = "item_name" if "item_name" in item_df.columns else "item" if "item" in item_df.columns else None
+                                    
+                                    if item_col:
+                                        item_grouped = item_df.groupby(item_col, as_index=False)["amount"].sum()
+                                        item_grouped = item_grouped.sort_values(by="amount", ascending=False)
+                                        for _, i_row in item_grouped.iterrows():
+                                            i_name = i_row[item_col]
+                                            i_amt = f"￥{int(i_row['amount']):,}"
+                                            html_str += f'<div style="padding-left: 10px; font-size: 0.85rem; line-height: 1.2; margin: 2px 0; color: #555;">└ {i_name}：{i_amt}</div>'
+                                    else:
+                                        for _, i_row in item_df.iterrows():
+                                            i_amt = f"￥{int(i_row['amount']):,}"
+                                            html_str += f'<div style="padding-left: 10px; font-size: 0.85rem; line-height: 1.2; margin: 2px 0; color: #555;">└ {i_amt}</div>'
+                                    
+                                    html_str += "</div></details>"
+                                
+                                st.markdown(html_str, unsafe_allow_html=True)
+                            else:
+                                display_df = user_df.copy()
+                                cols_to_keep = [c for c in ["date", "store_name", "store", "item_name", "item", "amount"] if c in display_df.columns]
+                                display_df = display_df[cols_to_keep]
+                                if "amount" in display_df.columns:
+                                    display_df = display_df.sort_values(by="amount", ascending=False)
+                                
+                                html_str = ""
+                                item_col = "item_name" if "item_name" in display_df.columns else "item" if "item" in display_df.columns else None
+                                if item_col:
+                                    for _, i_row in display_df.iterrows():
+                                        i_name = i_row[item_col]
+                                        i_amt = f"￥{int(i_row['amount']):,}"
+                                        html_str += f'<div style="padding-left: 10px; font-size: 0.85rem; line-height: 1.2; margin: 2px 0; color: #555;">└ {i_name}：{i_amt}</div>'
+                                else:
+                                    for _, i_row in display_df.iterrows():
+                                        i_amt = f"￥{int(i_row['amount']):,}"
+                                        html_str += f'<div style="padding-left: 10px; font-size: 0.85rem; line-height: 1.2; margin: 2px 0; color: #555;">└ {i_amt}</div>'
+                                st.markdown(html_str, unsafe_allow_html=True)
+        else:
+            st.warning("カテゴリ情報がありません。")
 
     elif view_pattern == "大分類別":
         if "category" in df.columns:
@@ -3822,9 +3918,9 @@ def main():
                 .block-container h5 { font-size: calc(1.00rem + 2pt) !important; }
                 </style>
             """, unsafe_allow_html=True)
-            st.subheader("マイニー [Ver 6.3.00]")
+            st.subheader("マイニー [Ver 6.4.00]")
             st.write(f"🔑 ユーザー: **{st.session_state['username']}**")
-            # --- プロフェッショナル診断ツール (Ver 6.3.00) ---
+            # --- プロフェッショナル診断ツール (Ver 6.4.00) ---
             with st.sidebar.expander("🛠️ システム診断", expanded=False):
                 client = get_gspread_client()
                 if client:
@@ -5385,9 +5481,22 @@ MBTI: {mbti}
 あなたはユーザー専属の優秀なファイナンシャルプランナーです。
 """
 
+                            # ログインユーザーが tkouho でかつ入力に「世帯計」が含まれる場合、yemiko のデータも結合する
+                            current_username = st.session_state['username']
+                            if current_username.lower() == "tkouho" and "世帯計" in user_input:
+                                csv_data_parts = []
+                                for u in ["tkouho", "yemiko"]:
+                                    csv_data_parts.append(f"--- 👤 ユーザー: {u} のデータ --- \n" + get_user_data_csv_for_ai(u))
+                                csv_data_string = "\n\n".join(csv_data_parts)
+                                
+                                data_desc = f"以下のCSVデータは、世帯全体の家計簿データ（tkouhoとyemikoのアカウントそれぞれの直近支出データ、支払管理シートデータ等）です。"
+                            else:
+                                csv_data_string = get_user_data_csv_for_ai(current_username)
+                                data_desc = f"以下のCSVデータは、このユーザー（{current_username}）個人の最新の家計簿データ（直近の支出データ、当月前後の支払管理シート等）です。"
+
                             # システムプロンプトを都度構築（最新データを反映させるため）
                             system_prompt = f"""{profile_prompt}
-以下のCSVデータは、このユーザー（{st.session_state['username']}）個人の最新の家計簿データ（直近の支出データ、当月前後の支払管理シート等）です。
+{data_desc}
 支出データには直近1000件程度の履歴が含まれており、「いつ、どこで、何を買ったか」を詳細に把握できます。
 支払管理シートデータには、当月を基準に前後約1.5年分（概ね過去6ヶ月〜将来12ヶ月分）のクレジットカード支払確定額や引落見込みなどが記載されています。
 ユーザーからの「特定の商品の購入時期」や「来月の支払いはいくらになりそう？」といった質問に対し、提供されたデータの範囲で正確かつ親身に答えてください。
@@ -5743,7 +5852,7 @@ Googleスプレッドシートと連携し、固定費シミュレーション�
                 st.markdown(text); render_speech_synthesis_button(text, "sp_dl_manual")
             
             st.markdown("---")
-            st.caption("マイニー [Ver 6.3.00] - 常に最新の技術であなたの家計管理をサポートします。")
+            st.caption("マイニー [Ver 6.4.00] - 常に最新の技術であなたの家計管理をサポートします。")
 
         elif menu_selection == "クレジットカード":
             show_credit_card_dashboard()
@@ -5773,7 +5882,7 @@ Googleスプレッドシートと連携し、固定費シミュレーション�
         elif menu_selection == "支払管理シートを確認":
             show_open_management_sheet()
             
-        st.caption("マイニー Ver 6.3.00 - ユーザー: %s" % st.session_state['username'])
+        st.caption("マイニー Ver 6.4.00 - ユーザー: %s" % st.session_state['username'])
             
     # 未ログインの状態 (ログイン・登録画面)
     else:
