@@ -4887,30 +4887,51 @@ def main():
 
                     st.markdown("<p style='font-size: 0.85rem; font-weight: bold; margin-bottom: 5px;'>レシート一覧表（対象レシートを選択してください）</p>", unsafe_allow_html=True)
                     
-                    # dataframe 選択
-                    event = st.dataframe(
-                        receipts_df, 
-                        use_container_width=True, 
-                        hide_index=True, 
-                        selection_mode="single-row",
-                        on_select="rerun",
-                        column_config={
-                            "receipt_id": None, # IDは非表示
-                            "店舗名": st.column_config.TextColumn("店舗名", width="medium"),
-                        },
-                        key=f"receipt_list_df_{st.session_state.receipt_list_version}"
+                    # dataframe の代わりに safe_dataframe を使用（クラッシュ防止）
+                    # receipts_df から ID を除いた表示用の df を作成
+                    display_receipts_df = receipts_df.drop(columns=["receipt_id"])
+                    safe_dataframe(display_receipts_df)
+                    
+                    # セレクトボックスでレシートを選択する
+                    receipt_options = ["-- 修正するレシートを選択してください --"]
+                    for idx, row in receipts_df.iterrows():
+                        receipt_options.append(f"{row['日付']} {row['店舗名']} (￥{row['金額']:,}, 明細数:{row['明細数']})")
+                    
+                    selected_receipt_info = st.session_state.get('selected_receipt_info')
+                    default_receipt_idx = 0
+                    if selected_receipt_info:
+                        target_id = selected_receipt_info.get("receipt_id")
+                        for idx, row in receipts_df.iterrows():
+                            if row["receipt_id"] == target_id:
+                                default_receipt_idx = idx + 1
+                                break
+                                
+                    selected_receipt_label = st.selectbox(
+                        "修正対象レシートの選択",
+                        options=receipt_options,
+                        index=default_receipt_idx,
+                        key=f"receipt_selectbox_{st.session_state.receipt_list_version}"
                     )
                     
-                    if len(event.selection.rows) > 0:
-                        selected_idx = event.selection.rows[0]
-                        sel_rec = receipts_df.iloc[selected_idx]
+                    if selected_receipt_label != "-- 修正するレシートを選択してください --":
+                        sel_idx = receipt_options.index(selected_receipt_label) - 1
+                        sel_rec = receipts_df.iloc[sel_idx]
                         if sel_rec["日付"] != "総合計":
-                            # 選択されたレシート情報をセッションに保存して永続化
-                            st.session_state['selected_receipt_info'] = {
+                            new_info = {
                                 "receipt_id": sel_rec["receipt_id"],
                                 "date": sel_rec["日付"],
                                 "store": sel_rec["店舗名"]
                             }
+                            if not selected_receipt_info or selected_receipt_info.get("receipt_id") != new_info["receipt_id"]:
+                                st.session_state['selected_receipt_info'] = new_info
+                                st.rerun()
+                    else:
+                        if selected_receipt_info is not None:
+                            st.session_state['selected_receipt_info'] = None
+                            st.session_state['current_receipt_key'] = None
+                            st.session_state['edit_data'] = None
+                            st.session_state['editing_gs_idx'] = None
+                            st.rerun()
                     
                     # セッションに保存された情報に基づいて詳細を表示（表の選択が消えても維持）
                     receipt_info = st.session_state.get('selected_receipt_info')
@@ -4989,33 +5010,41 @@ def main():
                             # 指定された順序でソート（大分類、小分類、商品名）
                             edit_df_display = edit_df_display.sort_values(by=["大分類", "小分類", "商品名"]).reset_index(drop=True)
 
-                            # --- 明細一覧表の表示 (選択用) ---
-                            st.write("##### 明細一覧（修正行を選択して下さい）")
-                            item_event = st.dataframe(
-                                edit_df_display.drop(columns=["_id"]),
-                                use_container_width=True,
-                                hide_index=True,
-                                selection_mode="single-row",
-                                column_config={
-                                    "大分類": st.column_config.TextColumn(width="small"),
-                                    "小分類": st.column_config.TextColumn(width="small"),
-                                    "商品名": st.column_config.TextColumn(width="medium"),
-                                    "金額": st.column_config.NumberColumn(width="small", format="￥%d"),
-                                    "支払い方法": st.column_config.TextColumn(width="small")
-                                },
-                                on_select="rerun",
-                                key=f"item_edit_df_{st.session_state.item_list_version}"
-                            )
-
-                            # 選択された行のIDを特定
-                            current_editing_id = st.session_state.get('editing_gs_idx')
+                            # --- 明細一覧表の表示 (閲覧用) ---
+                            st.write("##### 明細一覧")
+                            safe_dataframe(edit_df_display.drop(columns=["_id"]))
                             
-                            # データフレームでの選択を優先
-                            if len(item_event.selection.rows) > 0:
-                                row_idx = item_event.selection.rows[0]
-                                current_editing_id = edit_df_display.iloc[row_idx]["_id"]
-                                st.session_state['editing_gs_idx'] = current_editing_id
-
+                            # セレクトボックスで明細を選択する
+                            item_options = ["-- 修正する明細を選択してください --"]
+                            for idx, row in edit_df_display.iterrows():
+                                item_options.append(f"[{row['大分類']}/{row['小分類']}] {row['商品名']} (￥{row['金額']:,})")
+                            
+                            current_editing_id = st.session_state.get('editing_gs_idx')
+                            default_item_idx = 0
+                            if current_editing_id:
+                                for idx, row in edit_df_display.iterrows():
+                                    if str(row["_id"]) == str(current_editing_id):
+                                        default_item_idx = idx + 1
+                                        break
+                                        
+                            selected_item_label = st.selectbox(
+                                "修正対象明細の選択",
+                                options=item_options,
+                                index=default_item_idx,
+                                key=f"item_selectbox_{st.session_state.item_list_version}"
+                            )
+                            
+                            if selected_item_label != "-- 修正する明細を選択してください --":
+                                sel_idx = item_options.index(selected_item_label) - 1
+                                sel_item_id = edit_df_display.iloc[sel_idx]["_id"]
+                                if str(current_editing_id) != str(sel_item_id):
+                                    st.session_state['editing_gs_idx'] = sel_item_id
+                                    st.rerun()
+                            else:
+                                if current_editing_id is not None:
+                                    st.session_state['editing_gs_idx'] = None
+                                    st.rerun()
+                                    
                             # 削除済みIDのチェック
                             if current_editing_id and current_editing_id not in st.session_state['edit_data']:
                                 current_editing_id = None
