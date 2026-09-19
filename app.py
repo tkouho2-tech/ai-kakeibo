@@ -3918,9 +3918,9 @@ def main():
                 .block-container h5 { font-size: calc(1.00rem + 2pt) !important; }
                 </style>
             """, unsafe_allow_html=True)
-            st.subheader("マイニー [Ver 6.4.00]")
+            st.subheader("マイニー [Ver 6.5.00]")
             st.write(f"🔑 ユーザー: **{st.session_state['username']}**")
-            # --- プロフェッショナル診断ツール (Ver 6.4.00) ---
+            # --- プロフェッショナル診断ツール (Ver 6.5.00) ---
             with st.sidebar.expander("🛠️ システム診断", expanded=False):
                 client = get_gspread_client()
                 if client:
@@ -5737,7 +5737,7 @@ Googleスプレッドシートと連携し、固定費シミュレーション�
 ・支払管理シート新規作成：ユーザー専用のスプレッドシートを自動生成します。
 ・固定費マスター設定：家賃やサブスク等の「支出ルール」を登録・編集します。
 ・固定費データ展開：マスターに基づき、2036年までの月別カレンダーへ予定額を一括展開します。データが0件でもエラーにならず正常にスキップされる安心設計です。
-・変動費データ更新：クレジットカードの利用実績をシートの「内訳エリア（54-62行目）」や各月カラムへ反映します。引落日を過ぎると「完了フラグ」が自動でセットされます。
+・変動費データ更新：クレジットカードの利用実績をシートの「内訳エリア（57-65行目）」や各月カラムへ反映します。引落日を過ぎると「完了フラグ」が自動でセットされます。
 ・支払管理シートを確認：連携先のGoogleスプレッドシートを直接開きます。
 
 【🟡 相談・サポート】
@@ -5881,7 +5881,7 @@ Googleスプレッドシートと連携し、固定費シミュレーション�
                 st.markdown(text); render_speech_synthesis_button(text, "sp_dl_manual")
             
             st.markdown("---")
-            st.caption("マイニー [Ver 6.4.00] - 常に最新の技術であなたの家計管理をサポートします。")
+            st.caption("マイニー [Ver 6.5.00] - 常に最新の技術であなたの家計管理をサポートします。")
 
         elif menu_selection == "クレジットカード":
             show_credit_card_dashboard()
@@ -5911,7 +5911,7 @@ Googleスプレッドシートと連携し、固定費シミュレーション�
         elif menu_selection == "支払管理シートを確認":
             show_open_management_sheet()
             
-        st.caption("マイニー Ver 6.4.00 - ユーザー: %s" % st.session_state['username'])
+        st.caption("マイニー Ver 6.5.00 - ユーザー: %s" % st.session_state['username'])
             
     # 未ログインの状態 (ログイン・登録画面)
     else:

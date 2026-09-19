@@ -81,8 +81,8 @@ def ensure_id_column_and_formula(ws_pay):
                 
         if h_row_idx == -1: h_row_idx = 6 # フォールバック
         
-        # 境界の設定 (Ver 4.27.2: 70行目フォールバック)
-        boundary_row = ozukai_row if ozukai_row != -1 else 70
+        # 境界の設定 (Ver 4.27.2: 73行目フォールバック)
+        boundary_row = ozukai_row if ozukai_row != -1 else 73
 
         actual_headers = cells[h_row_idx]
         is_already_id = False
@@ -345,10 +345,10 @@ def execute_expansion(username, mode="NEW", start_ym=None):
         meta_updates.append((det_idx, m_detail))
 
         for idx, val in meta_updates:
-            # 【追加仕様】1, 77行目は更新不要。54, 57, 60行目はG列(index 6)以降は更新不要
-            if (target_r_idx + 1) in [1, 77]:
+            # 【追加仕様】1, 80行目は更新不要。57, 60, 63行目はG列(index 6)以降は更新不要
+            if (target_r_idx + 1) in [1, 80]:
                 continue
-            if (target_r_idx + 1) in [54, 57, 60] and idx >= 6:
+            if (target_r_idx + 1) in [57, 60, 63] and idx >= 6:
                 continue
             current_val = pay_formatted[target_r_idx][idx] if idx < len(pay_formatted[target_r_idx]) else ""
             if str(current_val).strip() != val:
@@ -449,10 +449,10 @@ def execute_expansion(username, mode="NEW", start_ym=None):
             
             # 条件不一致月も明示的にクリア（"" をセット）するための判定
             if str(val_to_set) != normalized_current:
-                # 【追加仕様】1, 77行目は更新不要。54, 57, 60行目はG列(index 6)以降は更新不要
-                if (target_r_idx + 1) in [1, 77]:
+                # 【追加仕様】1, 80行目は更新不要。57, 60, 63行目はG列(index 6)以降は更新不要
+                if (target_r_idx + 1) in [1, 80]:
                     continue
-                if (target_r_idx + 1) in [54, 57, 60] and c_idx >= 6:
+                if (target_r_idx + 1) in [57, 60, 63] and c_idx >= 6:
                     continue
                 col_letter = chr(ord("A") + c_idx) if c_idx < 26 else chr(ord("A") + c_idx//26 - 1) + chr(ord("A") + c_idx%26)
                 cell_name = f"{col_letter}{target_r_idx + 1}"
@@ -464,7 +464,7 @@ def execute_expansion(username, mode="NEW", start_ym=None):
                     "values": [[final_val]]
                 })
                 
-    # --- 【追加仕様】小遣い予算（78行目）の反映 ---
+    # --- 【追加仕様】小遣い予算（81行目）の反映 ---
     ozukai_record = None
     for m in master_data:
         k1 = _clean_val(_find_val(m, ["科目1", "科目１", "固定支払1", "固定支払１"])).strip()
@@ -479,7 +479,7 @@ def execute_expansion(username, mode="NEW", start_ym=None):
         s_y, s_m = _get_year_month(ozukai_start_str) if ozukai_start_str else (0, 0)
         start_ym_val = s_y * 100 + s_m
         
-        target_r_idx = 77  # 78行目 (0-indexed)
+        target_r_idx = 80  # 81行目 (0-indexed)
         
         for m_col in month_cols:
             c_idx = m_col["col_idx"]
@@ -492,15 +492,15 @@ def execute_expansion(username, mode="NEW", start_ym=None):
             if col_ym >= start_ym_val and ozukai_amt_str:
                 val_to_set = ozukai_amt_str
             
-            # 78行目の現在の値を取得
+            # 81行目の現在の値を取得
             current_val = pay_formatted[target_r_idx][c_idx] if target_r_idx < len(pay_formatted) and c_idx < len(pay_formatted[target_r_idx]) else ""
             normalized_current = str(current_val).replace(",", "").strip()
             
             if str(val_to_set) != normalized_current:
-                # 【追加仕様】1, 77行目は更新不要。54, 57, 60行目はG列(index 6)以降は更新不要
-                if (target_r_idx + 1) in [1, 77]:
+                # 【追加仕様】1, 80行目は更新不要。57, 60, 63行目はG列(index 6)以降は更新不要
+                if (target_r_idx + 1) in [1, 80]:
                     continue
-                if (target_r_idx + 1) in [54, 57, 60] and c_idx >= 6:
+                if (target_r_idx + 1) in [57, 60, 63] and c_idx >= 6:
                     continue
                 col_letter = chr(ord("A") + c_idx) if c_idx < 26 else chr(ord("A") + c_idx//26 - 1) + chr(ord("A") + c_idx%26)
                 cell_name = f"{col_letter}{target_r_idx + 1}"
@@ -678,7 +678,7 @@ def execute_variable_cost_update(username, start_ym=None, skip_backup=False):
                 break
                 
         if h_row_idx == -1: h_row_idx = 6 # フォールバック
-        boundary_row = ozukai_row if ozukai_row != -1 else 70
+        boundary_row = ozukai_row if ozukai_row != -1 else 73
         st.write("🔍 変動費更新のためのヘッダー解析中...")
         pay_formatted = safe_gspread_call(ws_pay.get_all_values, value_render_option='FORMATTED_VALUE')
         actual_headers = pay_formatted[h_row_idx] if len(pay_formatted) > h_row_idx else []
@@ -980,7 +980,7 @@ def execute_variable_cost_update(username, start_ym=None, skip_backup=False):
                             if "当月" in str(pay_month_str): off = 0
                             elif "翌々月" in str(pay_month_str): off = 2
                             
-                            # 【例外ルール】変動費カード(50-52行)で「翌月20日以降払」の場合は当月(0)とみなす
+                            # 【例外ルール】変動費カード(53-55行)で「翌月20日以降払」の場合は当月(0)とみなす
                             d_m_check = re.search(r"\d+", str(pay_date_str))
                             p_day_val = int(d_m_check.group()) if d_m_check else 0
                             is_late = (p_day_val >= 20 or "末日" in str(pay_date_str) or "月末" in str(pay_date_str))
@@ -1352,9 +1352,9 @@ def execute_variable_cost_update(username, start_ym=None, skip_backup=False):
         # 新しい変動費データを書き込み
         st.write("💾 変動費集計結果をシートに書き込み中...")
 
-        # --- 追加仕様: 50-52行のG列(index 6)とF列(index 5)の対応マップ作成 ---
+        # --- 追加仕様: 53-55行のG列(index 6)とF列(index 5)の対応マップ作成 ---
         g_to_f_map = {}
-        for r_idx_map in [49, 50, 51]: # 50, 51, 52行目 (0-indexed)
+        for r_idx_map in [52, 53, 54]: # 53, 54, 55行目 (0-indexed)
             if r_idx_map < len(pay_raw):
                 row_map = pay_raw[r_idx_map]
                 if len(row_map) > 6:
@@ -1363,36 +1363,36 @@ def execute_variable_cost_update(username, start_ym=None, skip_backup=False):
                     if g_val:
                         g_to_f_map[g_val] = f_val
         
-        # 50行から52行のE列(インデックス4)とG列(インデックス6)への値の設定をしないように既存の値を復元
-        # 54行から63行のH列(インデックス7)への値の設定をしないように既存の値を復元
+        # 53行から55行のE列(インデックス4)とG列(インデックス6)への値の設定をしないように既存の値を復元
+        # 57行から66行のH列(インデックス7)への値の設定をしないように既存の値を復元
         for i, r in enumerate(cc_rows_array):
             target_r_idx = start_row_num - 1 + i
             sheet_row_num = target_r_idx + 1
             if target_r_idx < len(pay_raw):
                 raw_row = pay_raw[target_r_idx]
                 
-                # 【追加仕様】1, 77行目は更新不要。54, 57, 60行目はG列(index 6)以降は更新不要
-                if sheet_row_num in [1, 77]:
+                # 【追加仕様】1, 80行目は更新不要。57, 60, 63行目はG列(index 6)以降は更新不要
+                if sheet_row_num in [1, 80]:
                     cc_rows_array[i] = raw_row
                     continue
-                if sheet_row_num in [54, 57, 60]:
+                if sheet_row_num in [57, 60, 63]:
                     # G列(index 6)以降を元の値で復元（更新させない）
                     for col_idx in range(6, len(r)):
                         if col_idx < len(raw_row):
                             r[col_idx] = raw_row[col_idx]
 
-                if sheet_row_num in [50, 51, 52]:
+                if sheet_row_num in [53, 54, 55]:
                     if len(raw_row) > 4 and len(r) > 4:
                         r[4] = raw_row[4]
                     if len(raw_row) > 6 and len(r) > 6:
                         r[6] = raw_row[6]
                 
-                if 54 <= sheet_row_num <= 62:
+                if 57 <= sheet_row_num <= 65:
                     # G列 (index 6, Sno) を元の値から復元（マッピングのキーとして使用するため、全行で復元）
                     if len(raw_row) > 6 and len(r) > 6:
                         r[6] = raw_row[6]
                     
-                    # --- 追加仕様: G列の値に基づいて50-52行のF列の値を設定 ---
+                    # --- 追加仕様: G列の値に基づいて53-55行のF列の値を設定 ---
                     if len(r) > 6:
                         current_g = str(r[6]).strip()
                         if current_g in g_to_f_map:
@@ -1404,8 +1404,8 @@ def execute_variable_cost_update(username, start_ym=None, skip_backup=False):
                         r[7] = raw_row[7]
                     
                     # --- 【追加仕様】クレジットカード内訳集計ロジック ---
-                    # ユーザー指定により、54, 57, 60行目は月次集計（G列以降）の更新を行わない
-                    if sheet_row_num in [54, 57, 60]:
+                    # ユーザー指定により、57, 60, 63行目は月次集計（G列以降）の更新を行わない
+                    if sheet_row_num in [57, 60, 63]:
                         continue
                     
                     # H列に含まれる「固定費」または「変動費」キーワードを特定
@@ -1418,9 +1418,9 @@ def execute_variable_cost_update(username, start_ym=None, skip_backup=False):
                     card_name = str(r[5]).strip()
                     
                     if cost_type_keyword and card_name:
-                        # 8行〜52行 (Index 7〜51) を走査して集計
+                        # 8行〜55行 (Index 7〜54) を走査して集計
                         # 既に取得済みの pay_formatted (書式付き値) を使用
-                        source_data = pay_formatted[7:52] if len(pay_formatted) > 7 else []
+                        source_data = pay_formatted[7:55] if len(pay_formatted) > 7 else []
                         
                         for m_col in month_cols:
                             c_idx = m_col["col_idx"]
@@ -1438,7 +1438,7 @@ def execute_variable_cost_update(username, start_ym=None, skip_backup=False):
                             if 0 <= c_idx < len(r):
                                 r[c_idx] = total_sum if total_sum > 0 else ""
                 
-                if sheet_row_num == 63:
+                if sheet_row_num == 66:
                     if len(raw_row) > 7 and len(r) > 7:
                         r[7] = raw_row[7]
         
@@ -1450,7 +1450,7 @@ def execute_variable_cost_update(username, start_ym=None, skip_backup=False):
             update_data = [] # List of {'range': ..., 'values': [[...]]}
             # 1. 各サブセクションの集計行を更新
             for row_num, s_row, e_row in fixed_subtotals:
-                if 54 <= row_num <= 63:
+                if 57 <= row_num <= 66:
                     continue # FIXED_FORMAT_MAINTENANCE: Do not touch total rows here
                 row_vals = [""] * header_len
                 for mc in month_cols:
@@ -1477,20 +1477,20 @@ def execute_variable_cost_update(username, start_ym=None, skip_backup=False):
                 for i in range(len(actual_headers)):
                     if i < len(row_vals) and i < len(original_row): row_vals[i] = original_row[i]
 
-                # 【追加仕様】1, 77行目は更新不要。54, 57, 60行目はG列(index 6)以降は更新不要
-                if row_num in [1, 77]:
+                # 【追加仕様】1, 80行目は更新不要。57, 60, 63行目はG列(index 6)以降は更新不要
+                if row_num in [1, 80]:
                     continue
-                if row_num in [54, 57, 60]:
+                if row_num in [57, 60, 63]:
                     # 月次データのカラム(c_idx >= 6)を構築する際に元の値を維持する必要があるが、
-                    # ここでは formula を生成しているので、もし row_num が 54, 57, 60 なら
+                    # ここでは formula を生成しているので、もし row_num が 57, 60, 63 なら
                     # c_idx >= 6 の更新を個別にスキップする。
                     pass 
                 
-                if row_num not in [1, 77]:
+                if row_num not in [1, 80]:
                     update_data.append({'range': f"A{row_num}", 'values': [row_vals]})
 
             # 2. グランド合計（固定費合計）行の更新 (Ver 5.0.1 循環参照回避ロジック)
-            if grand_total_row_num != -1 and not (54 <= grand_total_row_num <= 63):
+            if grand_total_row_num != -1 and not (57 <= grand_total_row_num <= 66):
                 row_vals = [""] * header_len
                 for mc in month_cols:
                     c_idx = -1
@@ -1511,8 +1511,8 @@ def execute_variable_cost_update(username, start_ym=None, skip_backup=False):
                         if subtotal_row_nums:
                             formula = f"=SUM({','.join(inner_cells)})"
                             if 0 <= c_idx < len(row_vals):
-                                # 54, 57, 60行目のG列以降は更新しない
-                                if row_num in [54, 57, 60] and c_idx >= 6:
+                                # 57, 60, 63行目のG列以降は更新しない
+                                if row_num in [57, 60, 63] and c_idx >= 6:
                                     if c_idx < len(original_row):
                                         row_vals[c_idx] = original_row[c_idx]
                                 else:
@@ -1530,9 +1530,9 @@ def execute_variable_cost_update(username, start_ym=None, skip_backup=False):
                         row_vals[0] = ""
                         break
 
-                # 【追加仕様】1, 77行目は更新不要。54, 57, 60行目はG列(index 6)以降は更新不要
-                if grand_total_row_num not in [1, 77]:
-                    # grand_total_row_num が 54, 57, 60 の場合の個別制御は上記ループ内(c_idx)で実施
+                # 【追加仕様】1, 80行目は更新不要。57, 60, 63行目はG列(index 6)以降は更新不要
+                if grand_total_row_num not in [1, 80]:
+                    # grand_total_row_num が 57, 60, 63 の場合の個別制御は上記ループ内(c_idx)で実施
                     update_data.append({'range': f"A{grand_total_row_num}", 'values': [row_vals]})
 
             # --- 追加: 固定費エリアも含めた全シートの自動フラグ更新 ---
@@ -1576,9 +1576,9 @@ def execute_variable_cost_update(username, start_ym=None, skip_backup=False):
                     if r_idx >= len(pay_raw): break
                     row = pay_raw[r_idx]
                     
-                    # --- 【追加仕様】内訳エリア（54行〜62行）は完了F更新対象外 ---
-                    # ユーザー指定により 54, 57, 60行目も個別に保護
-                    if 54 <= r_idx + 1 <= 62:
+                    # --- 【追加仕様】内訳エリア（57行〜65行）は完了F更新対象外 ---
+                    # ユーザー指定により 57, 60, 63行目も個別に保護
+                    if 57 <= r_idx + 1 <= 65:
                         continue
                     
                     is_cc = False
@@ -1701,14 +1701,14 @@ def execute_variable_cost_update(username, start_ym=None, skip_backup=False):
                             except: pass
                         
                         if row_changed:
-                            # 【追加仕様】1, 77行目は更新不要。54, 57, 60行目はG列(index 6)以降は更新不要
-                            if (r_idx + 1) in [1, 77]:
+                            # 【追加仕様】1, 80行目は更新不要。57, 60, 63行目はG列(index 6)以降は更新不要
+                            if (r_idx + 1) in [1, 80]:
                                 continue
                             
                             # フラグ更新対象がG列以降(f_idx >= 6)かつ対象行ならスキップ
                             # ただしここでは row_to_update 全体を書き込んでいるので、
                             # 対象行の場合はG列以降を元の値に戻す。
-                            if (r_idx + 1) in [54, 57, 60]:
+                            if (r_idx + 1) in [57, 60, 63]:
                                 # pay_raw から元の値(G列以降)を復元
                                 if r_idx < len(pay_raw):
                                     orig_row = pay_raw[r_idx]
@@ -1782,7 +1782,7 @@ def execute_variable_cost_update(username, start_ym=None, skip_backup=False):
         # --- 合計行・集計行の描画 ---
         st.write("📊 クレジットカード内訳・収入データの自動連動および機能保守を実行中...")
         
-        # 💡 [Ver 5.9.0] クレジットカード内訳（54-62行）の自動集計および収入項目の動的同期ロジック実装
+        # 💡 [Ver 5.9.0] クレジットカード内訳（57-65行）の自動集計および収入項目の動的同期ロジック実装
         if 'existing_merges' in locals() and existing_merges:
             try:
                 # 調査・解除対象範囲: 固定費合計 row 以降、全体エリア
@@ -1987,7 +1987,7 @@ def execute_variable_cost_update(username, start_ym=None, skip_backup=False):
         # --- A列(ID列)の保守と数式設定 ---
         ensure_id_column_and_formula(ws_pay)
 
-        # --- 追加仕様: 支払い方法の名前と月別集計金額をH79から順に設定（最大10件） ---
+        # --- 追加仕様: 支払い方法の名前と月別集計金額をH82から順に設定（最大10件） ---
         try:
             from app import get_payment_methods
             pm_list = get_payment_methods(username)
@@ -2103,14 +2103,14 @@ def execute_variable_cost_update(username, start_ym=None, skip_backup=False):
                         update_grid.append(row_data)
                         
                     if update_grid:
-                        # 既存の記述が残らないようにH79から該当行のZZ列までをクリア
-                        end_row = 79 + len(update_grid) - 1
-                        safe_gspread_call(ws_pay.batch_clear, [f"H79:ZZ{end_row}"])
+                        # 既存の記述が残らないようにH82から該当行のZZ列までをクリア
+                        end_row = 82 + len(update_grid) - 1
+                        safe_gspread_call(ws_pay.batch_clear, [f"H82:ZZ{end_row}"])
                         
-                        safe_gspread_call(ws_pay.update, values=update_grid, range_name="H79", value_input_option='USER_ENTERED')
+                        safe_gspread_call(ws_pay.update, values=update_grid, range_name="H82", value_input_option='USER_ENTERED')
         
         except Exception as e:
-            print(f"H79 Payment Methods Tracking update error: {e}")
+            print(f"H82 Payment Methods Tracking update error: {e}")
 
         # --- 【追加仕様】「収入」データ連動ロジック（H96〜H100への数式セット） ---
         try:
@@ -2180,16 +2180,16 @@ def execute_variable_cost_update(username, start_ym=None, skip_backup=False):
         except Exception as e:
             print(f"Income Sync formula mapping error: {e}")
 
-        # --- 【追加仕様】クレジットカード内訳：カード名の自動同期（54行〜63行） ---
+        # --- 【追加仕様】クレジットカード内訳：カード名の自動同期（57行〜66行） ---
         try:
             # ターゲット範囲の探索用シートデータ（最新版を取得）
             pay_fresh = safe_gspread_call(ws_pay.get_all_values, value_render_option='FORMULA')
             ws_title = ws_pay.title
 
-            # 1. 50-52行目のG列(index 6)とF列(index 5)の最新対応マップを生成
-            # マスター名ではなく、50-52行目の現在の表示名（空白含む）を同期させる (Ver 6.2.25)
+            # 1. 53-55行目のG列(index 6)とF列(index 5)の最新対応マップを生成
+            # マスター名ではなく、53-55行目の現在の表示名（空白含む）を同期させる (Ver 6.2.25)
             g_to_f_map_fresh = {}
-            for r_idx_map in [49, 50, 51]: # 50, 51, 52行目 (0-indexed)
+            for r_idx_map in [52, 53, 54]: # 53, 54, 55行目 (0-indexed)
                 if r_idx_map < len(pay_fresh):
                     row_map = pay_fresh[r_idx_map]
                     if len(row_map) > 6:
@@ -2198,9 +2198,9 @@ def execute_variable_cost_update(username, start_ym=None, skip_backup=False):
                         if g_v:
                             g_to_f_map_fresh[g_v] = f_v
             
-            # 2. ターゲット範囲（54行〜63行目）をマッピング
+            # 2. ターゲット範囲（57行〜66行目）をマッピング
             f_requests = []
-            for sheet_row in range(54, 64): # 54行目〜63行目 (1-indexed)
+            for sheet_row in range(57, 67): # 57行目〜66行目 (1-indexed)
                 idx = sheet_row - 1
                 if idx < len(pay_fresh):
                     r_raw = pay_fresh[idx]
@@ -2208,7 +2208,7 @@ def execute_variable_cost_update(username, start_ym=None, skip_backup=False):
                     g_val = str(r_raw[6]).strip() if len(r_raw) > 6 else ""
                     h_val = str(r_raw[7]).strip() if len(r_raw) > 7 else ""
                     
-                    # 50-52行目から取得した最新のマップを使用
+                    # 53-55行目から取得した最新のマップを使用
                     target_f_val = g_to_f_map_fresh.get(g_val, None)
                     
                     if g_val and target_f_val is not None:
@@ -2234,10 +2234,10 @@ def execute_variable_cost_update(username, start_ym=None, skip_backup=False):
                         if "fc_payment_rows" in locals() and f_val in fc_payment_rows:
                             fc_rows = fc_payment_rows[f_val]
                         
-                        # --- 【ユーザー追加仕様】54, 57, 60行目は月次更新対象外。他は「変動費分」のみI列以降を更新する ---
-                        if sheet_row in [54, 57, 60]:
+                        # --- 【ユーザー追加仕様】57, 60, 63行目は月次更新対象外。他は「変動費分」のみI列以降を更新する ---
+                        if sheet_row in [57, 60, 63]:
                             continue
-                        if 54 <= sheet_row <= 63 and "変動" not in h_val:
+                        if 57 <= sheet_row <= 66 and "変動" not in h_val:
                             continue
                             
                         for c_idx in range(8, len(actual_headers)):
@@ -2291,7 +2291,7 @@ def execute_variable_cost_update(username, start_ym=None, skip_backup=False):
             if f_requests:
                 safe_gspread_call(ss.values_batch_update, {"valueInputOption": "USER_ENTERED", "data": f_requests})
         except Exception as e:
-            print(f"Row 54-63 mapping error: {e}")
+            print(f"Row 57-66 mapping error: {e}")
 
         return True, "変動費データの更新が完了しました！"
     except Exception as e:
